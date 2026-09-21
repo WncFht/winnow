@@ -357,6 +357,8 @@ class RenderPlan(BaseModel):
     episode: str
     fps: int = 30
     size: list[int] = Field(default=[1920, 1080], min_length=2, max_length=2)
+    aspect: str = Field(default="16:9",
+                        description="PLAN D4 画幅参数（当前只做 16:9），记录 config.render.aspect")
     total: float = Field(gt=0)
     video_track: list[VSeg]
     audio_track: list[ASeg]

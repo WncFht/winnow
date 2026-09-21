@@ -7,6 +7,8 @@
 #   just produce           digest -> voice -> cards -> render-plan -> compose -> meta
 #   just edit              gate 2: open 50_review.md in $EDITOR (HUMAN)
 #   just edit-import       gate 2: import edited review.md -> 50_issue.json
+#   just deadline1         gate-1 deadline watcher (ops/*.timer 08:30)
+#   just deadline2         gate-2 deadline watcher (ops/*.timer 09:30)
 #   just all               = gather (recipes never chain across human gates)
 #   just resume [date]     re-run missing/failed stages from 00_meta.json
 #   just status / ls-run   inspect the run bucket
@@ -340,8 +342,19 @@ pick-auto:
 # auto block B (after gate 1 + optional gate 2 edit)
 # --------------------------------------------------------------------------
 
-# produce = digest -> voice -> cards -> render-plan -> compose -> meta
-produce: digest voice cards render-plan compose meta
+# Call A is skipped when 50_issue.json already exists so `just produce` is safe
+# to re-run after `just edit` + `just edit-import` (edits are preserved; Call B
+# still projects voice/cards/video from the imported issue).
+# produce = digest(Call A) -> callb -> voice -> cards -> render-plan -> compose -> meta
+produce:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    if [ -f {{RUN}}/50_issue.json ]; then
+      echo "[produce] 50_issue.json exists — skipping Call A (digest)"
+    else
+      just DATE={{DATE}} digest
+    fi
+    just DATE={{DATE}} callb voice cards render-plan compose meta
 
 digest:
     {{PREP}}{{ENV}}{{LOCK}}uv run stages/digest.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/digest.log
@@ -353,6 +366,12 @@ edit:
 # import edited 50_review.md -> re-validated 50_issue.json
 edit-import:
     {{PREP}}{{ENV}}{{LOCK}}uv run stages/digest.py --run-dir {{RUN}} --import 2>&1 | tee -a {{RUN}}/logs/digest_import.log
+
+# digest Call B: project voice/cards/video.shot_sentences into 50_issue.json +
+# compliance pass. Runs AFTER the gate-2 edit (edit-import), BEFORE voice/cards.
+# digest Call B projection + compliance pass (after edit-import, before voice)
+callb:
+    {{PREP}}{{ENV}}{{LOCK}}uv run stages/digest.py --run-dir {{RUN}} --callb 2>&1 | tee -a {{RUN}}/logs/digest_callb.log
 
 voice:
     {{PREP}}{{ENV}}{{LOCK}}uv run stages/voice.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/voice.log
@@ -373,6 +392,83 @@ meta:
 
 # all = gather only — never chain across the human gates (§9)
 all: gather
+
+# --------------------------------------------------------------------------
+# deadline watchers (PLAN §9) — fired by ops/*.timer; also safe to run manually
+# --------------------------------------------------------------------------
+
+# gate-1 deadline (schedule.gate1_deadline, default 08:30): auto-release top-K
+# when no human pick landed, then run digest so 50_review.md exists inside the
+# edit window. gate_select --deadline-check already no-ops before the deadline
+# and never overwrites an existing 40_selected.json (human pick wins).
+# gate-1 deadline watcher: auto top-K if unsubmitted past 08:30, then digest
+deadline1:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    {{PREP}}
+    dl=$(uv run -q --with pyyaml python3 - <<'PY'
+    import os, yaml
+    for f in ("config.yaml", "config.example.yaml"):
+        if os.path.exists(f):
+            v = ((yaml.safe_load(open(f)) or {}).get("schedule") or {}).get("gate1_deadline")
+            print(v or "08:30")
+            break
+    else:
+        print("08:30")
+    PY
+    )
+    {{ENV}}{{LOCK}}uv run stages/gate_select.py --run-dir {{RUN}} --deadline-check "$dl" 2>&1 | tee -a {{RUN}}/logs/gate_select.log
+    rc=$?   # pipefail is on: non-zero here = gate_select itself failed
+    if [ "$rc" -ne 0 ]; then
+      echo "[deadline1] gate_select failed (rc=$rc) — see {{RUN}}/logs/gate_select.log" >&2
+      exit "$rc"
+    fi
+    if [ ! -f {{RUN}}/40_selected.json ]; then
+      echo "[deadline1] no 40_selected.json (before deadline $dl or gather incomplete) — nothing to do"
+      exit 0
+    fi
+    if [ -f {{RUN}}/50_issue.json ]; then
+      echo "[deadline1] 50_issue.json already present — done"
+    else
+      just DATE={{DATE}} digest
+    fi
+
+# gate-2 deadline (09:30): take 50_issue.json as it stands. If the human edited
+# 50_review.md but never ran `just edit-import` (sha differs from the last
+# export/import record in 00_meta.json), import once — a failed import leaves
+# the last valid issue in place. Then run the rest of auto block B.
+# gate-2 deadline watcher: lock issue (auto-import pending edits), then produce
+deadline2:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    {{PREP}}
+    # gate-1 safety net: if the 08:30 timer never fired, force 40+50 into being
+    if [ ! -f {{RUN}}/40_selected.json ] || [ ! -f {{RUN}}/50_issue.json ]; then
+      echo "[deadline2] upstream artifacts missing — running deadline1 first"
+      just DATE={{DATE}} deadline1
+    fi
+    if [ ! -f {{RUN}}/50_issue.json ]; then
+      echo "[deadline2] still no 50_issue.json — cannot continue" >&2
+      exit 1
+    fi
+    if python3 - {{RUN}} <<'PY'
+    import sys, os, json, hashlib
+    rd = sys.argv[1]
+    try:
+        meta = json.load(open(os.path.join(rd, "00_meta.json")))
+        st = meta.get("stages") or {}
+        cur = hashlib.sha256(open(os.path.join(rd, "50_review.md"), "rb").read()).hexdigest()
+        base = (st.get("digest_import") or {}).get("review_sha256") \
+            or (st.get("digest_export") or {}).get("review_sha256")
+        sys.exit(0 if base and cur != base else 1)
+    except Exception:
+        sys.exit(1)
+    PY
+    then
+      echo "[deadline2] 50_review.md modified since last import — auto edit-import"
+      just DATE={{DATE}} edit-import || echo "[deadline2] WARN edit-import failed — continuing with last valid 50_issue.json" >&2
+    fi
+    just DATE={{DATE}} callb voice cards render-plan compose meta
 
 # --------------------------------------------------------------------------
 # resume / inspect
@@ -396,6 +492,9 @@ resume date=DATE:
         ("dedup",       "dedup.py",       "35_dedup.jsonl",          []),
         ("gate_select", "gate_select.py", "40_selected.json",        ["--auto"]),
         ("digest",      "digest.py",      "50_issue.json",           []),
+        # callb shares 50_issue.json — use voice's artifact as the fallback:
+        # 62_timeline.json can only exist if Call B already projected voice[].
+        ("digest_callb","digest.py",      "62_timeline.json",        ["--callb"]),
         ("voice",       "voice.py",       "62_timeline.json",        []),
         ("cards",       "cards.py",       "64_frames_manifest.json", []),
         ("render_plan", "render_plan.py", "70_render_plan.json",     []),

@@ -23,7 +23,7 @@ from models import (AudioManifest, BuildManifest, Cards, DedupVerdict,
                     FilterVerdict, FramesManifest, RawItem, RawManifest,
                     RenderPlan, RunMeta, Selected, Summary, Timeline, VoiceSeg)
 
-RUN = Path(__file__).resolve().parent / "runs" / "2026-09-20"
+RUN = Path(__file__).resolve().parents[1] / "runs" / "2026-09-20"
 errors, warns = [], []
 
 
@@ -574,4 +574,9 @@ if __name__ == "__main__":
         _rep = validate_run(sys.argv[1])
         _print_report(sys.argv[1], _rep)
         sys.exit(0 if _rep["ok"] else 1)
-    main()  # legacy 自检：contracts/runs/2026-09-20 在场时用
+    if RUN.is_dir():
+        main()  # legacy 自检：repo 根 runs/2026-09-20 fixture 在场时用
+    else:
+        print(f"usage: {Path(sys.argv[0]).name} <run_dir>   "
+              f"(默认自检目录 {RUN} 不存在)", file=sys.stderr)
+        sys.exit(2)

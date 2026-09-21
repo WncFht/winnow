@@ -1,4 +1,31 @@
-# remotion-feas — Remotion 替代 ffmpeg 合成的可行性实验
+# composer — Remotion 合成器（消费 70_render_plan.json）
+
+> 本目录由 `experiments/remotion-feas` 提升而来（下方为原始可行性实验记录）。
+> 生产用法见本节；`smoke/` 是冒烟 fixture（~91 帧小 plan）。
+
+## 用法
+
+```bash
+./render.sh <run_dir|70_render_plan.json> [out.mp4] [--frames=A-B ...]
+# 例: ./render.sh runs/2026-09-22 runs/2026-09-22/out/final.mp4
+#     REMOTION_PLAN=runs/x/70_render_plan.json ./render.sh ignored out.mp4
+```
+
+- **plan 输入优先级**（`src/plan.ts::resolvePlan`）：
+  `--props '{"plan":{…}}'` 内嵌 > `REMOTION_PLAN` env（remotion.config.ts 经
+  DefinePlugin 注入 JSON）> `--props '{"planUrl":"…"}'`（经 `--public-dir` fetch）>
+  public dir 根下 `render_plan.json`/`70_render_plan.json` 默认候选。
+- render.sh 走 env 路 + `--public-dir=<plan 所在 run dir>`，契约相对 src
+  （`64_frames/`、`61_audio/`、`65_subs/`）由 `staticFile` 命中。
+- **字幕 live-text 约定**：`overlay_track[].src` 是 PNG pill（契约要求文件存在）；
+  同 basename `.txt` sidecar（如 `65_subs/000.txt`）存口播文本——fetch 到即渲染
+  live-text pill（bottom:60 向上生长、maxWidth 1600 wrap），否则退回 `<Img>` PNG
+  按 `xy` 表达式定位。→ `stages/render_plan.py` 产 plan 时应同时吐 `.txt` sidecar。
+- TMPDIR=$PWD/.tmp（/tmp tmpfs OOM 坑）；`--concurrency=4`；**不开** hw-accel。
+- chrome-headless-shell 在 `node_modules/.remotion/`；若缺失且自动下载失败：
+  `--browser-executable ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell`
+
+# 原始实验记录（remotion-feas）
 
 日期：2026-09-21 · 主机：Arch Linux, 12 cores, 31G RAM, RTX 4070 SUPER 12G · 网络：中国大陆直连
 

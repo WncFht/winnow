@@ -1,49 +1,16 @@
 import React from 'react';
-import {AbsoluteFill, Audio, Img, Sequence, staticFile} from 'remotion';
-import timeline from './timeline.json';
-import itemsJson from './items.json';
+import {AbsoluteFill, Audio, Img, Sequence} from 'remotion';
+import {assetSrc, FullDailyProps, OSeg} from './plan';
 
-// Faithful port of repro/compose.py semantics to a Remotion composition:
-//  - each item's card PNG holds from its span start to the NEXT item's start
-//  - items with a shot window swap in <id>_shot.png between those sentences
-//  - every TTS seg contributes: <Audio> delayed to seg.start + subtitle pill
-//    shown for [seg.start, seg.end)
+// 消费 70_render_plan.json（render_plan/1，composer 唯一输入）。
+// 与 remotion-feas 验证过的 compose.py 逐点移植语义一致：
+//  - video_track 已平铺满铺 [0,total]：逐段 <Sequence from><Img>（shot 窗口
+//    三段嵌套由 render_plan.py 预先编译成独立 VSeg，此处不做推断）
+//  - audio_track：无界 <Sequence from=at><Audio>，自然播完 = adelay+amix
+//  - overlay_track 字幕 pill：有 <src>.txt sidecar → live-text pill
+//    （bottom:60 向上生长防溢出 + maxWidth wrap）；否则 <Img> PNG pill 按 xy 定位
 
-export const FPS = 30;
-export const TOTAL_FRAMES = Math.ceil(timeline.total * FPS);
-
-const f = (sec: number) => Math.round(sec * FPS);
-
-type Seg = {
-  n: number;
-  item: string;
-  si: number;
-  file: string;
-  text: string;
-  start: number;
-  end: number;
-};
-type ItemSpan = {id: string; start: number; end: number};
-type Item = {
-  id: string;
-  shot?: boolean;
-  shot_sentences?: [number, number] | number[];
-};
-
-const spans: Record<string, ItemSpan> = {};
-for (const s of timeline.items as ItemSpan[]) spans[s.id] = s;
-const segs = timeline.segs as Seg[];
-const items = itemsJson.items as Item[];
-
-// ---- visual bounds, identical to compose.py ----
-const bounds: {item: Item; S: number; E: number}[] = items.map((it, i) => ({
-  item: it,
-  S: spans[it.id].start,
-  E: i + 1 < items.length ? spans[items[i + 1].id].start : timeline.total,
-}));
-bounds[0].S = 0;
-
-const SubtitlePill: React.FC<{text: string}> = ({text}) => (
+export const SubtitlePill: React.FC<{text: string}> = ({text}) => (
   <div
     style={{
       position: 'absolute',
@@ -65,87 +32,112 @@ const SubtitlePill: React.FC<{text: string}> = ({text}) => (
   </div>
 );
 
-const CardImg: React.FC<{id: string; suffix?: string}> = ({id, suffix = ''}) => (
-  <Img
-    src={staticFile(`frames_v2/${id}${suffix}.png`)}
-    style={{width: '100%', height: '100%', objectFit: 'cover'}}
-  />
-);
-
-const ItemVisual: React.FC<{item: Item; S: number; E: number}> = ({
-  item,
-  S,
-  E,
-}) => {
-  // shot window in absolute seconds (same computation as compose.py)
-  let win: [number, number] | null = null;
-  if (item.shot && item.shot_sentences) {
-    const [a, b] = item.shot_sentences;
-    const isegs = segs.filter((s) => s.item === item.id);
-    if (a > 0 && a <= isegs.length && b > 0 && b <= isegs.length) {
-      win = [isegs[a - 1].start, isegs[b - 1].end];
+/** ffmpeg overlay 表达式 → CSS 定位。契约形态 "(main_w-overlay_w)/2:930"。 */
+const xyStyle = (
+  xy: string,
+  W: number,
+  H: number,
+): React.CSSProperties => {
+  const [xe = '', ye = ''] = xy.split(':');
+  const ev = (e: string): number => {
+    try {
+      return new Function(
+        'main_w',
+        'main_h',
+        'overlay_w',
+        'overlay_h',
+        `return (${e});`,
+      )(W, H, 0, 0) as number;
+    } catch {
+      return NaN;
+    }
+  };
+  const style: React.CSSProperties = {position: 'absolute'};
+  // 含 overlay_w 的横向表达式基本都是居中 → 用 CSS 精确居中（不依赖 PNG 宽度）
+  if (/overlay_w/.test(xe)) {
+    style.left = '50%';
+    style.transform = 'translateX(-50%)';
+  } else {
+    const v = ev(xe);
+    if (Number.isFinite(v)) {
+      style.left = v;
+    } else {
+      style.left = '50%';
+      style.transform = 'translateX(-50%)';
     }
   }
-  if (!win) return <CardImg id={item.id} />;
-  const [sS, sE] = win;
-  const parts: React.ReactNode[] = [];
-  if (sS - S > 0.15)
-    parts.push(
-      <Sequence key="a" from={0} durationInFrames={f(sS - S)}>
-        <CardImg id={item.id} />
-      </Sequence>,
-    );
-  parts.push(
-    <Sequence
-      key="shot"
-      from={f(sS - S)}
-      durationInFrames={f(Math.min(sE, E) - sS)}
-    >
-      <CardImg id={item.id} suffix="_shot" />
-    </Sequence>,
-  );
-  if (E - sE > 0.15)
-    parts.push(
-      <Sequence
-        key="b"
-        from={f(sE - S)}
-        durationInFrames={f(E - Math.max(sE, S))}
-      >
-        <CardImg id={item.id} />
-      </Sequence>,
-    );
-  return <>{parts}</>;
+  // 纵向：纯数值/可求值（overlay_h=0 近似）→ top；否则回退字幕默认 bottom:60
+  const vy = ev(ye);
+  if (Number.isFinite(vy) && vy >= 0 && vy < H) style.top = vy;
+  else style.bottom = 60;
+  return style;
 };
 
-export const FullDaily: React.FC = () => {
+const OverlaySeg: React.FC<{
+  o: OSeg;
+  i: number;
+  W: number;
+  H: number;
+  base?: string;
+  text?: string;
+}> = ({o, i, W, H, base, text}) =>
+  text ? (
+    <SubtitlePill text={text} />
+  ) : (
+    <Img
+      src={assetSrc(o.src, base)}
+      style={xyStyle(o.xy, W, H)}
+      data-overlay={i}
+    />
+  );
+
+export const FullDaily: React.FC<FullDailyProps> = (props) => {
+  const {plan, assetsBase, subTexts} = props;
+  if (!plan) {
+    // calculateMetadata 必然先跑；到不了这里，除非 comp 被绕过元数据直挂
+    throw new Error('FullDaily: plan 未解析（calculateMetadata 未运行？）');
+  }
+  const fps = plan.fps ?? 30;
+  const [W, H] = plan.size ?? [1920, 1080];
+  const f = (sec: number) => Math.round(sec * fps);
+
   return (
     <AbsoluteFill style={{background: '#000'}}>
-      {/* video track: item cards (+ shot windows) */}
-      {bounds.map(({item, S, E}) => (
+      {/* video track：满铺无洞，逐段 Img */}
+      {plan.video_track.map((v, i) => (
         <Sequence
-          key={item.id}
-          from={f(S)}
-          durationInFrames={f(E - S)}
-          name={item.id}
+          key={`v${i}`}
+          from={f(v.start)}
+          durationInFrames={Math.max(1, f(v.end - v.start))}
+          name={v.src}
         >
-          <ItemVisual item={item} S={S} E={E} />
+          <Img
+            src={assetSrc(v.src, assetsBase)}
+            style={{width: '100%', height: '100%', objectFit: 'cover'}}
+          />
         </Sequence>
       ))}
-      {/* subtitle track: one pill per TTS seg */}
-      {segs.map((s) => (
+      {/* overlay track：字幕 pill（live-text 优先，PNG 兜底） */}
+      {(plan.overlay_track ?? []).map((o, i) => (
         <Sequence
-          key={`sub-${s.n}`}
-          from={f(s.start)}
-          durationInFrames={Math.max(1, f(s.end - s.start))}
+          key={`o${i}`}
+          from={f(o.start)}
+          durationInFrames={Math.max(1, f(o.end - o.start))}
         >
-          <SubtitlePill text={s.text} />
+          <OverlaySeg
+            o={o}
+            i={i}
+            W={W}
+            H={H}
+            base={assetsBase}
+            text={subTexts?.[o.src]}
+          />
         </Sequence>
       ))}
-      {/* audio track: each mp3 delayed to seg.start, plays to natural end
-          (amix semantics — unbounded Sequence, Audio stops at file end) */}
-      {segs.map((s) => (
-        <Sequence key={`au-${s.n}`} from={f(s.start)}>
-          <Audio src={staticFile(`audio/${s.file}`)} />
+      {/* audio track：每条 mp3 延迟到 at，自然播完（amix 语义） */}
+      {plan.audio_track.map((a, i) => (
+        <Sequence key={`a${i}`} from={f(a.at)}>
+          <Audio src={assetSrc(a.src, assetsBase)} />
         </Sequence>
       ))}
     </AbsoluteFill>

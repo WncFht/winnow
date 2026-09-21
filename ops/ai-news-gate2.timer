@@ -1,0 +1,13 @@
+# AI 早报 pipeline — gate-2 deadline timer (PLAN §9, D8)
+# 09:30 Asia/Shanghai daily -> ai-news-gate2.service (`just deadline2`)
+# Persistent=true: catch up after downtime; deadline2 backfills gate-1 first.
+# Install: bash ops/install.sh
+[Unit]
+Description=AI news gate-2 deadline timer (09:30 Asia/Shanghai)
+
+[Timer]
+OnCalendar=*-*-* 09:30:00 Asia/Shanghai
+Persistent=true
+
+[Install]
+WantedBy=timers.target

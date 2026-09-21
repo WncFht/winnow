@@ -111,6 +111,12 @@
       "title": "Size",
       "type": "array"
     },
+    "aspect": {
+      "default": "16:9",
+      "description": "PLAN D4 画幅参数（当前只做 16:9），记录 config.render.aspect",
+      "title": "Aspect",
+      "type": "string"
+    },
     "total": {
       "exclusiveMinimum": 0,
       "title": "Total",

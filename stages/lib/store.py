@@ -256,8 +256,26 @@ def _today() -> str:
     return date.today().isoformat()
 
 
+_DAY_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _check_day(day) -> str:
+    """期号/日期入参校验：必须 YYYY-MM-DD 且是合法日期。
+
+    day/today 会进 expires_at 字符串比较（比对集归属）与 INSERT——
+    非法值（如非日期 run-dir 名 'verify-dedup'）必须在任何写库/
+    更新之前抛 ValueError，否则字符串比较会静默污染整个比对集。
+    """
+    d = str(day or "")
+    if not _DAY_RE.fullmatch(d):
+        raise ValueError(f"day/episode 必须是 YYYY-MM-DD，得到 {day!r}")
+    date.fromisoformat(d)                # 拦 2026-02-31 这类形似但非法的日期
+    return d
+
+
 def _plus_ttl(day: str, ttl_days: int = TTL_DAYS) -> str:
-    return (date.fromisoformat(day) + timedelta(days=ttl_days)).isoformat()
+    return (date.fromisoformat(_check_day(day))
+            + timedelta(days=ttl_days)).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -287,7 +305,7 @@ def init_db(path) -> sqlite3.Connection:
 
 def open_clusters(conn: sqlite3.Connection, today: Optional[str] = None) -> list:
     """比对集 = state='open' AND expires_at>=today（默认今天）。行不删，过期仅退出。"""
-    today = today or _today()
+    today = _check_day(today or _today())
     rows = conn.execute(
         "SELECT cluster_id, canonical_title, centroid, first_seen, last_seen,"
         "       expires_at, item_count, n_reissues, published"
@@ -312,7 +330,8 @@ def add_cluster(conn: sqlite3.Connection, title: str, day: str,
                 published: int = 0) -> int:
     """新建 cluster。centroid 自动 unit-norm；expires_at = last_seen + TTL。"""
     c = _unit(_as_vec(centroid))
-    fs = first_seen or day
+    day = _check_day(day)
+    fs = _check_day(first_seen) if first_seen else day
     exp = _plus_ttl(day)
     cur = conn.execute(
         "INSERT INTO clusters(canonical_title,centroid,first_seen,last_seen,"
@@ -336,11 +355,12 @@ def add_item(conn: sqlite3.Connection, item: dict, cluster_id: int,
     title = item.get("title") or item.get("title_zh") or url_c or "(untitled)"
     lang = item.get("lang") or ("zh" if re.search(r"[一-鿿]", title) else "en")
     jtxt = judge if isinstance(judge, (str, type(None))) else json.dumps(judge, ensure_ascii=False)
+    iday = _check_day(item.get("day") or _today())
     cur = conn.execute(
         "INSERT INTO items(cluster_id,day,episode,title,summary,source,url_canon,"
         " url_hash,lang,simhash,embed,verdict,match_cos,judge)"
         " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-        (cluster_id, item.get("day") or _today(), item.get("episode"),
+        (cluster_id, iday, item.get("episode"),
          title, item.get("summary"), item.get("source"), url_c, uh, lang,
          _s64(int(sh)), _v2b(_as_vec(item["embed"])), verdict, match_cos, jtxt))
     conn.commit()
@@ -353,6 +373,7 @@ def _merge_into_cluster(conn: sqlite3.Connection, cid: int, vec: list,
 
     expires_at 只延不缩（迟到回填不会缩短已延的保鲜期）。
     """
+    day = _check_day(day)
     row = conn.execute(
         "SELECT centroid,item_count,n_reissues,last_seen,expires_at"
         " FROM clusters WHERE cluster_id=?", (cid,)).fetchone()
@@ -399,7 +420,7 @@ def check(conn: sqlite3.Connection, item: dict,
     judge_fn(item, match_ctx) -> 'A'|'B'|'C' 或含 label 的 dict；
     match_ctx = {cluster_id, canonical_title, cos, published}。
     """
-    day = item.get("day") or today or _today()
+    day = _check_day(item.get("day") or today or _today())
     vec = _unit(_as_vec(item["embed"]))
     sh = item.get("simhash")
     if sh is None:
@@ -533,6 +554,7 @@ def mark_reported(conn: sqlite3.Connection, episode: str,
     item_keys 收契约 item_key（sha256(url_canon)[:16]）或 items.item_id。
     返回被标记的 item 数。
     """
+    episode = _check_day(episode)
     iids = _find_item_ids(conn, episode, item_keys)
     if not iids:
         return 0
@@ -552,14 +574,34 @@ def mark_reported(conn: sqlite3.Connection, episode: str,
 def expire_clusters(conn: sqlite3.Connection, today: Optional[str] = None,
                     ttl_days: int = TTL_DAYS) -> int:
     """过期 pass：先把 expires_at 归一为 last_seen+ttl_days（TTL 改过也生效），
-    再把 expires_at<today 的开放 cluster 置 'expired'（行保留可回放）。返回条数。"""
-    today = today or _today()
+    再把 expires_at<today 的开放 cluster 置 'expired'（行保留可回放）。返回条数。
+
+    today 先过 _check_day —— 非 ISO 日期（如 run-dir 名）在 UPDATE 之前抛错；
+    expires_at<today 是字符串比较，'verify-dedup' 这类值曾把全部开放 cluster
+    误置 expired。
+    """
+    today = _check_day(today or _today())
     conn.execute(
         "UPDATE clusters SET expires_at=date(last_seen, '+' || ? || ' days')"
         " WHERE state='open'", (ttl_days,))
     n = conn.execute(
         "UPDATE clusters SET state='expired' WHERE state='open' AND expires_at<?",
         (today,)).rowcount
+    conn.commit()
+    return n
+
+
+def unexpire_clusters(conn: sqlite3.Connection, today: Optional[str] = None) -> int:
+    """expire 的逆操作（人工算子）：把仍在 TTL 内（expires_at>=today）却误置
+    'expired' 的 cluster 恢复回 'open' 比对集。
+
+    expire 只移出比对集、行不删，所以恢复无损；state='merged' 的行不受影响。
+    返回恢复条数。
+    """
+    today = _check_day(today or _today())
+    n = conn.execute(
+        "UPDATE clusters SET state='open' WHERE state='expired'"
+        " AND expires_at>=?", (today,)).rowcount
     conn.commit()
     return n
 

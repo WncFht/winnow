@@ -46,11 +46,18 @@
 
 CLI：
   uv run stages/dedup.py --run-dir runs/<date>          # 正常跑
+  uv run stages/dedup.py --run-dir <YYYY-MM-DD>         # 期号直给（= runs/<date>）
   uv run stages/dedup.py --run-dir runs/<date> --no-judge   # 离线：灰区全 gray_pending
-  uv run stages/dedup.py --split <cluster_id> [--db P]  # 人工拆误并
-  uv run stages/dedup.py --merge <a> <b> [--db P]       # 人工并 cluster
-  uv run stages/dedup.py --backfill <raw_items.jsonl> [--db P]  # 冷启动回填
+  uv run stages/dedup.py --split <cluster_id> [--db P|--state D]  # 人工拆误并
+  uv run stages/dedup.py --merge <a> <b> [--db P|--state D]       # 人工并 cluster
+  uv run stages/dedup.py --unexpire [--db P|--state D] [--day D]  # 恢复误过期 cluster
+  uv run stages/dedup.py --backfill <raw_items.jsonl> [--db P|--state D]  # 冷启动回填
   uv run stages/dedup.py --selftest                     # 合成 fixture 端到端
+
+  --db P   直接给 history.sqlite 文件路径；
+  --state D 给跨天 state 目录（取 <D>/history.sqlite），与 --db 互斥。
+  --run-dir 的末级目录必须是期号 YYYY-MM-DD（episode/day 由它派生，
+  非日期名会 fail-fast exit 2，且不触碰 history.sqlite）。
 """
 
 from __future__ import annotations
@@ -204,9 +211,31 @@ class Judge:
 # 输入装配
 # ---------------------------------------------------------------------------
 
-def _resolve_db(cli_db: str | None) -> Path:
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _resolve_run_dir(s: str) -> Path:
+    """'YYYY-MM-DD' -> runs/<date>；否则按路径解析（相对 repo 根）。
+
+    与 gate_select/compose/render_plan 同款约定；只解析不创建
+    （run_lock/load_items 各自负责）。
+    """
+    if _DATE_RE.fullmatch(s or ""):
+        return meta.RUNS_DIR / s
+    p = Path(s)
+    return p if p.is_absolute() else REPO / p
+
+
+def _resolve_db(cli_db: str | None, cli_state: str | None = None) -> Path:
+    """--db 文件 > --state 目录（其下 history.sqlite）> config.storage > state/。"""
     if cli_db:
         return Path(cli_db)
+    if cli_state:
+        p = Path(cli_state)
+        # 兼容直接给文件路径；目录则取其下 history.sqlite
+        if p.is_file() or p.suffix.lower() in (".sqlite", ".sqlite3", ".db"):
+            return p
+        return p / "history.sqlite"
     for name in ("config.yaml", "config.example.yaml"):
         p = REPO / name
         if p.exists():
@@ -474,11 +503,16 @@ def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
 # ---------------------------------------------------------------------------
 
 def cmd_run(args) -> int:
-    run_dir = Path(args.run_dir)
-    if not run_dir.is_absolute():
-        run_dir = REPO / run_dir
+    run_dir = _resolve_run_dir(args.run_dir)
     episode = run_dir.name
-    db = _resolve_db(args.db)
+    if not _DATE_RE.fullmatch(episode):
+        # episode/day 由 run-dir 末级派生并写进 history.sqlite（expires_at
+        # 比较/写库都依赖它是 ISO 日期）——非日期名必须在触碰 DB 前 fail-fast。
+        print(f"[dedup] --run-dir 末级目录必须是期号 runs/<YYYY-MM-DD>"
+              f"（得到 {episode!r}）；也可直接传期号：--run-dir <YYYY-MM-DD>",
+              file=sys.stderr)
+        return 2
+    db = _resolve_db(args.db, args.state)
 
     items = load_items(run_dir)
     with meta.run_lock(run_dir):
@@ -514,7 +548,7 @@ def cmd_run(args) -> int:
 
 
 def cmd_split(args) -> int:
-    conn = store.init_db(_resolve_db(args.db))
+    conn = store.init_db(_resolve_db(args.db, args.state))
     ncid = store.split_cluster(conn, int(args.split))
     print(json.dumps({"op": "split", "cluster_id": int(args.split),
                       "new_cluster_id": ncid}, ensure_ascii=False))
@@ -522,10 +556,20 @@ def cmd_split(args) -> int:
 
 
 def cmd_merge(args) -> int:
-    conn = store.init_db(_resolve_db(args.db))
+    conn = store.init_db(_resolve_db(args.db, args.state))
     a, b = int(args.merge[0]), int(args.merge[1])
     cid = store.merge_clusters(conn, a, b)
     print(json.dumps({"op": "merge", "surviving": cid, "merged": b},
+                     ensure_ascii=False))
+    return 0
+
+
+def cmd_unexpire(args) -> int:
+    """expire 的逆操作：误跑 expire（或非日期 today 污染）后恢复比对集。"""
+    conn = store.init_db(_resolve_db(args.db, args.state))
+    n = store.unexpire_clusters(conn, today=args.day)
+    print(json.dumps({"op": "unexpire", "restored": n, "today":
+                      args.day or date.today().isoformat()},
                      ensure_ascii=False))
     return 0
 
@@ -557,9 +601,11 @@ def cmd_backfill(args) -> int:
     src = Path(args.backfill)
     if not src.exists():
         raise SystemExit(f"[dedup] backfill 文件不存在: {src}")
-    conn = store.init_db(_resolve_db(args.db))
+    default_day = args.day or date.today().isoformat()
+    store._check_day(default_day)          # --day 非法值在 embed 之前 fail-fast
+    conn = store.init_db(_resolve_db(args.db, args.state))
     emb = embedlib.Embedder()
-    items = list(_backfill_iter(src, args.day or date.today().isoformat()))
+    items = list(_backfill_iter(src, default_day))
     texts = [store.feature_text(it) for it in items]
     E = emb.embed(texts, mode="doc") if items else np.zeros((0, 1024))
     n_add = n_skip = 0
@@ -723,29 +769,37 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="story-line dedup (PLAN §7.2)")
     ap.add_argument("--run-dir", help="runs/<date>")
     ap.add_argument("--db", help="history.sqlite 路径（默认 config.storage 或 state/）")
+    ap.add_argument("--state",
+                    help="跨天 state 目录（取 <dir>/history.sqlite；与 --db 互斥）")
     ap.add_argument("--no-judge", action="store_true",
                     help="禁用 LLM judge：灰区全落 gray_pending（离线/调试）")
     ap.add_argument("--split", metavar="CLUSTER_ID",
                     help="人工算子：拆出 cluster 最近挂入批为新 cluster")
     ap.add_argument("--merge", nargs=2, metavar=("A", "B"),
                     help="人工算子：把 B 并入 A（B 留痕 merged）")
+    ap.add_argument("--unexpire", action="store_true",
+                    help="人工算子：恢复误置 expired 且仍在 TTL 内的 cluster")
     ap.add_argument("--backfill", metavar="RAW_ITEMS.jsonl",
                     help="冷启动回填：往期条目作为 reported 种子进比对集")
-    ap.add_argument("--day", help="backfill 缺日期时的兜底 day (YYYY-MM-DD)")
+    ap.add_argument("--day", help="backfill 兜底 day / --unexpire 比对日 (YYYY-MM-DD)")
     ap.add_argument("--selftest", action="store_true",
                     help="合成 fixture 端到端测试（真 embedder + live judge）")
     args = ap.parse_args(argv)
 
+    if args.db and args.state:
+        ap.error("--db 与 --state 互斥（前者给文件，后者给目录）")
     if args.selftest:
         return _selftest(args)
     if args.split:
         return cmd_split(args)
     if args.merge:
         return cmd_merge(args)
+    if args.unexpire:
+        return cmd_unexpire(args)
     if args.backfill:
         return cmd_backfill(args)
     if not args.run_dir:
-        ap.error("--run-dir / --split / --merge / --backfill / --selftest 必选一")
+        ap.error("--run-dir / --split / --merge / --unexpire / --backfill / --selftest 必选一")
     return cmd_run(args)
 
 

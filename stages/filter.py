@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -58,12 +59,100 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _clamp01(v, default=None):
+def _score01(v, default=None):
+    """0-1 评分归一：模型按百分制输出（>1）时 /100 归一（契约 news_value
+    允许 0-100，百分制原文会"合法"地漏判）；非法值 → default。"""
     try:
         f = float(v)
     except (TypeError, ValueError):
         return default
+    if f > 1.0:
+        f = f / 100.0
     return min(1.0, max(0.0, f))
+
+
+# ---------------------------------------------------------------------------
+# §7.1 验收硬规则：注入指令条目 → 确定性 drop（不靠 LLM 自觉，post-hoc 兜底）
+#
+# 两层模式：
+#  _HARD_INJ_RES    直接操纵本次判定的指令——管道内部词汇（verdict/
+#                   ai_relevance/"mark this item"）、伪造 system/角色标签。
+#                   真实新闻不会含这些字样 → 一律 drop。
+#  _GENERIC_INJ_RES 通用注入措辞（"忽略上述指令"/"ignore previous
+#                   instructions"等）——默认 drop（验收要求）；但当文本
+#                   明显在"报道注入攻击"（含 prompt injection/提示注入/
+#                   越狱 等词）时放行给 LLM，避免误杀 AI 安全新闻。
+# ---------------------------------------------------------------------------
+_HARD_INJ_RES = [re.compile(p, re.IGNORECASE) for p in (
+    r"\bmark\s+this\s+(item|article|entry)\b",
+    r"\bverdict\s*[=:]",
+    r"\b(ai_?relevance|news_?value)\s*[=:]\s*\d",
+    r"\bsystem\s*override\b",
+    r"<<\s*/?\s*SYS\s*>>",
+    r"\[\s*/?\s*INST\s*\]",
+    r"<\s*/?\s*(system|instruction|item_data)\b",
+    r"判\s*(keep|drop|review)\b",
+    r"(verdict|ai_relevance)\s*=\s*\S+",
+)]
+_GENERIC_INJ_RES = [re.compile(p, re.IGNORECASE) for p in (
+    r"忽略\s*(上述|以上|之前|先前|所有|一切|全部)\s*指令",
+    r"忽略\s*(所有|一切|全部)\s*指令",
+    r"\b(ignore|disregard|forget|override|bypass)\b\s+(all\s+|any\s+|the\s+)"
+    r"?(previous|prior|above|earlier|preceding)\s+\w*\s*(instructions?|prompts?|rules?)\b",
+    r"\b(ignore|disregard|forget)\s+all\b.{0,30}\b(instructions?|rules?)\b",
+    r"\byour\s+(new\s+)?(instructions?|task|goal|objective)\s+(is|are)\b",
+)]
+_INJ_REPORT_CTX = re.compile(
+    r"提示注入|prompt[- ]?injection|注入攻击|注入指令|越狱|jailbreak|"
+    r"red[- ]?team|对抗样本|adversarial", re.IGNORECASE)
+
+
+def _injection_hit(item: dict) -> str | None:
+    """正文/title 中含注入指令 → 返回命中片段（审计用），否则 None。
+
+    硬模式（操纵判定/伪造角色）一律命中；通用注入措辞在"报道注入攻击"
+    语境（_INJ_REPORT_CTX）下放行——安全新闻引述攻击载荷不算攻击。
+    """
+    text = "\n".join(str(item.get(k) or "")
+                     for k in ("title", "content_text", "summary"))
+    if not text.strip():
+        return None
+    for rx in _HARD_INJ_RES:
+        m = rx.search(text)
+        if m:
+            return m.group(0)[:40]
+    if _INJ_REPORT_CTX.search(text):
+        return None
+    for rx in _GENERIC_INJ_RES:
+        m = rx.search(text)
+        if m:
+            return m.group(0)[:40]
+    return None
+
+
+def _apply_injection_guard(rows: dict, items: list[dict]) -> dict:
+    """§7.1 验收：注入指令条目确定性 drop——覆盖 LLM/no-llm/coverage-miss
+    全部路径（L0 已是 drop 不重复改写）。分数保留 LLM 原判：条目主题
+    可以高度相关，drop 是安全处置而非相关性结论。"""
+    for it in items:
+        hit = _injection_hit(it)
+        if not hit:
+            continue
+        row = rows.get(it["item_key"])
+        if row and row["verdict"] == "drop":
+            continue
+        prov = (row or {}).get("prov") or {}
+        reasons = [f"prompt-injection: 正文含面向评审的指令「{hit}」"]
+        if row:
+            reasons += list(row.get("reasons") or [])[:2]
+        rows[it["item_key"]] = verdict_row(
+            it["item_key"], "drop",
+            (row or {}).get("ai_relevance"), (row or {}).get("news_value"),
+            reasons,
+            model=prov.get("model") or "injection-guard",
+            prompt_tag=prov.get("prompt") or "injection-guard-v1",
+            ts=prov.get("decided_at"))
+    return rows
 
 
 def _prov(model: str, prompt_tag: str, item_key: str, ts: str | None = None) -> dict:
@@ -180,8 +269,8 @@ def verdict_row(item_key: str, verdict: str, ai, nv, reasons: list,
         "schema": "filter_verdict/1",
         "item_key": item_key,
         "verdict": verdict if verdict in VERDICTS else "review",
-        "ai_relevance": _clamp01(ai, 0.5),
-        "news_value": _clamp01(nv),
+        "ai_relevance": _score01(ai, 0.5),
+        "news_value": _score01(nv),
         "reasons": [str(r)[:60] for r in (reasons or [])][:3],
         "prov": _prov(model, prompt_tag, item_key, ts),
     }
@@ -204,7 +293,7 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
             rows[it["item_key"]] = verdict_row(
                 it["item_key"], "review", 0.5, None,
                 ["no-llm 模式，全部转人工"], model="no-llm", prompt_tag=ptag)
-        return rows
+        return _apply_injection_guard(rows, items)
     for i in range(0, len(pending), batch_size):
         batch = pending[i:i + batch_size]
         outs, missing, prov, err = filter_batch(batch, cfg, rulebook)
@@ -227,7 +316,7 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
                 [f"coverage-miss: 重批2轮仍缺，转人工"
                  + (f"；网关错误 {type(err).__name__}" if err else "")],
                 model=model, prompt_tag=ptag, ts=ts)
-    return rows
+    return _apply_injection_guard(rows, items)
 
 
 # ---------------------------------------------------------------------------

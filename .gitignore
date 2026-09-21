@@ -10,4 +10,12 @@ repro-venv/
 composer/node_modules/
 composer/out/
 composer/.remotion/
+composer/.tmp/
 /out/
+composer/smoke/
+runs/
+state/
+data/
+.claude/
+secrets.env
+experiments/card-density/probe_vendor_selfhost/

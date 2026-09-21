@@ -1,0 +1,18 @@
+# AI 早报 pipeline — gate-2 deadline watcher (PLAN §9, D8)
+# Fired by ai-news-gate2.timer at 09:30 Asia/Shanghai.
+# `just deadline2`: lock 50_issue.json as it stands (auto-imports a modified
+# 50_review.md once), then voice -> cards -> render-plan -> compose -> meta.
+# Install: bash ops/install.sh
+[Unit]
+Description=AI news pipeline: gate-2 deadline watcher (just deadline2)
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/fanghaotian/src/ai-news-pipeline
+EnvironmentFile=-/home/fanghaotian/src/ai-news-pipeline/secrets.env
+Environment=PATH=/home/fanghaotian/.local/bin:/home/fanghaotian/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TZ=Asia/Shanghai
+# downstream chain includes TTS + card render + remotion/ffmpeg compose
+TimeoutStartSec=4h
+ExecStart=/home/fanghaotian/.cargo/bin/just deadline2
+SyslogIdentifier=ai-news-gate2

@@ -1,0 +1,13 @@
+# AI 早报 pipeline — collect timer (PLAN §9, D8)
+# 06:30 Asia/Shanghai daily -> ai-news-collect.service (`just gather`)
+# Persistent=true: catch up the run if the machine was off at 06:30.
+# Install: bash ops/install.sh
+[Unit]
+Description=AI news gather timer (06:30 Asia/Shanghai)
+
+[Timer]
+OnCalendar=*-*-* 06:30:00 Asia/Shanghai
+Persistent=true
+
+[Install]
+WantedBy=timers.target
