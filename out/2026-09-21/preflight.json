@@ -1,0 +1,19 @@
+{
+ "day": "2026-09-21",
+ "ts": "2026-09-21T20:34:18+08:00",
+ "clock_sync":"ok",
+ "disk_root":"ok",
+ "disk_tmp":"ok",
+ "mem_avail":"FAIL",
+ "ffmpeg_nvenc":"ok",
+ "node":"ok",
+ "zh_font":"ok",
+ "mihomo":"ok",
+ "net_domestic":"ok",
+ "net_overseas":"ok",
+ "gateway":"ok",
+ "rsshub":"ok",
+ "browserless":"FAIL",
+ "edge_tts":"ok",
+ "result":"fail"
+}

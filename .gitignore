@@ -1,0 +1,12 @@
+secrets.env
+runs/
+state/
+data/
+node_modules/
+__pycache__/
+*.pyc
+.DS_Store
+repro-venv/
+composer/node_modules/
+composer/out/
+composer/.remotion/
