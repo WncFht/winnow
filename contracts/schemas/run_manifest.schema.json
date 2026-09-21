@@ -1,0 +1,103 @@
+{
+  "$defs": {
+    "StageEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact": {
+          "title": "Artifact",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        },
+        "status": {
+          "default": "done",
+          "enum": [
+            "done",
+            "pending",
+            "failed",
+            "skipped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "produced_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+          "title": "Produced At"
+        },
+        "producer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "脚本/人/模型标识",
+          "title": "Producer"
+        }
+      },
+      "required": [
+        "artifact",
+        "produced_at"
+      ],
+      "title": "StageEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "run_manifest/1",
+      "default": "run_manifest/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "title": "Episode",
+      "type": "string"
+    },
+    "created_at": {
+      "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+      "title": "Created At",
+      "type": "string"
+    },
+    "stages": {
+      "additionalProperties": {
+        "$ref": "#/$defs/StageEntry"
+      },
+      "description": "stage 名 → 产物登记；DAG 断点续跑的依据",
+      "title": "Stages",
+      "type": "object"
+    }
+  },
+  "required": [
+    "episode",
+    "created_at",
+    "stages"
+  ],
+  "title": "RunMeta",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/run_manifest/v1"
+}

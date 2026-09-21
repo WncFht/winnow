@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "CardData": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "description": "2-6 字",
+          "title": "Title",
+          "type": "string"
+        },
+        "desc": {
+          "description": "HTML 行内：<strong>/<code>（juya-news-card 契约）",
+          "title": "Desc",
+          "type": "string"
+        },
+        "icon": {
+          "description": "Material Symbols 名",
+          "title": "Icon",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "desc",
+        "icon"
+      ],
+      "title": "CardData",
+      "type": "object"
+    },
+    "CardItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9-]{2,24}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "mainTitle": {
+          "title": "Maintitle",
+          "type": "string"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/CardData"
+          },
+          "maxItems": 8,
+          "title": "Cards",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "mainTitle",
+        "cards"
+      ],
+      "title": "CardItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "GeneratedContent+id 的 envelope 版（上游渲染器消费 items[] 数组本身）。",
+  "properties": {
+    "schema": {
+      "const": "cards/1",
+      "default": "cards/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "title": "Episode",
+      "type": "string"
+    },
+    "renderer": {
+      "description": "juya-news-card@<git sha>",
+      "title": "Renderer",
+      "type": "string"
+    },
+    "template": {
+      "default": "claudeStyle",
+      "title": "Template",
+      "type": "string"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/CardItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "episode",
+    "renderer",
+    "items"
+  ],
+  "title": "Cards",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/cards/v1"
+}

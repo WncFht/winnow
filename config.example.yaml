@@ -1,0 +1,36 @@
+llm:
+  base_url: http://127.0.0.1:3033/v1
+  api_key_env: SWE2MAX_API_KEY
+  model: swe-2-max
+  temperature: 0.2
+  max_tokens: 24000
+  batch_size: 24
+tts:
+  engine: edge            # edge|local_indextts|external_api（后两者留接口）
+  voice: zh-CN-YunyangNeural
+  trim: {head: 0.20, tail: 0.78}
+proxy:
+  http: http://127.0.0.1:7890
+  required_check_urls: [https://api.ipify.org]
+alerts:
+  ntfy_url: ""            # 例 https://ntfy.sh/my-topic 或自架
+  deadman_ping_url: ""    # healthchecks.io uuid
+schedule:
+  collect_cron: "30 6 * * *"
+  gate1_deadline: "08:30"
+  gate2_deadline: "09:30"
+  topk_autopick: 14
+  max_items: 20
+render:
+  engine: remotion        # remotion|ffmpeg
+  fps: 30
+  size: [1920,1080]
+  aspect: "16:9"
+  concurrency: 4
+storage:
+  history_db: state/history.sqlite
+  raw_cache_days: 30
+x_collector:
+  nitter_instances: []    # 池，健康分轮换
+  paid_adapter: {enabled: false, api_key_env: X_PAID_KEY}
+wechat: {enabled: false}

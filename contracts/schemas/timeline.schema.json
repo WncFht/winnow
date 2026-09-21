@@ -1,0 +1,275 @@
+{
+  "$defs": {
+    "TimelineItem": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "pattern": "^[a-z0-9-]{2,24}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "number"
+        },
+        "visual": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "显示绑定：此 span 用哪个 item 的帧（默认=自身）。intro/outro 这类非内容 span 复用邻近卡片时用，e.g. outro.visual='kimi' 尾句挂在最后一张卡上。",
+          "title": "Visual"
+        }
+      },
+      "required": [
+        "id",
+        "start",
+        "end"
+      ],
+      "title": "TimelineItem",
+      "type": "object"
+    },
+    "TimelineOverlay": {
+      "additionalProperties": false,
+      "description": "shot/截图弹卡的编译结果：视频计划期的句区间 → 绝对时间窗。",
+      "properties": {
+        "kind": {
+          "default": "shot",
+          "enum": [
+            "shot",
+            "sticker",
+            "lower_third"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "item": {
+          "pattern": "^[a-z0-9-]{2,24}$",
+          "title": "Item",
+          "type": "string"
+        },
+        "src": {
+          "description": "frames/<item>.shot.png 等",
+          "title": "Src",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "number"
+        },
+        "at_sentences": {
+          "description": "来源句区间（编译前的语义输入，审计用）",
+          "items": {
+            "type": "integer"
+          },
+          "title": "At Sentences",
+          "type": "array"
+        }
+      },
+      "required": [
+        "item",
+        "src",
+        "start",
+        "end",
+        "at_sentences"
+      ],
+      "title": "TimelineOverlay",
+      "type": "object"
+    },
+    "TimelineSeg": {
+      "additionalProperties": false,
+      "properties": {
+        "n": {
+          "minimum": 0,
+          "title": "N",
+          "type": "integer"
+        },
+        "seg_id": {
+          "title": "Seg Id",
+          "type": "string"
+        },
+        "item": {
+          "pattern": "^[a-z0-9-]{2,24}$",
+          "title": "Item",
+          "type": "string"
+        },
+        "si": {
+          "minimum": 0,
+          "title": "Si",
+          "type": "integer"
+        },
+        "file": {
+          "title": "File",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "number"
+        },
+        "dur": {
+          "description": "= end-start，冗余落档防算分歧",
+          "exclusiveMinimum": 0,
+          "title": "Dur",
+          "type": "number"
+        },
+        "words": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TimelineWord"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "可选词级时间戳（edge-tts WordBoundary 事件可直接落档，offset 换算为绝对秒）；逐词卡拉 OK 字幕预留，不填也行",
+          "title": "Words"
+        }
+      },
+      "required": [
+        "n",
+        "seg_id",
+        "item",
+        "si",
+        "file",
+        "text",
+        "start",
+        "end",
+        "dur"
+      ],
+      "title": "TimelineSeg",
+      "type": "object"
+    },
+    "TimelineWord": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "number"
+        }
+      },
+      "required": [
+        "text",
+        "start",
+        "end"
+      ],
+      "title": "TimelineWord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "时间轴规范契约（timeline/1）。一切按秒排布；SRT/VTT/ffconcat/render_plan 全是投影。",
+  "properties": {
+    "schema": {
+      "const": "timeline/1",
+      "default": "timeline/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "title": "Episode",
+      "type": "string"
+    },
+    "time_unit": {
+      "const": "seconds",
+      "default": "seconds",
+      "title": "Time Unit",
+      "type": "string"
+    },
+    "total": {
+      "exclusiveMinimum": 0,
+      "title": "Total",
+      "type": "number"
+    },
+    "lead_in": {
+      "default": 0.6,
+      "minimum": 0,
+      "title": "Lead In",
+      "type": "number"
+    },
+    "tail": {
+      "default": 0.8,
+      "minimum": 0,
+      "title": "Tail",
+      "type": "number"
+    },
+    "gap": {
+      "additionalProperties": true,
+      "description": "句间/条间静默模型——重排句序后时间轴可整体重算",
+      "title": "Gap",
+      "type": "object"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/TimelineItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "segs": {
+      "items": {
+        "$ref": "#/$defs/TimelineSeg"
+      },
+      "title": "Segs",
+      "type": "array"
+    },
+    "overlays": {
+      "items": {
+        "$ref": "#/$defs/TimelineOverlay"
+      },
+      "title": "Overlays",
+      "type": "array"
+    }
+  },
+  "required": [
+    "episode",
+    "total",
+    "items",
+    "segs"
+  ],
+  "title": "Timeline",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/timeline/v1"
+}

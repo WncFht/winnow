@@ -1,0 +1,125 @@
+{
+  "$defs": {
+    "FrameFile": {
+      "additionalProperties": false,
+      "properties": {
+        "item": {
+          "pattern": "^[a-z0-9-]{2,24}$",
+          "title": "Item",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "card",
+            "shot",
+            "chrome",
+            "sub",
+            "cover"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "w": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "W"
+        },
+        "h": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "H"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "t": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "kind=shot 时的绝对时间窗（与 timeline.overlays 一致）",
+          "title": "T"
+        }
+      },
+      "required": [
+        "item",
+        "kind",
+        "path",
+        "sha256"
+      ],
+      "title": "FrameFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "frames_manifest/1",
+      "default": "frames_manifest/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "title": "Episode",
+      "type": "string"
+    },
+    "dir": {
+      "title": "Dir",
+      "type": "string"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/FrameFile"
+      },
+      "title": "Files",
+      "type": "array"
+    },
+    "missing": {
+      "description": "声明了但没渲出来的 item.kind（合成时跳过，不炸）",
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing",
+      "type": "array"
+    }
+  },
+  "required": [
+    "episode",
+    "dir",
+    "files"
+  ],
+  "title": "FramesManifest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/frames_manifest/v1"
+}

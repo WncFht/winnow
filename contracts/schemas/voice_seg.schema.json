@@ -1,0 +1,54 @@
+{
+  "additionalProperties": false,
+  "description": "拍平的一句口播 = 一次 TTS 请求。数组序即合成序（n 渲染时派生）。",
+  "properties": {
+    "schema": {
+      "const": "voice_seg/1",
+      "default": "voice_seg/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "seg_id": {
+      "description": "NNN_item_si：与音频文件名同构（去扩展名）",
+      "pattern": "^\\d{3}_[a-z0-9-]+_\\d+$",
+      "title": "Seg Id",
+      "type": "string"
+    },
+    "item": {
+      "pattern": "^[a-z0-9-]{2,24}$",
+      "title": "Item",
+      "type": "string"
+    },
+    "si": {
+      "description": "item 内句序",
+      "minimum": 0,
+      "title": "Si",
+      "type": "integer"
+    },
+    "text": {
+      "description": "纯文本，数字已转可读形式，无任何标记",
+      "title": "Text",
+      "type": "string"
+    },
+    "role": {
+      "default": "body",
+      "enum": [
+        "intro",
+        "body",
+        "outro"
+      ],
+      "title": "Role",
+      "type": "string"
+    }
+  },
+  "required": [
+    "seg_id",
+    "item",
+    "si",
+    "text"
+  ],
+  "title": "VoiceSeg",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/voice_seg/v1"
+}

@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "KeptItem": {
+      "additionalProperties": false,
+      "properties": {
+        "item_key": {
+          "description": "sha256(url_canon)[:16]",
+          "pattern": "^[0-9a-f]{16}$",
+          "title": "Item Key",
+          "type": "string"
+        },
+        "id": {
+          "pattern": "^[a-z0-9-]{2,24}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "section": {
+          "description": "编辑指定的分区 slug（进入 issue.sections）",
+          "title": "Section",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "人工批注（可空）",
+          "title": "Note"
+        }
+      },
+      "required": [
+        "item_key",
+        "id",
+        "section"
+      ],
+      "title": "KeptItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "人工勾选结果。kept[] 数组顺序 = 正片顺序；id 是此后一切 join 键。",
+  "properties": {
+    "schema": {
+      "const": "selected/1",
+      "default": "selected/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "title": "Episode",
+      "type": "string"
+    },
+    "decided_at": {
+      "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+      "title": "Decided At",
+      "type": "string"
+    },
+    "decided_by": {
+      "default": "human",
+      "enum": [
+        "human",
+        "auto"
+      ],
+      "title": "Decided By",
+      "type": "string"
+    },
+    "kept": {
+      "items": {
+        "$ref": "#/$defs/KeptItem"
+      },
+      "minItems": 1,
+      "title": "Kept",
+      "type": "array"
+    },
+    "dropped": {
+      "description": "[{item_key,reason?}] 被人工否掉的，留痕",
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Dropped",
+      "type": "array"
+    }
+  },
+  "required": [
+    "episode",
+    "decided_at",
+    "kept"
+  ],
+  "title": "Selected",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/selected/v1"
+}

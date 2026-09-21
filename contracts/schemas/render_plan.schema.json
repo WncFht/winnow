@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "ASeg": {
+      "additionalProperties": false,
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "at": {
+          "description": "绝对开始秒（adelay 值）",
+          "minimum": 0,
+          "title": "At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "src",
+        "at"
+      ],
+      "title": "ASeg",
+      "type": "object"
+    },
+    "OSeg": {
+      "additionalProperties": false,
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "number"
+        },
+        "xy": {
+          "description": "ffmpeg overlay 表达式 e.g. (main_w-overlay_w)/2:930",
+          "title": "Xy",
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "start",
+        "end",
+        "xy"
+      ],
+      "title": "OSeg",
+      "type": "object"
+    },
+    "VSeg": {
+      "additionalProperties": false,
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "start": {
+          "minimum": 0,
+          "title": "Start",
+          "type": "number"
+        },
+        "end": {
+          "exclusiveMinimum": 0,
+          "title": "End",
+          "type": "number"
+        }
+      },
+      "required": [
+        "src",
+        "start",
+        "end"
+      ],
+      "title": "VSeg",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "完全解析的合成计划——composer 唯一输入，不含任何待推断语义。",
+  "properties": {
+    "schema": {
+      "const": "render_plan/1",
+      "default": "render_plan/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "title": "Episode",
+      "type": "string"
+    },
+    "fps": {
+      "default": 30,
+      "title": "Fps",
+      "type": "integer"
+    },
+    "size": {
+      "default": [
+        1920,
+        1080
+      ],
+      "items": {
+        "type": "integer"
+      },
+      "maxItems": 2,
+      "minItems": 2,
+      "title": "Size",
+      "type": "array"
+    },
+    "total": {
+      "exclusiveMinimum": 0,
+      "title": "Total",
+      "type": "number"
+    },
+    "video_track": {
+      "items": {
+        "$ref": "#/$defs/VSeg"
+      },
+      "title": "Video Track",
+      "type": "array"
+    },
+    "audio_track": {
+      "items": {
+        "$ref": "#/$defs/ASeg"
+      },
+      "title": "Audio Track",
+      "type": "array"
+    },
+    "overlay_track": {
+      "items": {
+        "$ref": "#/$defs/OSeg"
+      },
+      "title": "Overlay Track",
+      "type": "array"
+    }
+  },
+  "required": [
+    "episode",
+    "total",
+    "video_track",
+    "audio_track"
+  ],
+  "title": "RenderPlan",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/render_plan/v1"
+}

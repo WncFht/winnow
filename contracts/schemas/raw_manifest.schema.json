@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "raw_manifest/1",
+      "default": "raw_manifest/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "title": "Episode",
+      "type": "string"
+    },
+    "window": {
+      "additionalProperties": true,
+      "description": "{from,to} RFC3339 抓取窗口",
+      "title": "Window",
+      "type": "object"
+    },
+    "file": {
+      "description": "本批 JSONL 文件名",
+      "title": "File",
+      "type": "string"
+    },
+    "n_items": {
+      "title": "N Items",
+      "type": "integer"
+    },
+    "sources": {
+      "description": "[{name,kind,n,errors:[url+err]}] 每源统计",
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Sources",
+      "type": "array"
+    },
+    "produced_at": {
+      "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+      "title": "Produced At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "episode",
+    "window",
+    "file",
+    "n_items",
+    "sources",
+    "produced_at"
+  ],
+  "title": "RawManifest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/raw_manifest/v1"
+}

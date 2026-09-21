@@ -1,0 +1,1980 @@
+# AI 早报 pipeline 源注册表 — 唯一人工维护文件 (PLAN.md §5.1)
+# 种子: experiments/domains.json (135 域) + experiments/rss_titles.json + research_result.json 逐源实测笔记
+# 通道全部经 2026-09-21 本机实测 (中国大陆直连/本机代理), 未实测的在 note 里标注
+# method: rss|atom|json_api|sitemap_diff|changelog_diff|x|reddit|weibo|wechat|youtube_rss|manual
+# tier:   A=零凭据直连  B=平台采集器(反爬/凭证/池化)
+# proxy:  required(代理挂则跳过)|prefer(优先代理可直连)|direct_only
+# lint:   method∈枚举 / 无重复 feed_url / 0<freshness_sla_h≤168 / max_items_per_source≤200
+
+# ============ Tier A · AI 实验室与厂商官方 ============
+- name: openai_news
+  method: rss
+  tier: A
+  feed_url: "https://openai.com/news/rss.xml"
+  enabled: true
+  failover:
+    - "https://openai.com/sitemap.xml"
+    - "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_openai_news.xml"
+  freshness_sla_h: 36
+  max_items_per_source: 40
+  proxy: prefer
+  note: "1210 条全量归档 feed 非按日期排序,新条目按 guid diff; 实测直连 200"
+
+- name: openai_status
+  method: rss
+  tier: A
+  feed_url: "https://status.openai.com/history.rss"
+  enabled: true
+  failover: []
+  freshness_sla_h: 24
+  max_items_per_source: 20
+  proxy: prefer
+  note: "事故/宕机动历史; 独立 incident feed"
+
+- name: openai_developers
+  method: rss
+  tier: A
+  feed_url: "https://developers.openai.com/rss.xml"
+  enabled: true
+  failover:
+    - "https://developers.openai.com/codex/changelog/"
+  freshness_sla_h: 48
+  max_items_per_source: 40
+  proxy: prefer
+  note: "pubDate 不可信(混 2025/2026),必须按 guid 集合 diff; feed 不含 blog 帖"
+
+- name: anthropic_sitemap
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://www.anthropic.com/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://www.anthropic.com/news"
+    - "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml"
+    - "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "sitemap 535 URL 含 news/engineering/research; /news RSC 267 帖可作交叉校验"
+
+- name: claude_sitemap
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://claude.com/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://claude.com/blog"
+    - "https://claude.com/docs/cowork/changelog/rss.xml"
+    - "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_claude.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "Content-Type 误标 rss+xml 但 body 是标准 urlset,按 sitemap 解析; 展示日期以文章页 JSON-LD 为准"
+
+- name: academy_claude
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://academy.claude.com/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://academy.claude.com/"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "未单独实测; 教学站点,低频"
+
+- name: code_claude
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://code.claude.com/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://code.claude.com/docs/en/changelog"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "未单独实测; Claude Code 文档/changelog 站(疑 Mintlify,可探 .md 版)"
+
+- name: trust_anthropic
+  method: json_api
+  tier: A
+  feed_url: "https://trust.anthropic.com/"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "Vanta SPA; manifest+签名 GraphQL POST(fetchTrustReportUpdates),签名绑 query 文本; 重捕获脚本 experiments/trust-anthropic-monitor/capture_gql.py"
+
+- name: darioamodei
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://darioamodei.com/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://darioamodei.com/"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "条件 GET 304 可用,缓存 ~12h; Content-Type 误标按 body 解析"
+
+- name: google_deepmind_blog
+  method: rss
+  tier: A
+  feed_url: "https://deepmind.google/blog/rss.xml"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: required
+  note: "2026 新发现的原生 feed(vendor-feed-monitor 实测 200); Google 域需代理"
+
+- name: deepmind_institute
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://institute.deepmind.com/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://institute.deepmind.com/"
+  freshness_sla_h: 48
+  max_items_per_source: 10
+  proxy: required
+  note: "865B 干净 urlset 每日 diff; /feed 302→/ 无原生 feed"
+
+- name: blog_google
+  method: rss
+  tier: A
+  feed_url: "https://blog.google/rss/"
+  enabled: true
+  failover:
+    - "https://blog.google/innovation-and-ai/rss/"
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: required
+  note: "catch-all 主 feed; AI 子 feed 滞后,只作预筛信号"
+
+- name: labs_google
+  method: changelog_diff
+  tier: A
+  feed_url: "https://labs.google/"
+  enabled: true
+  failover:
+    - "https://labs.google/sitemap.xml"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: required
+  note: "首页 SSR 卡片 diff(必须 --compressed); sitemap lastmod 批量重建不可信"
+
+- name: notebook_google
+  method: atom
+  tier: A
+  feed_url: "https://workspaceupdates.googleblog.com/feeds/posts/default"
+  enabled: true
+  failover:
+    - "https://news.google.com/rss/search?q=gemini+notebook+when:2d&hl=en-US&gl=US&ceid=US:en"
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: required
+  note: "Gemini Notebook 更新密度最高通道(实测 302→200); 域名本体无 feed"
+
+- name: developer_android_blog
+  method: atom
+  tier: A
+  feed_url: "https://developer.android.com/blog/atom.xml"
+  enabled: true
+  failover:
+    - "https://android-developers.googleblog.com/feeds/posts/default"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: required
+  note: "必须带 Cookie: signin=autosignin 否则 302 进 OAuth 循环"
+
+- name: google_devblog
+  method: atom
+  tier: A
+  feed_url: "https://developers.googleblog.com/feeds/posts/default"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: required
+  note: "Blogger 开发者博客; AI/Agent 内容混在全家桶里靠 LLM 过滤"
+
+- name: ai_meta
+  method: json_api
+  tier: A
+  feed_url: "https://ai.meta.com/api/graphql/"
+  enabled: true
+  failover:
+    - "https://ai.meta.com/blog/"
+    - "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_meta_ai.xml"
+  freshness_sla_h: 36
+  max_items_per_source: 20
+  proxy: prefer
+  note: "POST form-encoded doc_id=9516719638450392(需先从 /blog/ 页正则取 LSD token);HTML 翻页 scrape 是最稳兜底;探针 experiments/aimeta-feed-probe/probe_graphql.py"
+
+- name: apple_ml
+  method: rss
+  tier: A
+  feed_url: "https://machinelearning.apple.com/rss.xml"
+  enabled: true
+  failover:
+    - "https://www.apple.com/newsroom/rss-feed.rss"
+    - "https://developer.apple.com/news/rss/news.rss"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "ML 论文 feed 对 AI 早报最对口;newsroom 实为 Atom 1.0(feedparser 通吃)"
+
+- name: xai_news
+  method: changelog_diff
+  tier: A
+  feed_url: "https://x.ai/news"
+  enabled: true
+  failover:
+    - "https://x.ai/sitemap.xml"
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: prefer
+  note: "SSR 卡片 a[href^=/news/] 含标题+简介+日期(div 文本非 <time>); lastmod 实时"
+
+- name: docs_xai
+  method: changelog_diff
+  tier: A
+  feed_url: "https://docs.x.ai/llms.txt"
+  enabled: true
+  failover:
+    - "https://docs.x.ai/sitemap.xml"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "未单独实测;按 Mintlify 惯例先探 llms.txt,退 sitemap"
+
+- name: mistral_news
+  method: rss
+  tier: A
+  feed_url: "https://mistral.ai/news/rss"
+  enabled: true
+  failover:
+    - "https://mistral.ai/rss.xml"
+    - "https://mistral.ai/sitemap-0.xml"
+  freshness_sla_h: 48
+  max_items_per_source: 30
+  proxy: prefer
+  note: "实测 200(87 items); /rss.xml 301 兜底; description 仅摘要需抓正文页"
+
+- name: cohere_blog
+  method: json_api
+  tier: A
+  feed_url: "https://rjtqmwfu.apicdn.sanity.io/v2025-01-01/data/query/web3-prod?query=*%5B_type%3D%3D%22blogPost%22%26%26(language%3D%3D%22en-US%22%7C%7C!defined(language))%26%26slug.current%20match%20%22blog%2F*%22%5D%7Corder(date%20desc)%5B0...10%5D%7Btitle%2C%22slug%22%3Aslug.current%2Cdate%2Csubtitle%7D"
+  enabled: true
+  failover:
+    - "https://cohere.com/sitemap.xml"
+    - "http://127.0.0.1:23176/cohere/blog"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "Sanity GROQ 免鉴权,一次拿标题/日期/摘要/全文;必须带 en-US 语言过滤防本地化页"
+
+- name: sakana_blog
+  method: atom
+  tier: A
+  feed_url: "https://sakana.ai/feed.xml"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "jekyll-feed 10 条窗口全文内联; entry link 为相对路径需 resolve 到 https://sakana.ai"
+
+- name: qwen_blog
+  method: json_api
+  tier: A
+  feed_url: "https://qwen.ai/api/v2/article/retrieval?language=zh-CN&type=qwen_ai&page=1&page_size=20"
+  enabled: true
+  failover:
+    - "https://qwen.ai/api/v2/article/retrieval?language=en-US&type=qwen_ai&page=1&page_size=20"
+    - "https://qwenlm.github.io/blog/index.xml"
+  freshness_sla_h: 36
+  max_items_per_source: 40
+  proxy: direct_only
+  note: "40 篇全文内联免补抓; zh-CN 拿中文标题; qwenlm.github.io 旧 feed 已冻结仅留档"
+
+- name: kimi_news
+  method: changelog_diff
+  tier: A
+  feed_url: "https://www.kimi.com/news"
+  enabled: true
+  failover:
+    - "https://www.kimi.com/blog"
+    - "https://www.kimi.com/sitemap/sitemap-ug.xml"
+  freshness_sla_h: 36
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "RSC payload 内嵌 8 条 items{id,title,description,dateModified}; 更新频率最高通道"
+
+- name: platform_kimi
+  method: changelog_diff
+  tier: A
+  feed_url: "https://platform.kimi.com/docs/changelog/index.md"
+  enabled: true
+  failover:
+    - "https://platform.kimi.com/docs/llms.txt"
+  freshness_sla_h: 36
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "Mintlify markdown 原生,Update label 按月分块; llms.txt 索引兜底"
+
+- name: platform_deepseek
+  method: changelog_diff
+  tier: A
+  feed_url: "https://api-docs.deepseek.com/updates/"
+  enabled: true
+  failover:
+    - "https://api-docs.deepseek.com/sitemap.xml"
+    - "https://github.com/thevibeworks/deepseek-docs/commits/main.atom"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "Docusaurus SSR(需 -L 跟随斜杠),任意 news 页侧边栏含全量 ~18 条新闻索引; banner API(platform 域)见 experiments/deepseek-verify/banner.json"
+
+- name: platform_qianwenai
+  method: changelog_diff
+  tier: A
+  feed_url: "https://platform.qianwenai.com/docs/changelog/models.md"
+  enabled: true
+  failover:
+    - "https://platform.qianwenai.com/sitemap.xml"
+  freshness_sla_h: 36
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "43 个 dated Update 块; 部分端点已支持 ETag/Last-Modified,内容 hash diff 兜底"
+
+- name: zai_docs
+  method: changelog_diff
+  tier: A
+  feed_url: "https://docs.z.ai/release-notes/new-released.md"
+  enabled: true
+  failover:
+    - "https://docs.z.ai/sitemap.xml"
+    - "https://docs.z.ai/llms.txt"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "Mintlify markdown Update 块(GLM 发布记录); sitemap 66 loc 带真实 lastmod"
+
+- name: docs_bigmodel
+  method: changelog_diff
+  tier: A
+  feed_url: "https://docs.bigmodel.cn/cn/update/new-releases.md"
+  enabled: true
+  failover:
+    - "https://docs.bigmodel.cn/sitemap.xml"
+    - "https://docs.bigmodel.cn/llms.txt"
+  freshness_sla_h: 36
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "最高信号通道; openapi.json diff 可发现新 API(注意需降级 HTTP/1.1 重试截断)"
+
+- name: stepfun_llms
+  method: changelog_diff
+  tier: A
+  feed_url: "https://platform.stepfun.com/docs/llms.txt"
+  enabled: true
+  failover:
+    - "https://www.stepfun.com/"
+    - "https://github.com/stepfun-ai/StepDeepResearch/commits/main.atom"
+    - "https://modelscope.cn/api/v1/models/stepfun-ai/Step-3.7-Flash"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "llms.txt 信号成本比最高; 主站是 2.3KB SPA 壳只能 hash diff; releases.atom 空,改用 commits.atom; 新模型发现仍靠 llms.txt"
+
+- name: mimo_xiaomi
+  method: changelog_diff
+  tier: A
+  feed_url: "https://mimo.xiaomi.com/"
+  enabled: true
+  failover:
+    - "https://github.com/XiaomiMiMo/MiMo/commits/main.atom"
+  freshness_sla_h: 72
+  max_items_per_source: 15
+  proxy: direct_only
+  note: "首页 SSR #blog 卡片 diff;正文按 route→chunk-id→static/js/async/<id>.<hash>.js 二级解析;无需 playwright"
+
+- name: atria_asi
+  method: changelog_diff
+  tier: A
+  feed_url: "https://atria-asi.ai/"
+  enabled: true
+  failover:
+    - "https://github.com/atria-asi/Atria-Dawn-Preview/commits/main.atom"
+    - "https://modelscope.cn/api/v1/models/Shanghai_AI_Laboratory/Atria-Dawn-Preview"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: direct_only
+  note: "上海 AI Lab; 首页条件 GET 304 最便宜; modelscope JSON 有 LastUpdatedTime"
+
+- name: factory_news
+  method: changelog_diff
+  tier: A
+  feed_url: "https://factory.com/news"
+  enabled: true
+  failover:
+    - "https://registry.npmjs.org/droid"
+    - "https://docs.factory.ai/changelog/release-notes"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "RSC payload 63 帖; npm droid 版本流近似日更,最易做 release 信号"
+
+- name: cognition_blog
+  method: changelog_diff
+  tier: A
+  feed_url: "https://cognition.com/blog"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "未单独实测(Devin); SSR 列表页 slug diff 起步"
+
+- name: ampcode_news
+  method: changelog_diff
+  tier: A
+  feed_url: "https://ampcode.com/news"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "未单独实测(Amp); rss_titles 有 /news/* 条目"
+
+- name: bolt_blog
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://bolt.new/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://bolt.new/blog/tag/changelog"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "urlset 56 loc; changelog tag 页全是高信号产品更新卡片"
+
+- name: cline_blog
+  method: rss
+  tier: A
+  feed_url: "https://cline.ghost.io/rss/"
+  enabled: true
+  failover:
+    - "https://cline.ghost.io/tag/insights/rss/"
+    - "https://cline.bot/sitemap.xml"
+  freshness_sla_h: 72
+  max_items_per_source: 15
+  proxy: prefer
+  note: "Ghost 6.x RSS 全文+稳定 guid; feed 窗口滚动按 guid 去重"
+
+- name: zed_blog
+  method: rss
+  tier: A
+  feed_url: "https://zed.dev/blog.rss"
+  enabled: true
+  failover:
+    - "https://zed.dev/stable-releases.rss"
+  freshness_sla_h: 72
+  max_items_per_source: 20
+  proxy: prefer
+  note: "description 仅 ~100 字摘要,正文需抓 link"
+
+- name: delta_changelog
+  method: changelog_diff
+  tier: A
+  feed_url: "https://delta.dev/docs/whats-in-the-latest"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "h2 id=版本号+span 日期,约日更;h2 集合 diff 即可"
+
+- name: vercel_atom
+  method: atom
+  tier: A
+  feed_url: "https://vercel.com/atom"
+  enabled: true
+  failover:
+    - "https://vercel.com/changelog/sitemap.md"
+    - "https://vercel.com/sitemap.xml"
+  freshness_sla_h: 48
+  max_items_per_source: 40
+  proxy: prefer
+  note: "3.6MB 全量历史,ETag 304 可用;正文对 entry link 拼 .md 后缀(feed 内联 XHTML 吞代码块)"
+
+- name: trae_blog
+  method: rss
+  tier: A
+  feed_url: "https://www.trae.ai/rss.xml"
+  enabled: true
+  failover: []
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "字节 IDE 官方 feed(vendor-feed-monitor 实测 200)"
+
+- name: docs_trae
+  method: json_api
+  tier: A
+  feed_url: "https://docs.trae.ai/ide/changelog?_lang=en&__loader=layout"
+  enabled: true
+  failover:
+    - "https://docs.trae.ai/sitemap.xml"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "JSON 1MB 含 busStructure 全站 updated_at;Quill ops 嵌套需递归收集 insert;快照 diff 变更节点"
+
+- name: ollama_blog
+  method: rss
+  tier: A
+  feed_url: "https://ollama.com/blog/rss.xml"
+  enabled: true
+  failover: []
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "vendor-feed-monitor 实测 200"
+
+- name: cursor_blog
+  method: rss
+  tier: A
+  feed_url: "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_cursor.xml"
+  enabled: true
+  failover: []
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "cursor.com 无原生 feed;Olshansk GitHub-Actions 镜像 feed 当日新鲜"
+
+- name: manus_blog
+  method: changelog_diff
+  tier: A
+  feed_url: "https://manus.im/blog"
+  enabled: true
+  failover: []
+  freshness_sla_h: 48
+  max_items_per_source: 10
+  proxy: prefer
+  note: "SSR 含 /blog/* 链接,正则抽取即可(vendor-feed-monitor)"
+
+- name: jina_news
+  method: changelog_diff
+  tier: A
+  feed_url: "https://jina.ai/en-US/news/"
+  enabled: true
+  failover:
+    - "https://mcp.jina.ai/v1"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "10 张 /news/<slug> 卡片 diff,正文页取 article:published_time;mcp 匿名可 tools/call 但非按时间排序"
+
+- name: prismml_news
+  method: changelog_diff
+  tier: A
+  feed_url: "https://prismml.com/news"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "SSR 12 个 role=listitem 条目 slug diff;文章页 NewsArticle JSON-LD 齐全"
+
+- name: typesafe_sitemap
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://typesafe.ai/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://docs.typesafe.ai/sitemap.xml"
+    - "https://docs.typesafe.ai/llms.txt"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "If-Modified-Since/If-None-Match 均支持;docs lastmod 抓文档/API 编辑;blog 页是空壳勿用"
+
+- name: unbiased_sitemap
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://unbiased.ai/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://unbiased.ai/changelog/"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "53 URL 含 /blog /changelog;changelog 页 article.release 块信号最高;github 兜底已死(repo 私有)"
+
+- name: elevenlabs_changelog
+  method: rss
+  tier: A
+  feed_url: "https://elevenlabs.io/docs/changelog.rss"
+  enabled: true
+  failover: []
+  freshness_sla_h: 48
+  max_items_per_source: 30
+  proxy: prefer
+  note: "buildwithfern RSS 全文;items 非按日期排序,按 guid(=link)去重排序"
+
+- name: hacktron_blog
+  method: rss
+  tier: A
+  feed_url: "https://www.hacktron.ai/rss.xml"
+  enabled: true
+  failover:
+    - "https://www.hacktron.ai/sitemap-0.xml"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "feed 即正文(content:encoded);ETag+Last-Modified 条件 GET 304 实测"
+
+- name: rubyhack
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://rubyhack.ai/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://rubyhack.ai/"
+  freshness_sla_h: 168
+  max_items_per_source: 5
+  proxy: prefer
+  note: "单页爆料站(OpenAI agent 攻 RubyGems);首页条件 GET 304 便宜,盯住即可"
+
+- name: agenthotline_forum
+  method: changelog_diff
+  tier: A
+  feed_url: "https://www.agenthotline.ai/forum"
+  enabled: true
+  failover:
+    - "https://www.agenthotline.ai/forum/"
+  freshness_sla_h: 24
+  max_items_per_source: 20
+  proxy: prefer
+  note: "正则抽 AH-[0-9a-f]{8} 与已见集合 diff;/api/reports 401 死路;RSC payload(带 RSC:1 头)更小可换"
+
+- name: mathandai
+  method: changelog_diff
+  tier: A
+  feed_url: "https://mathandai.org/"
+  enabled: true
+  failover:
+    - "https://mathandai.org/endorsers.php?page=1"
+  freshness_sla_h: 168
+  max_items_per_source: 5
+  proxy: prefer
+  note: "菲尔兹奖得主联署声明站;endorsers 计数+签署名单 diff,一次性事件源"
+
+- name: aema_blog
+  method: rss
+  tier: A
+  feed_url: "https://www.aema.ai/blog?format=rss"
+  enabled: true
+  failover:
+    - "https://www.aema.ai/blog?format=json"
+    - "https://www.aema.ai/sitemap.xml"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "item pubDate 是模板假日期(2019),排序/去重必须用 guid/link;json 版 updatedOn 为真值"
+
+- name: ben_evans
+  method: rss
+  tier: A
+  feed_url: "https://www.ben-evans.com/benedictevans/?format=rss"
+  enabled: true
+  failover:
+    - "https://www.ben-evans.com/benedictevans/?format=json"
+  freshness_sla_h: 168
+  max_items_per_source: 20
+  proxy: prefer
+  note: "全文 content:encoded;约月更,20 条窗口足够"
+
+- name: lastweekin
+  method: rss
+  tier: A
+  feed_url: "https://lastweekin.ai/feed"
+  enabled: true
+  failover:
+    - "https://lastweekin.ai/api/v1/archive?sort=new&limit=20&offset=0"
+  freshness_sla_h: 168
+  max_items_per_source: 20
+  proxy: prefer
+  note: "Substack 全文+mp3 enclosure;周更 1-2 篇"
+
+- name: therundown
+  method: rss
+  tier: A
+  feed_url: "https://www.therundown.ai/feed"
+  enabled: true
+  failover:
+    - "https://www.therundown.ai/articles"
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: prefer
+  note: "description 是 teaser,正文抓 <article>; <category> 可免费预分类;日更 2-4 次轮询"
+
+- name: thegradient
+  method: rss
+  tier: A
+  feed_url: "https://thegradient.pub/rss/"
+  enabled: true
+  failover:
+    - "https://thegradient.pub/"
+  freshness_sla_h: 168
+  max_items_per_source: 10
+  proxy: prefer
+  note: "Ghost feed 全文内联; /feed/ 301→/rss/ 别名"
+
+- name: semianalysis
+  method: rss
+  tier: A
+  feed_url: "https://semianalysis.com/feed"
+  enabled: true
+  failover:
+    - "https://semianalysis.com/api/v1/archive?sort=new&limit=20&offset=0"
+  freshness_sla_h: 72
+  max_items_per_source: 20
+  proxy: prefer
+  note: "content:encoded 为免费 preview 截断,够 LLM 过滤;全文需付费 sid 后置"
+
+- name: stratechery
+  method: rss
+  tier: A
+  feed_url: "https://stratechery.com/feed"
+  enabled: true
+  failover:
+    - "https://public-api.wordpress.com/wp/v2/sites/188043415/posts"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "免费文全文,付费 Daily Update 仅一句话但 title+link 够分诊;WP v2 API 备选"
+
+- name: platformer
+  method: rss
+  tier: A
+  feed_url: "https://www.platformer.news/rss/"
+  enabled: true
+  failover:
+    - "https://www.platformer.news/sitemap-posts.xml"
+  freshness_sla_h: 72
+  max_items_per_source: 15
+  proxy: prefer
+  note: "免费文取 content:encoded,付费文标 paywalled;platformer.substack.com 旧 feed 冻结勿用"
+
+- name: epoch_ai
+  method: rss
+  tier: A
+  feed_url: "https://epochai.substack.com/feed"
+  enabled: true
+  failover:
+    - "https://epochai.substack.com/api/v1/archive?sort=new&limit=20&offset=0"
+    - "https://epoch.ai/sitemap.xml"
+  freshness_sla_h: 168
+  max_items_per_source: 20
+  proxy: prefer
+  note: "全文 content:encoded;sitemap 无 lastmod 只能 URL 集合 diff"
+
+- name: artificialanalysis
+  method: changelog_diff
+  tier: A
+  feed_url: "https://artificialanalysis.ai/changelog"
+  enabled: true
+  failover: []
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "SSR 47 个 dated <h4>+内嵌 RSC JSON(dateLa/type/title/version);新基准评测在此首发"
+
+- name: openrouter_models
+  method: json_api
+  tier: A
+  feed_url: "https://openrouter.ai/api/v1/models"
+  enabled: true
+  failover:
+    - "https://openrouter.ai/blog/feed.xml"
+    - "https://github.com/OpenRouterTeam/docs/commits/main.atom"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "446 模型带 created 时间戳,每日 diff=新模型上架(最高频信号);stealth 模型也经此曝光"
+
+- name: help_openai
+  method: changelog_diff
+  tier: A
+  feed_url: "https://help.openai.com/en/"
+  enabled: true
+  failover:
+    - "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "裸 curl 403 CF managed challenge,必须 curl_cffi impersonate=chrome;集合页 diff /en/articles/* URL 集"
+
+- name: minimax_news
+  method: changelog_diff
+  tier: A
+  feed_url: "https://www.minimaxi.com/en/news"
+  enabled: false
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "SPA 几乎无可抽链接,JSON API 未找到;MiniMax 发布经 github releases/公众号覆盖,暂停用"
+
+# ============ Tier A · 论文/模型/代码 ============
+- name: arxiv_csai
+  method: rss
+  tier: A
+  feed_url: "https://rss.arxiv.org/rss/cs.AI"
+  enabled: true
+  failover:
+    - "https://export.arxiv.org/api/query?search_query=cat:cs.AI&sortBy=submittedDate&sortOrder=descending&max_results=50"
+  freshness_sla_h: 24
+  max_items_per_source: 200
+  proxy: prefer
+  note: "日更 feed;只取 announce_type==new 并按 versioned guid 去重;周末 skipDays"
+
+- name: arxiv_cscl
+  method: rss
+  tier: A
+  feed_url: "https://rss.arxiv.org/rss/cs.CL"
+  enabled: true
+  failover:
+    - "https://export.arxiv.org/api/query?search_query=cat:cs.CL&sortBy=submittedDate&sortOrder=descending&max_results=50"
+  freshness_sla_h: 24
+  max_items_per_source: 200
+  proxy: prefer
+  note: "NLP/LLM 主类目;同 cs.AI 规则"
+
+- name: papers_cool
+  method: atom
+  tier: A
+  feed_url: "https://papers.cool/arxiv/cs.AI/feed"
+  enabled: true
+  failover: []
+  freshness_sla_h: 24
+  max_items_per_source: 150
+  proxy: prefer
+  note: "当日 listing ~125 条;entry updated 是论文自身日期,必须按 <id> diff 而非日期"
+
+- name: alphaxiv_feed
+  method: json_api
+  tier: A
+  feed_url: "https://api.alphaxiv.org/papers/v3/feed?sort=Recent&interval=3%20Days&pageNum=1&pageSize=200"
+  enabled: true
+  failover:
+    - "https://api.alphaxiv.org/papers/v3/feed?sort=Hot&interval=7%20Days&pageNum=1&pageSize=50"
+  freshness_sla_h: 24
+  max_items_per_source: 200
+  proxy: prefer
+  note: "卡片含 abstract/topics/organization/github_stars 等,LLM 过滤零补抓;Hot 版带互动指标"
+
+- name: huggingface_daily
+  method: json_api
+  tier: A
+  feed_url: "https://huggingface.co/api/daily_papers"
+  enabled: true
+  failover:
+    - "https://huggingface.co/api/models?sort=trendingScore&direction=-1"
+    - "https://huggingface.co/blog/feed.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 60
+  proxy: prefer
+  note: "50 条当日论文含 upvotes;models trending 榜抓新开源权重;固定窗限流 q=500/300s"
+
+- name: zenodo_datacite
+  method: json_api
+  tier: A
+  feed_url: "https://api.datacite.org/dois?client-id=cern.zenodo&sort=-created&page[size]=50"
+  enabled: true
+  failover: []
+  freshness_sla_h: 48
+  max_items_per_source: 50
+  proxy: prefer
+  note: "zenodo.org api/oai2d 均被反爬 403(非 CN 问题);datacite 旁路查 Zenodo DOI"
+
+- name: science_news
+  method: rss
+  tier: A
+  feed_url: "https://www.science.org/rss/news_current.xml"
+  enabled: true
+  failover:
+    - "https://api.crossref.org/journals/0036-8075/works?sort=published&order=desc&rows=20"
+  freshness_sla_h: 24
+  max_items_per_source: 20
+  proxy: prefer
+  note: "RSS1.0 10 条窗口,日更;需 1-2 次/日轮询"
+
+- name: github_search
+  method: json_api
+  tier: A
+  feed_url: "https://api.github.com/search/repositories?q=topic:llm&sort=updated&order=desc&per_page=50"
+  enabled: true
+  failover:
+    - "https://github.com/trending?since=daily"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: prefer
+  note: "新仓发现在 query 加 created:>{T-2d} 收窄(实测匿名可用);配额紧张时上本机 gh token(5000/h)"
+
+- name: github_releases_watch
+  method: atom
+  tier: A
+  feed_url: "https://github.com/vllm-project/vllm/releases.atom"
+  enabled: true
+  failover:
+    - "https://github.com/ggml-org/llama.cpp/releases.atom"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "旗舰 OSS repo release 雷达样板行;扩表时每 repo 一行(vllm/sglang/llama.cpp/ollama…)"
+
+- name: rsshub_routes
+  method: json_api
+  tier: A
+  feed_url: "https://docs.rsshub.app/routes.json"
+  enabled: true
+  failover:
+    - "https://github.com/DIYgod/RSSHub/commits/master.atom"
+  freshness_sla_h: 168
+  max_items_per_source: 20
+  proxy: prefer
+  note: "生态雷达:8.5MB routes.json diff=新增可采路由; rsshub.app 本体 403 不影响此通道"
+
+# ============ Tier A · 英文媒体 ============
+- name: bloomberg_tech
+  method: rss
+  tier: A
+  feed_url: "https://www.bloomberg.com/feeds/technology/news.rss"
+  enabled: true
+  failover: []
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "实测直连 200 含当日 AI 报道;无独立 AI feed 用 tech 频道"
+
+- name: bloomberglaw_ai
+  method: json_api
+  tier: A
+  feed_url: "https://bread-api.bloomberglaw.com/graphql"
+  enabled: true
+  failover:
+    - "https://news.bloomberglaw.com/artificial-intelligence"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "POST GraphQL 免鉴权;articles(channelIds:[AI-ch 00000188-05d6-db7f-a7e8-f7d6f0170000]) 按 postedDate desc;含 free 标记"
+
+- name: reuters_sitemap
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://www.reuters.com/arc/outboundfeeds/news-sitemap/?from=0"
+  enabled: true
+  failover:
+    - "https://news.google.com/rss/search?q=site:reuters.com+when:2d&hl=en-US&gl=US&ceid=US:en"
+    - "https://rsshub.rssforever.com/reuters/technology"
+  freshness_sla_h: 24
+  max_items_per_source: 100
+  proxy: prefer
+  note: "Arc outboundfeeds 50/页,&from=0..500 翻 ~48h 滚动;最新条目分钟级"
+
+- name: wsj_gnews
+  method: rss
+  tier: A
+  feed_url: "https://news.google.com/rss/search?q=site:wsj.com+when:2d&hl=en-US&gl=US&ceid=US:en"
+  enabled: true
+  failover:
+    - "https://feeds.a.dj.com/rss/RSSWhatsNews.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 60
+  proxy: required
+  note: "www.wsj.com 本体 TLS reset 只拿标题层;Google News 发现层+官方 RSSWhatsNews 校验"
+
+- name: scmp_tech
+  method: rss
+  tier: A
+  feed_url: "https://www.scmp.com/rss/91/feed/"
+  enabled: true
+  failover:
+    - "https://apigw.scmp.com/content-delivery/v2"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: prefer
+  note: "Tech 频道实测最新 ~5min;description 3-4 句可直接喂 LLM;link 去 utm_source=rss_feed"
+
+- name: theverge_ai
+  method: atom
+  tier: A
+  feed_url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+  enabled: true
+  failover:
+    - "https://www.theverge.com/rss/index.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "AI 子 feed 降噪最佳;/rss/ai/index.xml 863B 空壳勿用"
+
+- name: arstechnica_ai
+  method: rss
+  tier: A
+  feed_url: "https://arstechnica.com/ai/feed/"
+  enabled: true
+  failover:
+    - "https://arstechnica.com/feed/"
+    - "https://arstechnica.com/tag/openai/feed/"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "AI 栏目主源;全站 feed 兜底收安全/政策类 AI 稿;tag feed 可做厂商追踪"
+
+- name: wired_ai
+  method: rss
+  tier: A
+  feed_url: "https://www.wired.com/feed/tag/ai/latest/rss"
+  enabled: true
+  failover:
+    - "https://www.wired.com/feed/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "AI tag feed;全量 /feed/rss 50 条兜底;cache 300s 每天 1-2 次即可"
+
+- name: techcrunch
+  method: json_api
+  tier: A
+  feed_url: "https://techcrunch.com/wp-json/wp/v2/posts?per_page=20"
+  enabled: true
+  failover:
+    - "https://techcrunch.com/category/artificial-intelligence/feed/"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: prefer
+  note: "content.rendered 全文直给,after= 增量;/tag/artificial-intelligence/feed/ 已冻结勿用(用 /category/)"
+
+- name: venturebeat
+  method: rss
+  tier: A
+  feed_url: "https://venturebeat.com/feed/"
+  enabled: true
+  failover:
+    - "https://news.google.com/rss/search?q=site:venturebeat.com&hl=en-US&gl=US&ceid=US:en"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "裸 curl 429 Vercel challenge,需 curl_cffi impersonate=chrome(实测 200);per-day sitemap 备用"
+
+- name: businessinsider
+  method: atom
+  tier: A
+  feed_url: "https://feeds.businessinsider.com/custom/all"
+  enabled: true
+  failover:
+    - "https://www.businessinsider.com/sitemap/google-news.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "免费全文 content+rel=next 分页;www.businessinsider.com/rss 301 同目标"
+
+- name: fortune_ai
+  method: json_api
+  tier: A
+  feed_url: "https://fortune.com/wp-json/wp/v2/posts?section=447824447&per_page=20"
+  enabled: true
+  failover: []
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "section=447824447 为 AI 专区(服务端预过滤);content.rendered 全文绕过计量墙"
+
+- name: technologyreview
+  method: json_api
+  tier: A
+  feed_url: "https://www.technologyreview.com/wp-json/wp/v2/posts?per_page=20"
+  enabled: true
+  failover:
+    - "https://www.technologyreview.com/feed/"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: prefer
+  note: "MIT TR;WP REST 全文不受计量墙影响,after/per_page=100 增量回填"
+
+- name: thedecoder
+  method: json_api
+  tier: A
+  feed_url: "https://the-decoder.com/wp-json/wp/v2/posts?per_page=20"
+  enabled: true
+  failover:
+    - "https://the-decoder.com/feed/"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: prefer
+  note: "WP REST 一次拿增量+全文;robots 对 feed 有争议写法,API 最稳"
+
+- name: theinformation
+  method: atom
+  tier: A
+  feed_url: "https://www.theinformation.com/feed"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: prefer
+  note: "20 条/~3 天,briefing 全文+文章 preview;ETag+条件 GET 304 实测;s-maxage=60"
+
+- name: blog_mozilla
+  method: rss
+  tier: A
+  feed_url: "https://blog.mozilla.org/feed/"
+  enabled: true
+  failover:
+    - "https://blog.mozilla.org/en/category/ai/feed/"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "全文 content:encoded;AI 类目月产 1-2 篇,用全量 feed+LLM 过滤防漏"
+
+- name: blog_jetbrains_ai
+  method: rss
+  tier: A
+  feed_url: "https://blog.jetbrains.com/ai/feed/"
+  enabled: true
+  failover:
+    - "https://blog.jetbrains.com/junie/feed/"
+    - "https://blog.jetbrains.com/feed/"
+  freshness_sla_h: 48
+  max_items_per_source: 20
+  proxy: prefer
+  note: "ETag+Last-Modified 条件 GET;Junie 编码 agent 高相关"
+
+- name: blog_ferstar
+  method: rss
+  tier: A
+  feed_url: "https://blog.ferstar.org/index.xml"
+  enabled: true
+  failover:
+    - "https://blog.ferstar.org/en/index.xml"
+    - "https://blog.ferstar.org/index.json"
+  freshness_sla_h: 48
+  max_items_per_source: 15
+  proxy: prefer
+  note: "独立博客(智谱 ZCode 爆料源);吞吐抖动,GET 60-90s 超时+1-2 次重试"
+
+- name: github_blog
+  method: rss
+  tier: A
+  feed_url: "https://github.blog/feed/"
+  enabled: true
+  failover:
+    - "https://github.blog/all.atom"
+  freshness_sla_h: 36
+  max_items_per_source: 20
+  proxy: prefer
+  note: "ETag/If-Modified-Since 均 304,轮询近零成本;max-age=300"
+
+- name: github_changelog
+  method: rss
+  tier: A
+  feed_url: "https://github.blog/changelog/feed/"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: prefer
+  note: "changelog.github.com 已死(TLS reset),官方 Changelog 迁至 github.blog 此分类"
+
+# ============ Tier A · 中文媒体与社区 ============
+- name: cnbeta
+  method: rss
+  tier: A
+  feed_url: "https://www.cnbeta.com.tw/backend.php"
+  enabled: true
+  failover:
+    - "https://www.cnbeta.com.tw/home/more"
+  freshness_sla_h: 24
+  max_items_per_source: 100
+  proxy: direct_only
+  note: "150 条/~2 天摘要 feed;/home/more JSON 需先抓 csrf-token+cookie+X-Requested-With"
+
+- name: ithome
+  method: rss
+  tier: A
+  feed_url: "https://www.ithome.com/rss/"
+  enabled: true
+  failover:
+    - "https://api.ithome.com/json/newslist/news"
+  freshness_sla_h: 24
+  max_items_per_source: 60
+  proxy: direct_only
+  note: "窗口仅 ~3h,需 1-2h 轮询+guid 去重;description 即全文;newscontent/<id> 补 tags"
+
+- name: huxiu
+  method: rss
+  tier: A
+  feed_url: "https://rss.huxiu.com/"
+  enabled: true
+  failover:
+    - "https://moment-api.huxiu.com/web-v3/moment/feed"
+  freshness_sla_h: 24
+  max_items_per_source: 90
+  proxy: direct_only
+  note: "91 条含今日,description 为完整正文 CDATA(中位 8.7KB);moment-api POST 需 platform=www"
+
+- name: infoq_ai
+  method: json_api
+  tier: A
+  feed_url: "https://www.infoq.cn/public/v1/article/getList"
+  enabled: true
+  failover:
+    - "https://www.infoq.cn/feed"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: direct_only
+  note: "POST {id:31,size:30}=AI&大模型预过滤;my/recommond 必须带 Referer+Origin 否则 451;/article/<uuid> SSR 补全文"
+
+- name: jiqizhixin
+  method: json_api
+  tier: A
+  feed_url: "https://www.jiqizhixin.com/api/article_library/articles.json?sort=time&page=1&per=20"
+  enabled: true
+  failover:
+    - "https://www.jiqizhixin.com/shared/sitemap.xml.gz"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: direct_only
+  note: "机器之心内部 JSON API 免鉴权;官方 RSS 已停售;详情 /api/article_library/articles/{uuid}"
+
+- name: juejin_ai
+  method: json_api
+  tier: A
+  feed_url: "https://api.juejin.cn/recommend_api/v1/article/recommend_cate_feed"
+  enabled: true
+  failover:
+    - "https://api.juejin.cn/content_api/v1/aicoding/content"
+    - "https://juejin.cn/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: direct_only
+  note: "POST cate_id=6809637773935378440(AI) sort_type=300 cursor 分页;view/digg_count 可作预筛"
+
+- name: oschina_ai
+  method: json_api
+  tier: A
+  feed_url: "https://www.oschina.net/ApiHomeNew/homeListByBlogTime?type=4&obj_type=3"
+  enabled: true
+  failover:
+    - "https://www.oschina.net/ApiHomeNew/homeListByNewType?type=9998&obj_type=4"
+    - "https://www.oschina.net/news/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: direct_only
+  note: "type=4=AI&大模型博客板块(RSS 没有的增量);正文 apiv1.oschina.net/oschinapi/blog/detail?id={obj_id}"
+
+- name: qbitai
+  method: json_api
+  tier: A
+  feed_url: "https://www.qbitai.com/wp-json/wp/v2/posts?per_page=20"
+  enabled: true
+  failover:
+    - "https://www.qbitai.com/feed"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: direct_only
+  note: "量子位;WP REST 全文+after 增量+per_page=100;RSS 仅 10 条 ~18h 窗作降级"
+
+- name: sspai
+  method: json_api
+  tier: A
+  feed_url: "https://sspai.com/api/v1/article/index/page/get?limit=20&offset=0"
+  enabled: true
+  failover:
+    - "https://sspai.com/api/v1/article/tag/page/get?tag=%E6%B4%BE%E6%97%A9%E6%8A%A5"
+    - "https://sspai.com/feed"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "offset=0 只回 10 条按 offset 分页;派早报(post_type=3)正文在 body_extends[i].body,工作日 06:30-08:30 发"
+
+- name: leiphone
+  method: rss
+  tier: A
+  feed_url: "https://www.leiphone.com/feed"
+  enabled: true
+  failover:
+    - "https://www.leiphone.com/category/ai"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "雷峰网;description 为全文 HTML;category/ai SSR 页可 scrape 兜底;sitemap 陈旧勿用"
+
+- name: landian_ai
+  method: json_api
+  tier: A
+  feed_url: "https://www.landian.news/wp-json/wp/v2/posts?categories=10983&per_page=50"
+  enabled: true
+  failover:
+    - "https://www.landian.news/feed"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "landiannews.cn 已失效→www.landian.news;categories=10983 人工智能专栏;after= 增量"
+
+- name: tmtpost
+  method: json_api
+  tier: A
+  feed_url: "https://api.tmtpost.com/v1/lists/new?limit=20"
+  enabled: true
+  failover:
+    - "https://api.tmtpost.com/v1/categories/multi_content/list?subtype=post&category_guid=6916385&limit=20"
+    - "https://api.tmtpost.com/v1/word/list?limit=40"
+    - "https://www.tmtpost.com/feed"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: direct_only
+  note: "钛媒体;必须带 header app-version: web1.0;AGI 预筛 category_guid=6916385;word/list 快报按时间窗;正文 v1/posts/<id>"
+
+- name: zhidx
+  method: json_api
+  tier: A
+  feed_url: "https://zhidx.com/wp-json/wp/v2/posts?per_page=30"
+  enabled: true
+  failover:
+    - "https://zhidx.com/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "智东西;WP API 比 RSS 快 ~20h(RSS 滞后严重);content.rendered 全文"
+
+- name: kr36_newsflash
+  method: changelog_diff
+  tier: A
+  feed_url: "https://www.36kr.com/newsflashes"
+  enabled: true
+  failover:
+    - "http://127.0.0.1:23176/36kr/newsflashes"
+    - "https://36kr.com/information/web_news/"
+  freshness_sla_h: 24
+  max_items_per_source: 40
+  proxy: direct_only
+  note: "36氪快讯;SSR itemList 正则抽 20 条(templateMaterial.itemId/widgetTitle/widgetContent/publishTime);web_news 需解 Volcano PoW(sha256 爆破 <0.1s)"
+
+- name: csdn_geek
+  method: rss
+  tier: A
+  feed_url: "https://rss.csdn.net/csdngeeknews/rss/map"
+  enabled: true
+  failover:
+    - "https://www.csdn.net/"
+  freshness_sla_h: 36
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "极客日报 digest;首页 __INITIAL_STATE__ 可解析 headlines/info-list;正文页 #content_views SSR"
+
+- name: ifanr
+  method: rss
+  tier: A
+  feed_url: "https://www.ifanr.com/feed"
+  enabled: true
+  failover:
+    - "https://sso.ifanr.com/api/v5/wp/web-feed/?limit=20&offset=0"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "爱范儿;全文 content:encoded+封面;sso api 带 meta.next 分页(total 53646)"
+
+- name: segmentfault_llm
+  method: atom
+  tier: A
+  feed_url: "https://segmentfault.com/feeds/tag/llm"
+  enabled: true
+  failover:
+    - "https://segmentfault.com/feeds/tag/chatgpt"
+    - "https://segmentfault.com/feeds/questions"
+  freshness_sla_h: 48
+  max_items_per_source: 15
+  proxy: direct_only
+  note: "AI 标签问答流,分钟级新鲜但噪声大;blogs feed 轮换极慢(停在 2026-06)勿作主源"
+
+- name: zhihu_qbitai
+  method: json_api
+  tier: A
+  feed_url: "https://zhuanlan.zhihu.com/api/columns/qbitai/articles?limit=20"
+  enabled: true
+  failover:
+    - "https://api.zhihu.com/topstory/hot-list?limit=30"
+    - "https://news-at.zhihu.com/api/4/news/latest"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "专栏 API 全文内联免鉴权;可加列:paperweekly/aiera/xixiaoyao/jiqizhixin;匿名 ~50req/IP 限速"
+
+- name: bilibili_newlist
+  method: json_api
+  tier: A
+  feed_url: "https://api.bilibili.com/x/web-interface/newlist?rid=36&ps=20"
+  enabled: true
+  failover:
+    - "https://api.bilibili.com/x/web-interface/popular"
+    - "https://www.bilibili.com/sitemap/newlist.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "rid=36 知识区 20 条当日新稿按 bvid diff;view 补简介须带任意 buvid3 cookie+Referer 否则 412 PoW"
+
+- name: xiaoyuzhoufm_ai
+  method: json_api
+  tier: A
+  feed_url: "https://www.xiaoyuzhoufm.com/podcast/69ae8553130c35a426beb50a"
+  enabled: true
+  failover:
+    - "https://xyzrank.com/api/new-episodes"
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: direct_only
+  note: "有点Yi思 AI 播客;adapter 走 _next/data/{buildId}/podcast/{pid}.json(buildId 从首页 __NEXT_DATA__ 取);shownotes+enclosure,ASR 转写 TODO;种子 experiments/xiaoyuzhoufm/poll.py"
+
+- name: googlenews_ai
+  method: rss
+  tier: A
+  feed_url: "https://news.google.com/rss/search?q=artificial+intelligence+when:1d&hl=en-US&gl=US&ceid=US:en"
+  enabled: true
+  failover: []
+  freshness_sla_h: 24
+  max_items_per_source: 100
+  proxy: required
+  note: "泛用兜底发现层;同题多源聚合,去重靠下游 dedup;历史上在 CN 不稳定故 required"
+
+- name: hn_algolia
+  method: json_api
+  tier: A
+  feed_url: "https://hn.algolia.com/api/v1/search?tags=front_page"
+  enabled: true
+  failover:
+    - "https://hacker-news.firebaseio.com/v0/topstories.json"
+    - "https://news.ycombinator.com/rss"
+    - "https://hnrss.org/newest"
+  freshness_sla_h: 24
+  max_items_per_source: 100
+  proxy: prefer
+  note: "增量用 search_by_date?tags=story&numericFilters=created_at_i>{T-1d_ts}(单日 ~818 条);firebase 官方 API 兜底"
+
+- name: lobsters
+  method: json_api
+  tier: A
+  feed_url: "https://lobste.rs/newest.json"
+  enabled: true
+  failover:
+    - "https://lobste.rs/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: prefer
+  note: "25 条/页含 score/tags/description_plain;page=N.json 翻页无重叠"
+
+- name: linuxdo
+  method: rss
+  tier: A
+  feed_url: "https://linux.do/top.rss?period=daily"
+  enabled: true
+  failover:
+    - "https://linux.do/latest.rss"
+    - "https://linux.do/c/news/34.rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "L 站;daily top 30 条 AI 密度高(智谱/Qwen/GPT-Load 类);请求间隔≥10s 防限流"
+
+- name: producthunt
+  method: atom
+  tier: A
+  feed_url: "https://www.producthunt.com/feed"
+  enabled: true
+  failover:
+    - "https://api.producthunt.com/v2/api/graphql"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: prefer
+  note: "唯一匿名面,50 entry 实时排名;全天重排必须按 Post/<数字id> 持久去重;GraphQL 免费 OAuth token 可解锁 votes/topics"
+
+# ============ Tier B · 平台采集器 ============
+# X: 四路按序 = nitter 池 → x.com SSR 解析 → syndication → 付费 adapter(off)
+#   nitter 实测活实例(2026-09-21): meowing.monster(主) jaydenha.uk thepixora(慢备)
+#   池维护来源: status.d420.de / twiiit.com / nitter wiki;非浏览器 UA
+- name: x_openai
+  method: x
+  tier: B
+  feed_url: "https://x.com/OpenAI"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/OpenAI/rss"
+    - "https://nitter.jaydenha.uk/OpenAI/rss"
+    - "https://nitter.thepixora.com/OpenAI/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "handle 确认;dedup 按 link 中 status id"
+
+- name: x_anthropic
+  method: x
+  tier: B
+  feed_url: "https://x.com/AnthropicAI"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/AnthropicAI/rss"
+    - "https://nitter.jaydenha.uk/AnthropicAI/rss"
+    - "https://nitter.thepixora.com/AnthropicAI/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "handle 确认(@AnthropicAI)"
+
+- name: x_googleai
+  method: x
+  tier: B
+  feed_url: "https://x.com/GoogleAI"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/GoogleAI/rss"
+    - "https://nitter.jaydenha.uk/GoogleAI/rss"
+    - "https://nitter.thepixora.com/GoogleAI/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "handle 较确信(@GoogleAI 为 Google AI 官方);首次跑验证"
+
+- name: x_aiatmeta
+  method: x
+  tier: B
+  feed_url: "https://x.com/AIatMeta"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/AIatMeta/rss"
+    - "https://nitter.jaydenha.uk/AIatMeta/rss"
+    - "https://nitter.thepixora.com/AIatMeta/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "handle 存疑(也可能是 @MetaAI);首轮若 404 改 MetaAI"
+
+- name: x_deepseek
+  method: x
+  tier: B
+  feed_url: "https://x.com/deepseek_ai"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/deepseek_ai/rss"
+    - "https://nitter.jaydenha.uk/deepseek_ai/rss"
+    - "https://nitter.thepixora.com/deepseek_ai/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "handle 存疑(@deepseek_ai);首轮验证,备 @deepseek"
+
+- name: x_kaborative
+  method: x
+  tier: B
+  feed_url: "https://x.com/kaborative"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/kaborative/rss"
+    - "https://nitter.jaydenha.uk/kaborative/rss"
+    - "https://nitter.thepixora.com/kaborative/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "handle 存疑(任务点名,语义不确定);首轮验证后再留/删"
+
+- name: x_sama
+  method: x
+  tier: B
+  feed_url: "https://x.com/sama"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/sama/rss"
+    - "https://nitter.jaydenha.uk/sama/rss"
+    - "https://nitter.thepixora.com/sama/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "Sam Altman 本人,rss_titles 多条一手爆料源"
+
+- name: x_chatgpt
+  method: x
+  tier: B
+  feed_url: "https://x.com/ChatGPT"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/ChatGPT/rss"
+    - "https://nitter.jaydenha.uk/ChatGPT/rss"
+    - "https://nitter.thepixora.com/ChatGPT/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "ChatGPT 产品号,rss_titles 多条功能发布源"
+
+- name: x_thsottiaux
+  method: x
+  tier: B
+  feed_url: "https://x.com/thsottiaux"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/thsottiaux/rss"
+    - "https://nitter.jaydenha.uk/thsottiaux/rss"
+    - "https://nitter.thepixora.com/thsottiaux/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "Tibo(OpenAI 工程师),Codex/reset 一手消息高频源"
+
+- name: x_elonmusk
+  method: x
+  tier: B
+  feed_url: "https://x.com/elonmusk"
+  enabled: true
+  failover:
+    - "https://nitter.meowing.monster/elonmusk/rss"
+    - "https://nitter.jaydenha.uk/elonmusk/rss"
+    - "https://nitter.thepixora.com/elonmusk/rss"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: required
+  note: "Grok/xAI 发布节奏经此曝光;噪声高靠 LLM 门"
+
+# Reddit: 单 sub new/.rss 实测 200;token bucket ~1rpm,请求间隔≥60s;t3_* id 去重
+#   loid OAuth(oauth.reddit.com)与 redlib 公共实例(全灭)为备用/不可行,见 PLAN §5.3
+- name: reddit_localllama
+  method: reddit
+  tier: B
+  feed_url: "https://www.reddit.com/r/LocalLLaMA/new/.rss?limit=50"
+  enabled: true
+  failover:
+    - "https://old.reddit.com/r/LocalLLaMA/new/.rss?limit=50"
+    - "https://oauth.reddit.com/r/LocalLLaMA/new?limit=50"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: required
+  note: "本地 LLM 核心社区;≥60s/req"
+
+- name: reddit_artificial
+  method: reddit
+  tier: B
+  feed_url: "https://www.reddit.com/r/artificial/new/.rss?limit=50"
+  enabled: true
+  failover:
+    - "https://old.reddit.com/r/artificial/new/.rss?limit=50"
+    - "https://oauth.reddit.com/r/artificial/new?limit=50"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: required
+  note: "通用 AI 讨论"
+
+- name: reddit_singularity
+  method: reddit
+  tier: B
+  feed_url: "https://www.reddit.com/r/singularity/new/.rss?limit=50"
+  enabled: true
+  failover:
+    - "https://old.reddit.com/r/singularity/new/.rss?limit=50"
+    - "https://oauth.reddit.com/r/singularity/new?limit=50"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: required
+  note: "前沿爆料/leak 高发区,噪声大"
+
+- name: reddit_machinelearning
+  method: reddit
+  tier: B
+  feed_url: "https://www.reddit.com/r/MachineLearning/new/.rss?limit=50"
+  enabled: true
+  failover:
+    - "https://old.reddit.com/r/MachineLearning/new/.rss?limit=50"
+    - "https://oauth.reddit.com/r/MachineLearning/new?limit=50"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: required
+  note: "论文/研究向"
+
+- name: reddit_openai
+  method: reddit
+  tier: B
+  feed_url: "https://www.reddit.com/r/OpenAI/new/.rss?limit=50"
+  enabled: true
+  failover:
+    - "https://old.reddit.com/r/OpenAI/new/.rss?limit=50"
+    - "https://oauth.reddit.com/r/OpenAI/new?limit=50"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: required
+  note: "OpenAI 产品反馈/灰度发布信号"
+
+# 微博: 免登录可用面=hot_band/hotSearch 热搜;uid 时间线=m.weibo.cn getIndex+visitor SUB
+#   铸造(432/ok:-100 自动重铸,≤20rpm);自建 RSSHub 兜底;登录 cookie 为最终保底
+- name: weibo_hot_band
+  method: weibo
+  tier: B
+  feed_url: "https://weibo.com/ajax/statuses/hot_band"
+  enabled: true
+  failover:
+    - "https://weibo.com/ajax/side/hotSearch"
+  freshness_sla_h: 24
+  max_items_per_source: 50
+  proxy: direct_only
+  note: "零凭证实测 200(浏览器 UA+Referer+weibo.com cookie jar);data.band_list 52 条含数码/互联网/科学科普分类"
+
+- name: weibo_moonshot
+  method: weibo
+  tier: B
+  feed_url: "https://m.weibo.cn/api/container/getIndex?type=uid&value=7909392214"
+  enabled: true
+  failover:
+    - "http://127.0.0.1:23176/weibo/user/7909392214"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "月之暗面官方(uid 从 rss_titles 辟谣稿实证);visitor SUB 失效自动重铸;登录 cookie 保底"
+
+- name: weibo_wechat_team
+  method: weibo
+  tier: B
+  feed_url: "https://m.weibo.cn/api/container/getIndex?type=uid&value=7876775013"
+  enabled: true
+  failover:
+    - "http://127.0.0.1:23176/weibo/user/7876775013"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "腾讯微信团队官方(uid 从 rss_titles 回应稿实证);同 visitor cookie 流"
+
+- name: weibo_ai_keyword
+  method: weibo
+  tier: B
+  feed_url: "https://m.weibo.cn/api/container/getIndex?containerid=100103type%3D61%26q%3DAI%26t%3D0&page_type=searchall"
+  enabled: true
+  failover: []
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "关键词 AI 综合搜索流(stability-probe 实测 ok:1,total 1000);噪声大,仅补充召回"
+
+- name: wechat_official
+  method: wechat
+  tier: B
+  feed_url: "https://mp.weixin.qq.com/"
+  enabled: false
+  failover:
+    - "https://wechat2rss.xlab.app/feed/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.xml"
+  freshness_sla_h: 24
+  max_items_per_source: 30
+  proxy: direct_only
+  note: "D3 后置,adapter 骨架保留;可行通道排序:wechat2rss 托管 feed(名单固定)→原生 appmsgalbum f=json(chksm 链接可抓全文)→we-mp-rss 自部署(需扫码)"
+
+- name: wechat2rss_geekpark
+  method: rss
+  tier: A
+  feed_url: "https://wechat2rss.xlab.app/feed/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.xml"
+  enabled: false
+  failover:
+    - "https://wechat2rss.xlab.app/feed/1a5aec98e71c707c8ca092bc2c255b9d4bac477d.json"
+  freshness_sla_h: 24
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "极客公园公众号镜像(免费名单内唯一科技大号);09-21 实测 200 全文,09-22 TLS 超时—服务稳定性差,与 D3 一致先停用观察"
+
+- name: wechat2rss_jiqizhixin
+  method: rss
+  tier: A
+  feed_url: "https://wechat2rss.xlab.app/feed/51e92aad2728acdd1fda7314be32b16639353001.xml"
+  enabled: false
+  failover:
+    - "https://wechat2rss.xlab.app/feed/51e92aad2728acdd1fda7314be32b16639353001.json"
+  freshness_sla_h: 24
+  max_items_per_source: 20
+  proxy: direct_only
+  note: "机器之心公众号镜像;与 jiqizhixin 直连 API 重叠,默认停用;稳定性同上"
+
+# YouTube 频道 RSS:原生 Atom 免鉴权,15 条上限,yt:videoId 去重;超产频道需 Data API
+- name: yt_openai
+  method: youtube_rss
+  tier: A
+  feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCXZCJLdBC09xxGZ6gcdrc6A"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 15
+  proxy: required
+  note: "OpenAI 官方频道(实测 200)"
+
+- name: yt_googledeepmind
+  method: youtube_rss
+  tier: A
+  feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCP7jMXSY2xbc3KCAE0MHQ-A"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 15
+  proxy: required
+  note: "Google DeepMind 官方频道"
+
+- name: yt_anthropic
+  method: youtube_rss
+  tier: A
+  feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCrDwWp7EBBv4NwvScIpBDOA"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 15
+  proxy: required
+  note: "Anthropic 官方频道"
+
+- name: yt_twominutepapers
+  method: youtube_rss
+  tier: A
+  feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQ-7l4upoX8nvctg"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 15
+  proxy: required
+  note: "Two Minute Papers 论文解读频道"
+
+- name: yt_ycombinator
+  method: youtube_rss
+  tier: A
+  feed_url: "https://www.youtube.com/feeds/videos.xml?channel_id=UCcefcZRL2oaA_uBNeo5UOWg"
+  enabled: true
+  failover: []
+  freshness_sla_h: 36
+  max_items_per_source: 15
+  proxy: required
+  note: "Y Combinator 官方频道"
+
+# ============ 停用/观察(保留行防误删;启用前先验证通道) ============
+- name: feeddd
+  method: rss
+  tier: A
+  feed_url: "https://feeddd.org/feed"
+  enabled: false
+  failover: []
+  freshness_sla_h: 168
+  max_items_per_source: 10
+  proxy: prefer
+  note: "2026-09-21 实测全端点 429 zombie Phoenix;feed.hamibot.com 只剩 2023 冻结列表"
+
+- name: globenewswire
+  method: rss
+  tier: A
+  feed_url: "https://www.globenewswire.com/RssFeed/subjectcode/"
+  enabled: false
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 20
+  proxy: prefer
+  note: "未找到已验证的免费可用通道;公关稿靠媒体转载覆盖,暂停用"
+
+- name: help_aliyun
+  method: changelog_diff
+  tier: A
+  feed_url: "https://help.aliyun.com/zh/model-studio/"
+  enabled: false
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: direct_only
+  note: "阿里云文档站通道未实测;阿里系变更多经公众号/钉钉发布,先停用"
+
+- name: hkexnews
+  method: changelog_diff
+  tier: A
+  feed_url: "https://www1.hkexnews.hk/search/titlesearch.xhtml"
+  enabled: false
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: direct_only
+  note: "港交所公告检索页,低频事件源(智谱融资稿源);标题检索需 POST 参数化,先停用"
+
+- name: novonordisk_newsroom
+  method: sitemap_diff
+  tier: A
+  feed_url: "https://www.novonordisk.com/sitemap.xml"
+  enabled: true
+  failover:
+    - "https://www.novonordisk.com/news-and-media/news-and-ir-materials/news-details.html"
+  freshness_sla_h: 168
+  max_items_per_source: 5
+  proxy: prefer
+  note: "未单独实测;药企 newsroom,AI 制药合作类低频信号"
+
+- name: un_press
+  method: changelog_diff
+  tier: A
+  feed_url: "https://press.un.org/en"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "未单独实测;联合国新闻稿,AI 治理/政策信号"
+
+- name: ec_europa_press
+  method: changelog_diff
+  tier: A
+  feed_url: "https://ec.europa.eu/commission/presscorner/home/en"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "未单独实测;欧委会 presscorner,AI 监管信号(rss_titles 有实证条目)"
+
+- name: data_un
+  method: changelog_diff
+  tier: A
+  feed_url: "https://data.un.org/"
+  enabled: false
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 5
+  proxy: prefer
+  note: "SPA 数据门户无列表页;UN System Data Commons 级事件经 un.org/媒体覆盖"
+
+- name: damo_alibaba
+  method: changelog_diff
+  tier: A
+  feed_url: "https://damo.alibaba.com/"
+  enabled: true
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: direct_only
+  note: "未单独实测;达摩院官网 diff,开源发布经 github/modelscope 覆盖"
+
+- name: u_jd
+  method: changelog_diff
+  tier: A
+  feed_url: "https://u.jd.com/"
+  enabled: false
+  failover: []
+  freshness_sla_h: 168
+  max_items_per_source: 5
+  proxy: direct_only
+  note: "京东短链域,非内容源(rss_titles 误收);占位防误加"
+
+- name: theinfo_short
+  method: atom
+  tier: A
+  feed_url: "https://thein.fo/"
+  enabled: false
+  failover: []
+  freshness_sla_h: 72
+  max_items_per_source: 10
+  proxy: prefer
+  note: "theinformation.com 的短链/跳转域,非独立源;以 theinformation 条目为准"

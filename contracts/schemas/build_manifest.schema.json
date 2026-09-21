@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "BuildTool": {
+      "additionalProperties": false,
+      "properties": {
+        "ffmpeg": {
+          "title": "Ffmpeg",
+          "type": "string"
+        },
+        "vcodec": {
+          "default": "libx264",
+          "title": "Vcodec",
+          "type": "string"
+        },
+        "preset": {
+          "default": "medium",
+          "title": "Preset",
+          "type": "string"
+        },
+        "crf": {
+          "default": 19,
+          "title": "Crf",
+          "type": "integer"
+        },
+        "fps": {
+          "default": 30,
+          "title": "Fps",
+          "type": "integer"
+        },
+        "acodec": {
+          "default": "aac",
+          "title": "Acodec",
+          "type": "string"
+        },
+        "abitrate": {
+          "default": "192k",
+          "title": "Abitrate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ffmpeg"
+      ],
+      "title": "BuildTool",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "build/1",
+      "default": "build/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "title": "Episode",
+      "type": "string"
+    },
+    "built_at": {
+      "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+      "title": "Built At",
+      "type": "string"
+    },
+    "inputs": {
+      "additionalProperties": true,
+      "description": "{render_plan,timeline,audio_manifest,frames_manifest}: sha256:…",
+      "title": "Inputs",
+      "type": "object"
+    },
+    "tool": {
+      "$ref": "#/$defs/BuildTool"
+    },
+    "output": {
+      "additionalProperties": true,
+      "description": "{path,dur,bytes,sha256,width,height}",
+      "title": "Output",
+      "type": "object"
+    }
+  },
+  "required": [
+    "episode",
+    "built_at",
+    "inputs",
+    "tool",
+    "output"
+  ],
+  "title": "BuildManifest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/build_manifest/v1"
+}

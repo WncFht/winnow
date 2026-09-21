@@ -1,0 +1,76 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "dedup_verdict/1",
+      "default": "dedup_verdict/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "item_key": {
+      "description": "sha256(url_canon)[:16]",
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Item Key",
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "fresh",
+        "suppressed",
+        "reissue",
+        "gray"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "cluster_id": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "history.db clusters.cluster_id",
+      "title": "Cluster Id"
+    },
+    "match_cos": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": -1,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Match Cos"
+    },
+    "judge": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "LLM judge 判词原文",
+      "title": "Judge"
+    }
+  },
+  "required": [
+    "item_key",
+    "verdict"
+  ],
+  "title": "DedupVerdict",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/dedup_verdict/v1"
+}

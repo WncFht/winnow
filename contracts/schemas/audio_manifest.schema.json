@@ -1,0 +1,106 @@
+{
+  "$defs": {
+    "AudioFile": {
+      "additionalProperties": false,
+      "properties": {
+        "seg_id": {
+          "title": "Seg Id",
+          "type": "string"
+        },
+        "file": {
+          "description": "相对 run 根的路径 e.g. 61_audio/012_qwen_0.wav",
+          "title": "File",
+          "type": "string"
+        },
+        "dur": {
+          "description": "秒，ffprobe format=duration 实测",
+          "exclusiveMinimum": 0,
+          "title": "Dur",
+          "type": "number"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "text_sha": {
+          "description": "sha256(text)[:16]——voice_script 改动→需要重合成的行一眼识别",
+          "pattern": "^[0-9a-f]{16}$",
+          "title": "Text Sha",
+          "type": "string"
+        }
+      },
+      "required": [
+        "seg_id",
+        "file",
+        "dur",
+        "sha256",
+        "text_sha"
+      ],
+      "title": "AudioFile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "audio_manifest/1",
+      "default": "audio_manifest/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "episode": {
+      "title": "Episode",
+      "type": "string"
+    },
+    "engine": {
+      "description": "e.g. edge-tts 7.2.8 / F5-TTS local / Azure",
+      "title": "Engine",
+      "type": "string"
+    },
+    "voice": {
+      "title": "Voice",
+      "type": "string"
+    },
+    "rate": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Rate"
+    },
+    "codec": {
+      "description": "mp3|pcm_s16le …",
+      "title": "Codec",
+      "type": "string"
+    },
+    "sample_rate": {
+      "title": "Sample Rate",
+      "type": "integer"
+    },
+    "files": {
+      "items": {
+        "$ref": "#/$defs/AudioFile"
+      },
+      "title": "Files",
+      "type": "array"
+    }
+  },
+  "required": [
+    "episode",
+    "engine",
+    "voice",
+    "codec",
+    "sample_rate",
+    "files"
+  ],
+  "title": "AudioManifest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/audio_manifest/v1"
+}

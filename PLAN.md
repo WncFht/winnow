@@ -117,7 +117,7 @@ ai-news-pipeline/
 ### 3.5 已在跑的本机服务（复用，不重装）
 
 - clash/mihomo：HTTP proxy `127.0.0.1:7890`，API `127.0.0.1:9090`（secret `123456`）——境外源生死线，collect 每轮探测。
-- swe-2-max 网关：`127.0.0.1:3033/v1`（key 走 `SWE2MAX_API_KEY` env，本机值 `240127` 只进 secrets.env，不进 repo）。
+- swe-2-max 网关：`127.0.0.1:3033/v1`（key 走 `SWE2MAX_API_KEY` env，本机值见 `secrets.env`，不进 repo）。
 - 自建 RSSHub `:23176` / FreshRSS `:23172` / RSSBridge `:23173`：微博备选路由 + 可作 Tier A 统一抓取层（评测遗留问题，先按 per-source adapter 实现，后期可切）。
 
 ### 3.6 smoke test 清单（`just doctor` 全跑一遍）

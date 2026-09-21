@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "LLM 阶段溯源：换 prompt/模型后可定点重放。",
+      "properties": {
+        "model": {
+          "description": "e.g. swe-2-max / gpt-6-astra / gemini-3.8-flash",
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "prompt 版本标识 e.g. filter-v3 (git path 或 hash)",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "input_sha": {
+          "description": "本行输入(item_key 或拼接文本)的 sha256[:16]，重放核对",
+          "title": "Input Sha",
+          "type": "string"
+        },
+        "decided_at": {
+          "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+          "title": "Decided At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "prompt",
+        "input_sha",
+        "decided_at"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "summary/1",
+      "default": "summary/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "item_key": {
+      "description": "sha256(url_canon)[:16]",
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Item Key",
+      "type": "string"
+    },
+    "title_zh": {
+      "description": "中文工作标题（可不同于原题）",
+      "title": "Title Zh",
+      "type": "string"
+    },
+    "summary": {
+      "description": "1-2 句概要，供人工勾选/去重判读",
+      "title": "Summary",
+      "type": "string"
+    },
+    "entities": {
+      "description": "模型/公司/人名专名",
+      "items": {
+        "type": "string"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "facts": {
+      "description": "精确数字/版本/日期 claim 片段，下游数字白名单种子",
+      "items": {
+        "type": "string"
+      },
+      "title": "Facts",
+      "type": "array"
+    },
+    "section_guess": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Section Guess"
+    },
+    "prov": {
+      "$ref": "#/$defs/Provenance"
+    }
+  },
+  "required": [
+    "item_key",
+    "title_zh",
+    "summary",
+    "prov"
+  ],
+  "title": "Summary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/summary/v1"
+}

@@ -1,0 +1,104 @@
+{
+  "$defs": {
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "LLM 阶段溯源：换 prompt/模型后可定点重放。",
+      "properties": {
+        "model": {
+          "description": "e.g. swe-2-max / gpt-6-astra / gemini-3.8-flash",
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt": {
+          "description": "prompt 版本标识 e.g. filter-v3 (git path 或 hash)",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "input_sha": {
+          "description": "本行输入(item_key 或拼接文本)的 sha256[:16]，重放核对",
+          "title": "Input Sha",
+          "type": "string"
+        },
+        "decided_at": {
+          "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+          "title": "Decided At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model",
+        "prompt",
+        "input_sha",
+        "decided_at"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "filter_verdict/1",
+      "default": "filter_verdict/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "item_key": {
+      "description": "sha256(url_canon)[:16]",
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Item Key",
+      "type": "string"
+    },
+    "verdict": {
+      "description": "keep=直进概要; review=灰区留给人工/二级模型",
+      "enum": [
+        "keep",
+        "drop",
+        "review"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "ai_relevance": {
+      "description": "AI 相关度",
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Ai Relevance",
+      "type": "number"
+    },
+    "news_value": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "News Value"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "prov": {
+      "$ref": "#/$defs/Provenance"
+    }
+  },
+  "required": [
+    "item_key",
+    "verdict",
+    "ai_relevance",
+    "prov"
+  ],
+  "title": "FilterVerdict",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/filter_verdict/v1"
+}

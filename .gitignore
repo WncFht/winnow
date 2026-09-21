@@ -10,3 +10,4 @@ repro-venv/
 composer/node_modules/
 composer/out/
 composer/.remotion/
+/out/

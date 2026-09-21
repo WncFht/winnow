@@ -1,0 +1,249 @@
+{
+  "$defs": {
+    "RawFetch": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "HTTP status；manual=0",
+          "title": "Status",
+          "type": "integer"
+        },
+        "via": {
+          "default": "direct",
+          "enum": [
+            "direct",
+            "mirror",
+            "cache",
+            "manual"
+          ],
+          "title": "Via",
+          "type": "string"
+        },
+        "reachable": {
+          "default": true,
+          "title": "Reachable",
+          "type": "boolean"
+        },
+        "etag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Etag"
+        },
+        "content_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "原始响应体 hash[:16]",
+          "title": "Content Sha256"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "RawFetch",
+      "type": "object"
+    },
+    "RawSource": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "源显示名，如 '机器之心'/'OpenAI Blog'",
+          "title": "Name",
+          "type": "string"
+        },
+        "feed_url": {
+          "description": "RSS/API endpoint 或抓取页 URL",
+          "title": "Feed Url",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "rss",
+            "atom",
+            "api",
+            "scrape",
+            "manual"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "item_guid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "源站原生 guid/id",
+          "title": "Item Guid"
+        }
+      },
+      "required": [
+        "name",
+        "feed_url",
+        "kind"
+      ],
+      "title": "RawSource",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "采集层 item = JSON Feed 1.1 字段 + `_` 前缀管道扩展。\n\n对 JSON Feed 1.1 的借用是有意的：id/url/title/content_text/date_published/\nauthors/tags/image/attachments 均为标准字段，任何 JSON Feed reader 可直读；\n管道私有字段全部 `_` 前缀（spec 要求 reader 忽略未知键）。",
+  "properties": {
+    "schema": {
+      "const": "raw_item/1",
+      "default": "raw_item/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "item_key": {
+      "description": "sha256(url_canon)[:16]",
+      "pattern": "^[0-9a-f]{16}$",
+      "title": "Item Key",
+      "type": "string"
+    },
+    "id": {
+      "description": "= item_key（JSON Feed 要求唯一 id）",
+      "title": "Id",
+      "type": "string"
+    },
+    "url": {
+      "description": "原始链接（未规范化）",
+      "title": "Url",
+      "type": "string"
+    },
+    "url_canon": {
+      "description": "规范化 URL：去 utm_*/fbclid/www./尾斜杠，https 归一",
+      "title": "Url Canon",
+      "type": "string"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "content_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "feed summary/正文纯文本",
+      "title": "Content Text"
+    },
+    "content_html": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Html"
+    },
+    "date_published": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "源站发布时间，可为空",
+      "title": "Date Published"
+    },
+    "date_fetched": {
+      "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
+      "title": "Date Fetched",
+      "type": "string"
+    },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "BCP-47-ish: zh/en/…",
+      "title": "Language"
+    },
+    "tags": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tags",
+      "type": "array"
+    },
+    "image": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Image"
+    },
+    "_source": {
+      "$ref": "#/$defs/RawSource"
+    },
+    "_fetch": {
+      "$ref": "#/$defs/RawFetch"
+    },
+    "_raw_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "落盘原文相对路径（html/json dump），审计回放用",
+      "title": "Raw Ref"
+    }
+  },
+  "required": [
+    "item_key",
+    "id",
+    "url",
+    "url_canon",
+    "title",
+    "date_fetched",
+    "_source",
+    "_fetch"
+  ],
+  "title": "RawItem",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.local/raw_item/v1"
+}
