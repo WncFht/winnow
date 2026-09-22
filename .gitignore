@@ -30,3 +30,6 @@ upstream/juya-news-card/.next/
 upstream/juya-news-card/dist/
 upstream/juya-news-card/out/
 upstream/juya-news-card.gitdir/
+
+# MPE preview env (local link farm — scripts/crossnote-links.sh)
+/.crossnote/
