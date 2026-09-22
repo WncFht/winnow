@@ -345,7 +345,7 @@ pick-auto:
 # Call A is skipped when 50_issue.json already exists so `just produce` is safe
 # to re-run after `just edit` + `just edit-import` (edits are preserved; Call B
 # still projects voice/cards/video from the imported issue).
-# produce = digest(Call A) -> callb -> voice -> cards -> render-plan -> compose -> meta
+# produce = digest(Call A) -> callb -> voice -> cards -> subs -> render-plan -> compose -> meta
 produce:
     #!/usr/bin/env bash
     set -uo pipefail
@@ -354,7 +354,7 @@ produce:
     else
       just DATE={{DATE}} digest
     fi
-    just DATE={{DATE}} callb voice cards render-plan compose meta
+    just DATE={{DATE}} callb voice cards subs render-plan compose meta
 
 digest:
     {{PREP}}{{ENV}}{{LOCK}}uv run stages/digest.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/digest.log
@@ -378,6 +378,11 @@ voice:
 
 cards:
     {{PREP}}{{ENV}}{{LOCK}}uv run stages/cards.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/cards.log
+
+# per-seg subtitle pill PNGs for the ffmpeg compose path (Remotion renders
+# live-text pills itself and does not need this stage)
+subs:
+    {{PREP}}{{ENV}}{{LOCK}}uv run stages/subs.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/subs.log
 
 render-plan:
     {{PREP}}{{ENV}}{{LOCK}}uv run stages/render_plan.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/render_plan.log

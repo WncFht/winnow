@@ -123,6 +123,33 @@ def unique_slug(base: str, item_key: str, taken: set[str]) -> str:
     return s
 
 
+def _section_vocab() -> list:
+    """lib.prompts.SECTION_VOCAB（lazy import——本模块被 review_server 当工具箱用时也要能跑）。"""
+    try:
+        from lib.prompts import SECTION_VOCAB
+        return SECTION_VOCAB
+    except Exception:
+        return []
+
+
+def section_slug(text: str, item_key: str = "") -> str:
+    """任意分区文本 -> 合法 slug（下游 issue.sections[].slug 要求 ^[a-z0-9-]+$）。
+
+    SECTION_VOCAB 的 slug / 中文名原样映射（'模型发布'->'model-release'）；
+    其余文本走 slugify_id；纯非 ASCII 文本（slugify 只剩 key 兜底）归 'misc'。
+    """
+    t = str(text or "").strip()
+    if not t:
+        return "misc"
+    for slug, name in _section_vocab():
+        if t == slug or t == name:
+            return slug
+    s = slugify_id(t, item_key)
+    if not SLUG_RE.match(s) or s in ("item-0", "n" + item_key[:8]):
+        return "misc"
+    return s
+
+
 def lint_selected(doc: dict) -> list[str]:
     """轻量 selected/1 校验（review_server 复用，无需 pydantic）。返回错误列表。"""
     errs = []
@@ -211,9 +238,11 @@ def build_candidates(run_dir: Path) -> dict:
         candidates.append({
             "item_key": key,
             "id": "",  # 排序后统一 slug 化
-            "section": s.get("section_guess") or "其他",
+            "section": section_slug(s.get("section_guess"), key),
             "title_zh": s.get("title_zh") or r.get("title") or "",
             "summary": s.get("summary") or (r.get("content_text") or "")[:140],
+            "date_published": r.get("date_published"),
+            "date_fetched": r.get("date_fetched"),
             "ai_relevance": f.get("ai_relevance"),
             "news_value": f.get("news_value"),
             "reasons": f.get("reasons") or [],
