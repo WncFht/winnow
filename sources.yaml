@@ -55,7 +55,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "sitemap 535 URL 含 news/engineering/research; /news RSC 267 帖可作交叉校验"
+  note: "sitemap 535 URL 含 news/engineering/research; /news RSC 267 帖可作交叉校验; 09-22 验证 empty=无新 URL 属正常"
 
 - name: claude_sitemap
   method: sitemap_diff
@@ -81,7 +81,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "未单独实测; 教学站点,低频"
+  note: "教学站点,低频; 09-22 验证 empty=无新 URL 属正常(779 URL 全已见)"
 
 - name: code_claude
   method: sitemap_diff
@@ -93,7 +93,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "未单独实测; Claude Code 文档/changelog 站(疑 Mintlify,可探 .md 版)"
+  note: "Claude Code 文档/changelog 站(疑 Mintlify,可探 .md 版); 09-22 验证 empty=无新 URL 属正常(2352 URL 全已见)"
 
 - name: trust_anthropic
   method: json_api
@@ -104,7 +104,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "Vanta SPA; manifest+签名 GraphQL POST(fetchTrustReportUpdates),签名绑 query 文本; 重捕获脚本 experiments/trust-anthropic-monitor/capture_gql.py"
+  note: "Vanta SPA; api_trust_anthropic 自抓 manifest+签名 GraphQL publicUpdates(09-22 实测 ok); 签名绑 query 文本,401 时用 experiments/trust-anthropic-monitor/capture_gql.py 重捕获"
 
 - name: darioamodei
   method: sitemap_diff
@@ -116,7 +116,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "条件 GET 304 可用,缓存 ~12h; Content-Type 误标按 body 解析"
+  note: "条件 GET 304 可用,缓存 ~12h; Content-Type 误标按 body 解析; 09-22 验证 empty=无新 URL 属正常(9 URL 全已见)"
 
 - name: google_deepmind_blog
   method: rss
@@ -248,7 +248,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: prefer
-  note: "未单独实测;按 Mintlify 惯例先探 llms.txt,退 sitemap"
+  note: "Mintlify llms.txt 索引; 09-22 修复 md 链接解析(此前 changelog_diff 对纯 markdown 恒 empty)"
 
 - name: mistral_news
   method: rss
@@ -323,7 +323,7 @@
   freshness_sla_h: 36
   max_items_per_source: 20
   proxy: direct_only
-  note: "Mintlify markdown 原生,Update label 按月分块; llms.txt 索引兜底"
+  note: "Mintlify markdown 原生,Update label 按月分块; llms.txt 索引兜底; 09-22 修复 md 链接解析"
 
 - name: platform_deepseek
   method: changelog_diff
@@ -348,7 +348,7 @@
   freshness_sla_h: 36
   max_items_per_source: 20
   proxy: direct_only
-  note: "43 个 dated Update 块; 部分端点已支持 ETag/Last-Modified,内容 hash diff 兜底"
+  note: "43 个 dated Update 块; 部分端点已支持 ETag/Last-Modified,内容 hash diff 兜底; 09-22 修复 md 链接解析"
 
 - name: zai_docs
   method: changelog_diff
@@ -361,7 +361,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: direct_only
-  note: "Mintlify markdown Update 块(GLM 发布记录); sitemap 66 loc 带真实 lastmod"
+  note: "Mintlify markdown Update 块(GLM 发布记录); sitemap 66 loc 带真实 lastmod; 09-22 修复 md 链接解析"
 
 - name: docs_bigmodel
   method: changelog_diff
@@ -374,7 +374,7 @@
   freshness_sla_h: 36
   max_items_per_source: 20
   proxy: direct_only
-  note: "最高信号通道; openapi.json diff 可发现新 API(注意需降级 HTTP/1.1 重试截断)"
+  note: "最高信号通道; openapi.json diff 可发现新 API(注意需降级 HTTP/1.1 重试截断); 09-22 修复 md 链接解析"
 
 - name: stepfun_llms
   method: changelog_diff
@@ -388,7 +388,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: direct_only
-  note: "llms.txt 信号成本比最高; 主站是 2.3KB SPA 壳只能 hash diff; releases.atom 空,改用 commits.atom; 新模型发现仍靠 llms.txt"
+  note: "llms.txt 信号成本比最高; 主站是 2.3KB SPA 壳只能 hash diff; releases.atom 空,改用 commits.atom; 新模型发现仍靠 llms.txt; 09-22 修复 md 链接解析"
 
 - name: mimo_xiaomi
   method: changelog_diff
@@ -532,7 +532,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: direct_only
-  note: "JSON 1MB 含 busStructure 全站 updated_at;Quill ops 嵌套需递归收集 insert;快照 diff 变更节点"
+  note: "JSON 1MB 含 busStructure 全站文档树; api_docs_trae 递归取 en 叶子文档, updated_at 进 url docv 参数, 文档更新也会重发信号(09-22 实测 ok)"
 
 - name: ollama_blog
   method: rss
@@ -665,14 +665,15 @@
 - name: mathandai
   method: changelog_diff
   tier: A
-  feed_url: "https://mathandai.org/"
+  feed_url: "https://mathandai.org/endorsers.php?page=1"
   enabled: true
   failover:
-    - "https://mathandai.org/endorsers.php?page=1"
+    - "https://mathandai.org/"
   freshness_sla_h: 168
   max_items_per_source: 5
   proxy: prefer
-  note: "菲尔兹奖得主联署声明站;endorsers 计数+签署名单 diff,一次性事件源"
+  sig_text: true
+  note: "菲尔兹奖得主联署声明站;计数(span.count)+Newest-first 名单在 endorsers.php,页无 h2/h3 与深链→sig_text 把正文入签名,新增签署即触发 page_sig 项;一次性事件源"
 
 - name: aema_blog
   method: rss
@@ -809,16 +810,15 @@
   note: "446 模型带 created 时间戳,每日 diff=新模型上架(最高频信号);stealth 模型也经此曝光"
 
 - name: help_openai
-  method: changelog_diff
+  method: rss
   tier: A
-  feed_url: "https://help.openai.com/en/"
+  feed_url: "http://127.0.0.1:23176/openai/chatgpt/release-notes"
   enabled: true
-  failover:
-    - "https://help.openai.com/en/articles/6825453-chatgpt-release-notes"
+  failover: []
   freshness_sla_h: 48
   max_items_per_source: 20
-  proxy: prefer
-  note: "裸 curl 403 CF managed challenge,必须 curl_cffi impersonate=chrome;集合页 diff /en/articles/* URL 集"
+  proxy: direct_only
+  note: "help.openai.com 全站 CF managed challenge(403 cf-mitigated,httpx/裸 curl 均挂);改走自建 RSSHub 路由,粒度=release-notes 单条目(所有 item 同 link→dedup 收 1 条,title=最新条目);localhost 必须 direct_only"
 
 - name: minimax_news
   method: changelog_diff
@@ -949,7 +949,7 @@
   freshness_sla_h: 168
   max_items_per_source: 20
   proxy: prefer
-  note: "生态雷达:8.5MB routes.json diff=新增可采路由; rsshub.app 本体 403 不影响此通道"
+  note: "生态雷达:8.5MB routes.json {site:{routes:{path}}} diff=新增可采路由(09-22 修嵌套结构+round_urls 全量快照); rsshub.app 本体 403 不影响此通道"
 
 # ============ Tier A · 英文媒体 ============
 - name: bloomberg_tech
@@ -1485,12 +1485,13 @@
   feed_url: "https://linux.do/top.rss?period=daily"
   enabled: true
   failover:
+    - "https://linuxdorss.longpink.com/top.xml"
     - "https://linux.do/latest.rss"
-    - "https://linux.do/c/news/34.rss"
+    - "https://linuxdorss.longpink.com/latest.xml"
   freshness_sla_h: 24
   max_items_per_source: 30
-  proxy: direct_only
-  note: "L 站;daily top 30 条 AI 密度高(智谱/Qwen/GPT-Load 类);请求间隔≥10s 防限流"
+  proxy: prefer
+  note: "L 站;daily top 30 条 AI 密度高(智谱/Qwen/GPT-Load 类);CF 限流窗口内 429/403 挑战振荡,连发必挂→failover 交错镜像站 linuxdorss.longpink.com(item link/guid 与官方一致)跨 host 突围"
 
 - name: producthunt
   method: atom
@@ -1821,7 +1822,7 @@
   freshness_sla_h: 36
   max_items_per_source: 15
   proxy: required
-  note: "Google DeepMind 官方频道"
+  note: "Google DeepMind 官方频道;channel_id 2026-09-22 已对频道页 externalId 核实正确,当日 feeds 端点短暂 404 波动后恢复"
 
 - name: yt_anthropic
   method: youtube_rss
@@ -1925,15 +1926,15 @@
   note: "未单独实测;联合国新闻稿,AI 治理/政策信号"
 
 - name: ec_europa_press
-  method: changelog_diff
+  method: rss
   tier: A
-  feed_url: "https://ec.europa.eu/commission/presscorner/home/en"
+  feed_url: "https://ec.europa.eu/commission/presscorner/api/rss?language=en"
   enabled: true
   failover: []
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "未单独实测;欧委会 presscorner,AI 监管信号(rss_titles 有实证条目)"
+  note: "欧委会 presscorner 官方 RSS(固定 10 条,AI 监管信号);服务端 TLS 脏关闭(RST 替代 close_notify)打死 python-ssl,经 lhttp urllib3 兜底实测 200;原 changelog_diff 首页为 SPA 空壳"
 
 - name: data_un
   method: changelog_diff
@@ -1955,7 +1956,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: direct_only
-  note: "未单独实测;达摩院官网 diff,开源发布经 github/modelscope 覆盖"
+  note: "umi SPA 壳+KOI/baxia 签名 API 不可廉价重放; 09-22 起 changelog_diff 混入 asset 指纹签名, 仅前端重部署发信号; 开源发布仍经 github/modelscope 覆盖, 要正文需 playwright(后置)"
 
 - name: u_jd
   method: changelog_diff

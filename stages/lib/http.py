@@ -3,6 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #   "httpx>=0.28",
+#   "urllib3>=2",
 # ]
 # ///
 """Collect-layer HTTP helper (PLAN.md §5.2).
@@ -64,8 +65,13 @@ UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
 
 # Bot-wall / challenge markers — calibrated list lifted from
 # experiments/qa-loop/audit_links.py (269-URL live audit), plus common WAFs.
+# `challenge-platform` 必须排除被动注入的 jsd 探针：Cloudflare JS Detections
+# 会向正常 200 页面注入 <script src="/cdn-cgi/challenge-platform/scripts/jsd/
+# main.js">（delta.dev / mathandai.org 实测如此），真正的挑战页走的是
+# challenge-platform/h/.../orchestrate 且带 window._cf_chl_opt。
 WALL = re.compile(
-    r"wappoc_appmsgcaptcha|TCaptcha\.js|cf-chl-|challenge-platform|"
+    r"wappoc_appmsgcaptcha|TCaptcha\.js|cf-chl-|_cf_chl_opt|"
+    r"challenge-platform/(?!scripts/jsd)|"
     r"Just a moment|环境异常|安全验证|awswaf|aws-waf-token|geetest|"
     r"Incapsula|ddos-guard|enable javascript and cookies|安全检查|"
     r"access denied - godaddy|验证手机|访问过于频繁",
@@ -86,6 +92,16 @@ _WS = re.compile(r"\s+")
 _DNS_PAT = re.compile(
     r"name or service not known|temporary failure in name resolution|"
     r"nodename nor servname|getaddrinfo|name resolution|no address associated",
+    re.I,
+)
+
+# 服务端「脏关闭」特征：TLS 层收到 RST/畸形结尾记录而非 close_notify。
+# python-ssl/httpx 抛 ReadError(record layer failure)|SSLError(unexpected eof)
+# 并丢弃已到手的完整 body；curl/urllib3 容错此类关闭 —— 命中则换 urllib3 兜底
+# （ec.europa.eu presscorner 实测：body 全部到达后连接被 RST，仅此签名触发）。
+_TLS_RAGGED_PAT = re.compile(
+    r"record layer failure|unexpected.{0,20}eof|wrong_version_number|"
+    r"bad_record_mac|packet_length_too_long|tlsv1 alert",
     re.I,
 )
 
@@ -194,6 +210,48 @@ def _classify(status: int, body: bytes, ctype: str) -> str:
 
 # ------------------------------------------------------------------ get ----
 
+def _urllib3_get(url: str, hdrs: dict, proxy_url: Optional[str],
+                 timeout: float, follow_redirects: bool,
+                 via: str) -> Optional[FetchResult]:
+    """httpx 被服务端脏 TLS 关闭打死时的兜底通道。
+
+    urllib3 对 close-delimited 响应容忍缺失 close_notify / RST 收尾，
+    python-ssl 直连语义同 curl —— 仅在 _TLS_RAGGED_PAT 命中时调用。
+    惰性 import：模块缺位直接返回 None，不扩大主路径依赖面。
+    """
+    try:
+        import urllib3
+    except ImportError:
+        return None
+    res = FetchResult(via=via)
+    t0 = time.monotonic()
+    try:
+        mgr_kw = dict(timeout=urllib3.Timeout(timeout), retries=0)
+        if proxy_url:
+            mgr = urllib3.ProxyManager(proxy_url, **mgr_kw)
+        else:
+            mgr = urllib3.PoolManager(**mgr_kw)
+        r = mgr.request(
+            "GET", url, headers=hdrs, preload_content=True,
+            decode_content=True,
+            redirect=10 if follow_redirects else 0)
+        res.latency_ms = int((time.monotonic() - t0) * 1000)
+        res.status = r.status
+        res.etag = r.headers.get("etag")
+        res.lastmod = r.headers.get("last-modified")
+        res.final_url = r.geturl()
+        res.content_type = r.headers.get("content-type")
+        body = b"" if r.data is None else bytes(r.data)
+        res.body = None if r.status == 304 else body
+        res.error = _classify(r.status, body, res.content_type or "")
+        return res
+    except Exception as e:
+        res.error, res.detail = "http_0", f"urllib3:{type(e).__name__}: {e}"
+        res.status = 0
+        res.latency_ms = int((time.monotonic() - t0) * 1000)
+        return res
+
+
 def get(
     url: str,
     *,
@@ -272,6 +330,17 @@ def get(
                     time.sleep(min(2.0, 0.4 * (2 ** i)))
     except httpx.HTTPError as e:  # client construction/proxy failure
         res.error, res.detail = "http_0", f"{type(e).__name__}: {e}"
+
+    # 脏 TLS 关闭兜底：httpx/python-ssl 已失败且特征匹配 → urllib3 再试一次。
+    # urllib3 容忍缺失 close_notify 的收尾；仅在 httpx 全部尝试失败后触发。
+    if res.detail and _TLS_RAGGED_PAT.search(res.detail):
+        salv = _urllib3_get(url, hdrs, proxy_url, timeout,
+                            follow_redirects, via)
+        if salv is not None and (salv.ok or salv.status):
+            salv.detail = f"urllib3-salvage after: {res.detail}"
+            return salv
+        if salv is not None and salv.detail:
+            res.detail = f"{res.detail} | urllib3 also failed: {salv.detail}"
     res.status = 0
     return res
 
@@ -354,6 +423,17 @@ if __name__ == "__main__":
                   b"<script src=x.js></script></body></html>")
     assert _classify(200, wall_html, "text/html") == "walled"
     assert _classify(403, wall_html, "text/html") == "walled"
+    # CF 被动 jsd 探针注入 ≠ 挑战页（delta.dev/mathandai.org 误报修复）
+    jsd_html = (b"<html><head><script src='/cdn-cgi/challenge-platform/"
+                b"scripts/jsd/main.js'></script></head><body>"
+                + b"real docs content " * 40 + b"</body></html>")
+    assert _classify(200, jsd_html, "text/html") == "ok"
+    # 真挑战页：orchestrate 路径 + _cf_chl_opt
+    chl_html = (b"<html><body><script>window._cf_chl_opt={};</script>"
+                b"<script src='/cdn-cgi/challenge-platform/h/g/orchestrate/"
+                b"chl_page/v1'></script></body></html>")
+    assert _classify(403, chl_html, "text/html") == "walled"
+    assert _classify(200, chl_html, "text/html") == "walled"
     assert _classify(200, shell_html, "text/html") == "shell_only"
     assert _classify(200, b"", "text/html") == "empty"
     assert _classify(429, b"rate", "") == "rate_limited"

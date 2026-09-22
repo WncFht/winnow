@@ -3,6 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = [
 #   "httpx>=0.28",
+#   "urllib3>=2",
 #   "feedparser>=6.0.11",
 #   "trafilatura>=2",
 #   "pyyaml>=6",
@@ -58,7 +59,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import unquote, urljoin, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlsplit
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
@@ -899,15 +900,141 @@ def api_cohere(d, src, ctx):
 
 
 def api_rsshub_routes(d, src, ctx):
-    """routes.json = {path:{…}} —— 生态雷达，signal 只发新增路由。"""
-    out = []
+    """routes.json —— 生态雷达，signal 只发新增路由。
+    现版结构 {site:{routes:{"/path/:param":{…}}}}（旧版曾把 "/path" 平铺在
+    顶层，两种都兼容）。round_urls 记全量路径快照，bootstrap 只发 cap 条
+    但全量进 seen，后续只对真正新增的路由发信号。"""
+    out, all_canon = [], []
     if isinstance(d, dict):
+        def emit(path, meta):
+            cats = (meta or {}).get("categories") or []
+            cat = cats[0] if isinstance(cats, list) and cats else "other"
+            url = ("https://docs.rsshub.app/routes/" + cat +
+                   "?route=" + quote(path, safe=""))
+            all_canon.append(normalize.url_canon(url))
+            out.append({"title": f"RSSHub route {path}", "url": url,
+                        "guid": path, "signal": True})
         for k in list(d.keys())[:8000]:
-            if isinstance(d[k], dict) and k.startswith("/"):
-                out.append({"title": f"RSSHub route {k}",
-                            "url": f"https://docs.rsshub.app/routes{k}",
-                            "guid": k, "signal": True})
+            v = d[k]
+            if not isinstance(v, dict):
+                continue
+            if k.startswith("/"):
+                emit(k, v)
+            else:
+                for p, meta in list((v.get("routes") or {}).items())[:8000]:
+                    if p.startswith("/"):
+                        emit(p, meta)
+    if all_canon:
+        ctx.seen.setdefault(src["name"], {})["round_urls"] = \
+            list(dict.fromkeys(all_canon))[:SEEN_URL_CAP]
     return out, None
+
+
+def api_docs_trae(d, src, ctx):
+    """docs.trae.ai __loader=layout JSON：busStructure 是全站文档树。
+    en 叶子文档按 updated_at 倒序发 signal；updated_at 拼进 url 的 docv
+    参数让「文档更新」产生新 canon 再次触发。round_urls 记全量快照。"""
+    def walk(nodes):
+        for n in nodes or []:
+            if isinstance(n, dict):
+                yield n
+                yield from walk(n.get("subs"))
+    leaves = [n for n in walk((d or {}).get("busStructure"))
+              if n.get("lang") == "en" and not n.get("is_dir")
+              and n.get("path") and n.get("status") == 1]
+    leaves.sort(key=lambda n: str(n.get("updated_at") or ""),
+                reverse=True)
+    out, all_canon = [], []
+    for n in leaves[:500]:
+        ver = str(n.get("updated_at") or "")[:10] or "na"
+        url = f"https://docs.trae.ai/ide/{n['path']}?docv={ver}"
+        all_canon.append(normalize.url_canon(url))
+        out.append({"title": n.get("title") or n["path"], "url": url,
+                    "guid": f"{n.get('_id') or n['path']}@{ver}",
+                    "signal": True})
+    if all_canon:
+        ctx.seen.setdefault(src["name"], {})["round_urls"] = \
+            list(dict.fromkeys(all_canon))[:SEEN_URL_CAP]
+    return out, None
+
+
+_TRUST_GQL = "https://trust.anthropic.com/graphql"
+# query 文本 2026-09-21 从部署 bundle 捕获（签名绑死文本，改一个字就 401）；
+# 重捕获流程见 experiments/trust-anthropic-monitor/capture_gql.py。
+_TRUST_UPDATES_QUERY = (
+    "query fetchTrustReportUpdates($slugId: String!, $first: Int!, "
+    "$after: String, $searchString: String) {\n  trust {\n    "
+    "trustReportBySlugId(slugId: $slugId) {\n      id\n      "
+    "publicUpdates(first: $first, after: $after, searchString: "
+    "$searchString) {\n        totalCount\n        pageInfo {\n          "
+    "startCursor\n          endCursor\n          hasNextPage\n          "
+    "hasPreviousPage\n          __typename\n        }\n        edges {\n"
+    "          cursor\n          node {\n            id\n            "
+    "title\n            description\n            createdAt\n            "
+    "updatedAt\n            category\n            visibilityType\n"
+    "            __typename\n          }\n          __typename\n        }"
+    "\n        __typename\n      }\n      __typename\n    }\n    "
+    "__typename\n  }\n}")
+
+
+def api_trust_anthropic(src, ctx):
+    """Vanta Trust Center（纯 SPA）：着陆页 → signature-manifest → 签名
+    GraphQL publicUpdates。签名每次从 manifest 现取，不过期；Vanta 改版
+    换 query 文本时 401 → 按 experiments/trust-anthropic-monitor 重捕获。"""
+    base = "https://trust.anthropic.com"
+    res = lhttp.FetchResult(status=0)
+    home = ctx.get(base + "/", src, timeout=15)
+    if not home.ok:
+        res.error = home.error or f"http_{home.status}"
+        res.detail = home.detail
+        res.status = home.status
+        return [], res
+    m_url = re.search(r'data-signature-manifest-url="([^"]+)"', home.text)
+    m_slug = re.search(r'data-slugid="([^"]+)"', home.text)
+    if not (m_url and m_slug):
+        res.error, res.detail = "parse_error", "manifest/slugid missing"
+        return [], res
+    man_r = ctx.get(m_url.group(1), src, timeout=15)
+    if not man_r.ok:
+        return [], man_r
+    try:
+        man = json.loads(man_r.text)
+        sig = man["operations"]["fetchTrustReportUpdates"]
+        signed_at = man["signedAt"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        res.error, res.detail = "parse_error", f"manifest: {e}"
+        return [], res
+    payload = {
+        "operationName": "fetchTrustReportUpdates",
+        "variables": {"slugId": m_slug.group(1), "first": 50,
+                      "searchString": ""},
+        "extensions": {"signedQuery": {"signedAt": signed_at,
+                                     "signature": sig}},
+        "query": _TRUST_UPDATES_QUERY,
+    }
+    r = _post_json(_TRUST_GQL + "?operation=fetchTrustReportUpdates",
+                   payload, {"Origin": base, "Referer": base + "/"},
+                   ctx.proxy_arg(src))
+    if not r.ok:
+        return [], r
+    try:
+        edges = json.loads(r.text)["data"]["trust"][
+            "trustReportBySlugId"]["publicUpdates"]["edges"]
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        r.error, r.detail = "parse_error", f"gql resp: {e}"
+        return [], r
+    out = []
+    for e in edges:
+        n = e.get("node") or {}
+        nid = n.get("id")
+        if not nid:
+            continue
+        out.append({"title": n.get("title"),
+                    "url": f"{base}/updates?update={nid}",
+                    "date": _parse_date(n.get("createdAt")),
+                    "summary": _strip_html(n.get("description")),
+                    "guid": str(nid)})
+    return out, r
 
 
 def api_bloomberglaw(d, src, ctx):
@@ -985,8 +1112,13 @@ API_ADAPTERS = {
     "cohere_blog": api_cohere,
     "rsshub_routes": api_rsshub_routes,
     "bloomberglaw_ai": api_bloomberglaw,
+    "docs_trae": api_docs_trae,
     "xiaoyuzhoufm_ai": api_xiaoyuzhou,   # 签名特殊：src/ctx 自取
+    "trust_anthropic": api_trust_anthropic,  # 同上：自抓 manifest+签名 POST
 }
+
+# 自抓型 adapter（签名 (src, ctx)，不吃 feed body）
+_SELF_FETCH_ADAPTERS = {api_xiaoyuzhou, api_trust_anthropic}
 
 # json_api 但需 POST/特殊头的请求覆写
 REQUEST_SPECS = {
@@ -1181,6 +1313,59 @@ def _page_links(body_text: str, base: str) -> list[str]:
     return out
 
 
+_MD_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
+_MD_HEAD = re.compile(r"^#{1,6}\s+(.+?)\s*#*\s*$", re.M)
+_HTML_HINT = re.compile(r"<a\b[^>]*?href=|<h[23][^>]*>", re.I)
+_ASSET_SRC = re.compile(
+    r"<(?:script|link)\b[^>]*?(?:src|href)=[\"']([^\"']+)", re.I)
+
+
+def _md_links(text: str, base: str) -> list[str]:
+    """llms.txt / Mintlify .md 原生 markdown 链接 → 同域候选（保序去重）。
+    与 _page_links 同一套 host/noise/newsish 过滤。"""
+    host = _host(base)
+    out, seen = [], set()
+    for m in _MD_LINK.finditer(text):
+        href = htmlmod.unescape(m.group(1)).strip()
+        if href.startswith(("javascript:", "mailto:", "data:", "tel:")):
+            continue
+        u = urljoin(base, href)
+        sp = urlsplit(u)
+        if sp.scheme not in ("http", "https"):
+            continue
+        h = (sp.hostname or "").lower()
+        if h != host and h != host.lstrip("www.") and \
+                h != "www." + host.lstrip("www."):
+            continue
+        path = sp.path
+        if _NOISE_PATH.search(path):
+            continue
+        depth = len([s for s in path.split("/") if s])
+        if not (_NEWSISH_PATH.search(path) or depth >= 2):
+            continue
+        canon = normalize.url_canon(u)
+        if canon and canon not in seen:
+            seen.add(canon)
+            out.append(u)
+        if len(out) >= CHANGELOG_LINK_CAP:
+            break
+    return out
+
+
+def _asset_fingerprint(text: str) -> list[str]:
+    """纯 JS 壳页（无 a/h 也无 md 链接）的资源指纹：版本化 script/css src。"""
+    out = []
+    for m in _ASSET_SRC.finditer(text[: 1 << 18]):
+        u = htmlmod.unescape(m.group(1)).strip()
+        if u.startswith("//"):
+            u = "https:" + u
+        if u.startswith("http"):
+            out.append(u)
+        if len(out) >= 40:
+            break
+    return out
+
+
 def _signal_item(url: str, src: dict, res: lhttp.FetchResult,
                  sha: str, raw_ref: str | None, title: str | None = None,
                  date: str | None = None,
@@ -1226,7 +1411,16 @@ def collect_changelog(src: dict, ctx, body: bytes, res: lhttp.FetchResult,
     seen_entry = ctx.seen.setdefault(src["name"], {})
     seen_urls = set(seen_entry.get("urls") or [])
     sha = _sha16(body)
-    links = _page_links(text, res.final_url or src["feed_url"])
+    base = res.final_url or src["feed_url"]
+    # markdown(llms.txt/.md) 与 HTML 分流：纯 md 页没有 <a href>/<h2-3>，
+    # 走 _page_links 恒得空集 → 永远 empty 且 page_sig 恒为空签名。
+    if _HTML_HINT.search(text):
+        links = _page_links(text, base)
+        heads = " ".join(
+            re.findall(r"<h[23][^>]*>(.*?)</h[23]>", text, re.S)[:80])
+    else:
+        links = _md_links(text, base)
+        heads = " ".join(_MD_HEAD.findall(text)[:80])
     items = []
     for u in links:
         if len(items) >= src["max_items_per_source"]:
@@ -1235,8 +1429,16 @@ def collect_changelog(src: dict, ctx, body: bytes, res: lhttp.FetchResult,
             continue
         items.append(_signal_item(u, src, res, sha, raw_ref))
     # 页面签名：链接清单 + 标题块 hash → 无新链接但内容变了也发一条
-    heads = " ".join(re.findall(r"<h[23][^>]*>(.*?)</h[23]>", text, re.S)[:80])
-    page_sig = _sha16(_strip_html(heads) + "|" + ",".join(
+    sig_basis = _strip_html(heads)
+    if src.get("sig_text"):
+        # 名单/计数类页（mathandai endorsers）无 h2/h3 也没有同域深链——
+        # 把正文可见文本（前 4K）并进签名，计数/名单变化也能触发信号
+        sig_basis += "|" + _strip_html(text)
+    if not sig_basis.strip() and not links:
+        # 死壳兜底（SPA shell / 空页）：混入资源指纹，前端重部署可发信号；
+        # 只在无正文时启用，避免改动正常页的既有签名。
+        sig_basis += "|assets:" + ",".join(_asset_fingerprint(text))
+    page_sig = _sha16(sig_basis + "|" + ",".join(
         normalize.url_canon(u) for u in links[:80]))
     old_sig = seen_entry.get("page_sig")
     seen_entry["page_sig"] = page_sig
@@ -1582,6 +1784,10 @@ def fetch_with_failover(src: dict, ctx, spec: dict | None):
             return res, u
         last = res
         log.info("%s: %s -> %s, try failover", src["name"], u[:70], res.error)
+        # walled/rate_limited 多为秒级挑战窗口（CF burst limit）——立刻打下一条
+        # 只是陪跑；给个小间隔再换。可用 failover_delay_s 逐源覆盖（默认 6s）。
+        if i < len(urls) - 1 and res.error in ("walled", "rate_limited"):
+            time.sleep(float(src.get("failover_delay_s") or 6))
     return last, urls[0]
 
 
@@ -1707,6 +1913,17 @@ def collect_source(src: dict, ctx) -> dict:
 def _json_items(src, ctx, body, res, raw_ref, stat) -> list[dict]:
     """json_api：具名 adapter → 通用 walker → HTML 降级 changelog diff。"""
     name = src["name"]
+    fn = API_ADAPTERS.get(name)
+    # 自抓型 adapter（xiaoyuzhou/trust_anthropic）不吃 feed body，
+    # 必须在 json 解析/HTML 降级之前分派（它们的首包常是 HTML 壳）。
+    if fn in _SELF_FETCH_ADAPTERS:
+        try:
+            partials, _ = fn(src, ctx)
+        except Exception as e:
+            stat["status"] = "parse_error"
+            stat["last_error"] = f"{type(e).__name__}: {e}"[:200]
+            return []
+        return _finish_items(partials, src, ctx, res, raw_ref, kind="api")
     try:
         data = json.loads(body.decode("utf-8", "replace"))
     except json.JSONDecodeError:
@@ -1716,11 +1933,8 @@ def _json_items(src, ctx, body, res, raw_ref, stat) -> list[dict]:
         stat["status"] = "parse_error"
         stat["last_error"] = "body not JSON"
         return []
-    fn = API_ADAPTERS.get(name)
     try:
-        if fn is api_xiaoyuzhou:
-            partials, _ = fn(src, ctx)
-        elif fn:
+        if fn:
             partials, _ = fn(data, src, ctx)
         else:
             partials, _ = api_generic(data, src, ctx)
