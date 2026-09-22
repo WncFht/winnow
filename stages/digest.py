@@ -110,7 +110,7 @@ def _load_json(p: Path):
 
 
 def _load_jsonl(p: Path) -> list:
-    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    return meta.load_jsonl(p)
 
 
 def _die(msg: str, hint: str = "") -> "SystemExit":

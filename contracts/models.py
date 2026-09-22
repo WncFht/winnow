@@ -90,7 +90,9 @@ class RawItem(BaseModel):
     url_canon: str = Field(description="规范化 URL：去 utm_*/fbclid/www./尾斜杠，https 归一")
     title: str
     content_text: Optional[str] = Field(default=None, description="feed summary/正文纯文本")
-    content_html: Optional[str] = None
+    content_html: Optional[str] = Field(
+        default=None,
+        description="feed HTML 原文片段（collect 硬截断 ≤32K 字符；整页原文见 _raw_ref 落盘响应）")
     date_published: Optional[str] = Field(default=None, description="源站发布时间，可为空")
     date_fetched: str = RFC3339
     language: Optional[str] = Field(default=None, description="BCP-47-ish: zh/en/…")
@@ -111,6 +113,10 @@ class RawManifest(BaseModel):
     n_items: int
     sources: list[dict] = Field(description="[{name,kind,n,errors:[url+err]}] 每源统计")
     produced_at: str = RFC3339
+    stats: Optional[dict] = Field(
+        default=None,
+        description="产物体积簿记：jsonl_bytes/max_line_bytes + content_text|content_html "
+                    "{cap_chars,n_present,n_truncated,max_chars}（collect 填，可选）")
 
 
 # ---------- stage 2: filtered.jsonl ----------

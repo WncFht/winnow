@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import unicodedata
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -67,7 +68,23 @@ def eprint(*a):
 
 
 def load_jsonl(p: Path) -> list[dict]:
-    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    """流式读 JSONL；坏行/截断行 → 指明 文件:行号 的报错后 fail-fast。
+
+    下游抢读写了一半的产物（或上游崩溃留残）会拿到 Unterminated string
+    之类的裸 JSONDecodeError traceback——翻成可定位的输入错误。
+    """
+    out = []
+    with open(p, encoding="utf-8") as f:
+        for n, ln in enumerate(f, 1):
+            if not ln.strip():
+                continue
+            try:
+                out.append(json.loads(ln))
+            except json.JSONDecodeError as e:
+                eprint(f"[gate_select] 输入 {p.name}:{n} 行损坏（{e.msg}）"
+                       " — 产物截断或上游写到一半崩了；重跑对应上游阶段")
+                raise SystemExit(2)
+    return out
 
 
 def resolve_run_dir(s: str) -> Path:
@@ -202,12 +219,16 @@ def build_candidates(run_dir: Path) -> dict:
     missing = [n for n in (RAW_NAME, FILT_NAME, SUMS_NAME, DED_NAME)
                if not (run_dir / n).exists()]
     if missing:
-        hint = {"10_raw_items.jsonl": "just collect",
-                "20_filtered.jsonl": "just filter",
-                "30_summaries.jsonl": "just filter",
-                "35_dedup.jsonl": "just dedup"}
-        need = sorted({hint[m] for m in missing})
-        eprint(f"[gate_select] 缺输入 {missing} — 先跑: {' && '.join(need)}")
+        # 提示必须按 DAG 序 collect -> filter -> dedup——对文件名 sorted()
+        # 会把 dedup 排到 filter 前面，给出根本跑不通的顺序。
+        hint = {RAW_NAME: "just collect", FILT_NAME: "just filter",
+                SUMS_NAME: "just filter", DED_NAME: "just dedup"}
+        need = []
+        for n in (RAW_NAME, FILT_NAME, SUMS_NAME, DED_NAME):   # = DAG 序
+            if n in missing and hint[n] not in need:
+                need.append(hint[n])
+        eprint(f"[gate_select] 缺输入 {missing} — 先跑: {' && '.join(need)}"
+               "（或一把补齐: just gather）")
         raise SystemExit(2)
 
     raw = {r["item_key"]: r for r in load_jsonl(run_dir / RAW_NAME)}
@@ -375,6 +396,26 @@ def cmd_deadline_check(run_dir: Path, hhmm: str) -> int:
 
 # ------------------------------------------------------------------ selftest
 
+@contextmanager
+def _run_lock(run_dir: Path):
+    """meta.run_lock 的提示包装：锁被占时先说明再阻塞等。
+
+    残留的 .lock 文件本身无害——flock 锁的是打开的 inode，持锁进程一死
+    锁即释放；文件留在盘上不阻塞任何人，无需清理。
+    """
+    contested = False
+    try:
+        with meta.run_lock(run_dir, blocking=False):
+            pass  # 拿到即释放，纯探测占用
+    except BlockingIOError:
+        contested = True
+    if contested:
+        eprint(f"[gate_select] {run_dir} 有阶段运行中 — 等待 .lock 释放"
+               "（Ctrl-C 退出）")
+    with meta.run_lock(run_dir) as fd:
+        yield fd
+
+
 def _fixture_item(i: int, url_suffix: str = "") -> dict:
     import hashlib
     url = f"https://example.com/news/{i}{url_suffix}"
@@ -532,6 +573,42 @@ def cmd_selftest() -> int:
           len(doc["kept"]) == expect and len(doc["dropped"]) == 25 - expect)
     check("kept 仍是 nv 最高者", doc["kept"][0]["item_key"] == keys[0])
 
+    # -- 缺输入 fail-fast：提示必须按 DAG 序（filter 在 dedup 前）
+    import contextlib, io
+    rd = meta.ensure_run("2000-01-04", base=base)
+    k, it = _fixture_item(0, "-c")
+    (rd / RAW_NAME).write_text(json.dumps(it, ensure_ascii=False) + "\n")
+    buf = io.StringIO()
+    rc = 0
+    try:
+        with contextlib.redirect_stderr(buf):
+            cmd_prepare(rd)
+    except SystemExit as e:
+        rc = e.code
+    msg = buf.getvalue()
+    check("缺输入 exit=2", rc == 2)
+    check("缺输入提示 filter 在 dedup 前（DAG 序）",
+          msg.find("just filter") != -1
+          and msg.find("just filter") < msg.find("just dedup"),
+          msg.strip().splitlines()[-1] if msg.strip() else "no stderr")
+
+    # -- 损坏 JSONL 行：报 文件:行号 而非裸 traceback
+    bad = meta.ensure_run("2000-01-05", base=base)
+    for name in (FILT_NAME, SUMS_NAME, DED_NAME):
+        (bad / name).write_text('{"ok": 1}\n{"broken": "unterminated\n')
+    (bad / RAW_NAME).write_text(json.dumps(it, ensure_ascii=False) + "\n")
+    buf = io.StringIO()
+    rc = 0
+    try:
+        with contextlib.redirect_stderr(buf):
+            cmd_prepare(bad)
+    except SystemExit as e:
+        rc = e.code
+    msg = buf.getvalue()
+    check("坏行 exit=2", rc == 2)
+    check("坏行报错带 文件:行号", "20_filtered.jsonl:2" in msg,
+          msg.strip().splitlines()[-1] if msg.strip() else "no stderr")
+
     shutil.rmtree(base, ignore_errors=True)
     print(f"[selftest] {'FAIL ' + str(fails) if fails else 'ALL PASS'}")
     return 1 if fails else 0
@@ -559,20 +636,20 @@ def main(argv=None) -> int:
     run_dir = resolve_run_dir(args.run_dir)
 
     if args.deadline_check:
-        with meta.run_lock(run_dir):
+        with _run_lock(run_dir):
             return cmd_deadline_check(run_dir, args.deadline_check)
     if args.auto:
-        with meta.run_lock(run_dir):
+        with _run_lock(run_dir):
             return cmd_auto(run_dir, force=args.force, topk=args.topk)
     if args.serve:
-        with meta.run_lock(run_dir):
+        with _run_lock(run_dir):
             rc = cmd_prepare(run_dir)
         if rc != 0:
             return rc
         # 服务器持锁会阻塞 pick-auto 死线 watcher —— 锁外启动（justfile 同款约定）
         return cmd_serve_no_prepare(run_dir)
     # 默认 = --prepare
-    with meta.run_lock(run_dir):
+    with _run_lock(run_dir):
         return cmd_prepare(run_dir)
 
 

@@ -36,7 +36,10 @@ def warn(m):
 
 
 def load_jsonl(name):
-    return [json.loads(l) for l in (RUN / name).read_text().splitlines() if l.strip()]
+    # 文件迭代只认 \n/\r\n/\r——read_text().splitlines() 会把字符串内
+    # 裸 U+2028/U+2029/NEL 当行边界切断 JSON（2026-09-22 事故）。
+    with open(RUN / name, encoding="utf-8", newline=None) as f:
+        return [json.loads(l) for l in f if l.strip()]
 
 
 def sha256_file(p: Path) -> str:
@@ -296,14 +299,15 @@ def _num_allowed(text, v, s, e, allowed, meta_nums):
 def _load_jsonl(run, name, V):
     """读 JSONL → (rows, parse_ok)；解析失败记 lint error。"""
     rows, ok = [], True
-    for i, line in enumerate((run / name).read_text().splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            rows.append(json.loads(line))
-        except json.JSONDecodeError as ex:
-            V("schema-lint", "error", name, f"第{i}行 JSON 解析失败: {ex}")
-            ok = False
+    with open(run / name, encoding="utf-8", newline=None) as f:
+        for i, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError as ex:
+                V("schema-lint", "error", name, f"第{i}行 JSON 解析失败: {ex}")
+                ok = False
     return rows, ok
 
 

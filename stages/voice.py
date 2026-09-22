@@ -602,8 +602,7 @@ def _selftest() -> int:
         ok = ok and cond
         print(f"  [{'PASS' if cond else 'FAIL'}] {name} {extra}")
 
-    script = [json.loads(l) for l in
-              (run_dir / F_SCRIPT).read_text().splitlines() if l.strip()]
+    script = meta.load_jsonl(run_dir / F_SCRIPT)
     manifest = json.loads((run_dir / F_MANIFEST).read_text())
     tl = json.loads((run_dir / F_TIMELINE).read_text())
 

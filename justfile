@@ -28,6 +28,13 @@
 # its parent forever -> guaranteed deadlock. .just.lock serializes only
 # just-level invocations for the same run bucket.
 #
+# Stale .just.lock / .lock files are harmless: flock binds to the open
+# inode, not the path — the lock dies with the holder, so leftover files
+# never block anyone and need no cleanup. _jlock (PREP below) bounds the
+# wait at 1h (-w 3600) and maps lock-timeout to exit 200 (-E 200) so it can
+# print "runs/<d> 有运行进行中" instead of silently hanging — while a real
+# stage failure keeps its own exit code/message.
+#
 # File-is-dependency-edge: a stage fails fast if its input artifact is
 # missing ("run `just gather` first"); the recipe graph stays shallow.
 # =============================================================================
@@ -39,10 +46,12 @@ RUN         := "runs/" + DATE
 REVIEW_PORT := "8923"
 PROXY       := "http://127.0.0.1:7890"
 
-# line prefixes (see header): pipefail+log dir, dotenv export, per-run flock
-PREP := "set -o pipefail; mkdir -p " + RUN + "/logs; "
-ENV  := "set -a; [ -f secrets.env ] && . ./secrets.env; set +a; "
-LOCK := "flock " + RUN + "/.just.lock "
+# line prefixes (see header): pipefail+log dir, dotenv export, per-run flock.
+# _jlock wraps flock so a 1h lock-timeout prints a friendly message (exit
+# 200) instead of hanging forever or looking like a stage failure.
+PREP := "set -o pipefail; mkdir -p " + RUN + "/logs; _jlock(){ flock -E 200 -w 3600 " + RUN + "/.just.lock \"$@\"; rc=$?; if [ \"$rc\" -eq 200 ]; then echo \"[just] " + RUN + " 有运行进行中 — .just.lock 等满 1h 未拿到（残留锁文件无害，锁随持锁进程释放）\" >&2; fi; return \"$rc\"; }; "
+ENV  := "set -a; if [ -f secrets.env ]; then . ./secrets.env; fi; set +a; "
+LOCK := "_jlock "
 
 default:
     @just --list --unsorted
@@ -348,7 +357,7 @@ pick-auto:
 # produce = digest(Call A) -> callb -> voice -> cards -> subs -> render-plan -> compose -> meta
 produce:
     #!/usr/bin/env bash
-    set -uo pipefail
+    set -euo pipefail
     if [ -f {{RUN}}/50_issue.json ]; then
       echo "[produce] 50_issue.json exists — skipping Call A (digest)"
     else
@@ -409,7 +418,7 @@ all: gather
 # gate-1 deadline watcher: auto top-K if unsubmitted past 08:30, then digest
 deadline1:
     #!/usr/bin/env bash
-    set -uo pipefail
+    set -euo pipefail
     {{PREP}}
     dl=$(uv run -q --with pyyaml python3 - <<'PY'
     import os, yaml
@@ -422,12 +431,8 @@ deadline1:
         print("08:30")
     PY
     )
-    {{ENV}}{{LOCK}}uv run stages/gate_select.py --run-dir {{RUN}} --deadline-check "$dl" 2>&1 | tee -a {{RUN}}/logs/gate_select.log
-    rc=$?   # pipefail is on: non-zero here = gate_select itself failed
-    if [ "$rc" -ne 0 ]; then
-      echo "[deadline1] gate_select failed (rc=$rc) — see {{RUN}}/logs/gate_select.log" >&2
-      exit "$rc"
-    fi
+    {{ENV}}{{LOCK}}uv run stages/gate_select.py --run-dir {{RUN}} --deadline-check "$dl" 2>&1 | tee -a {{RUN}}/logs/gate_select.log \
+      || { rc=$?; echo "[deadline1] gate_select failed (rc=$rc) — see {{RUN}}/logs/gate_select.log" >&2; exit "$rc"; }
     if [ ! -f {{RUN}}/40_selected.json ]; then
       echo "[deadline1] no 40_selected.json (before deadline $dl or gather incomplete) — nothing to do"
       exit 0
@@ -445,7 +450,7 @@ deadline1:
 # gate-2 deadline watcher: lock issue (auto-import pending edits), then produce
 deadline2:
     #!/usr/bin/env bash
-    set -uo pipefail
+    set -euo pipefail
     {{PREP}}
     # gate-1 safety net: if the 08:30 timer never fired, force 40+50 into being
     if [ ! -f {{RUN}}/40_selected.json ] || [ ! -f {{RUN}}/50_issue.json ]; then
@@ -456,12 +461,16 @@ deadline2:
       echo "[deadline2] still no 50_issue.json — cannot continue" >&2
       exit 1
     fi
+    # review_sha256 属于 stage_done(extra=) 簿记——分流在 00_stage_stats.json
+    # 侧车，00_meta.json 里永远读不到；必须走 lib.meta.meta_status 的合并读视图，
+    # 否则"人工改过 50_review.md"探测恒为假、自动 edit-import 永远不触发。
     if python3 - {{RUN}} <<'PY'
-    import sys, os, json, hashlib
+    import sys, os, hashlib
+    sys.path.insert(0, "stages")
     rd = sys.argv[1]
     try:
-        meta = json.load(open(os.path.join(rd, "00_meta.json")))
-        st = meta.get("stages") or {}
+        from lib.meta import meta_status
+        st = meta_status(rd).get("stages") or {}
         cur = hashlib.sha256(open(os.path.join(rd, "50_review.md"), "rb").read()).hexdigest()
         base = (st.get("digest_import") or {}).get("review_sha256") \
             or (st.get("digest_export") or {}).get("review_sha256")
@@ -473,7 +482,7 @@ deadline2:
       echo "[deadline2] 50_review.md modified since last import — auto edit-import"
       just DATE={{DATE}} edit-import || echo "[deadline2] WARN edit-import failed — continuing with last valid 50_issue.json" >&2
     fi
-    just DATE={{DATE}} callb voice cards render-plan compose meta
+    just DATE={{DATE}} callb voice cards subs render-plan compose meta
 
 # --------------------------------------------------------------------------
 # resume / inspect
@@ -483,7 +492,7 @@ deadline2:
 # re-run missing/failed stages for runs/<date> in DAG order (default today)
 resume date=DATE:
     #!/usr/bin/env bash
-    set -uo pipefail
+    set -euo pipefail
     RD="runs/{{date}}"
     mkdir -p "$RD/logs"
     todo=$(python3 - "$RD" <<'PY'
@@ -502,6 +511,7 @@ resume date=DATE:
         ("digest_callb","digest.py",      "62_timeline.json",        ["--callb"]),
         ("voice",       "voice.py",       "62_timeline.json",        []),
         ("cards",       "cards.py",       "64_frames_manifest.json", []),
+        ("subs",        "subs.py",        "65_subs",                 []),
         ("render_plan", "render_plan.py", "70_render_plan.json",     []),
         ("compose",     "compose.py",     "80_build_manifest.json",  []),
         ("meta_qa",     "meta_qa.py",     "90_qa.json",              []),
@@ -521,6 +531,12 @@ resume date=DATE:
         e = stages.get(name)
         if e and e.get("status") in OK and e.get("_verify", "ok") == "ok":
             continue                                # recorded + artifact intact
+        # meta_status._verify 只认 is_file()——目录 artifact（如 subs 的
+        # 65_subs/）永远 "missing"，这里补 isdir 判定，否则 resume 每次都
+        # 重跑目录类阶段。
+        if e and e.get("status") in OK and e.get("_verify") == "missing" \
+                and os.path.isdir(os.path.join(rd, e.get("artifact") or "")):
+            continue
         if e is None and os.path.exists(os.path.join(rd, art)):
             continue                                # artifact exists, meta lost
         out.append("\t".join([name, script] + extra))
@@ -529,13 +545,20 @@ resume date=DATE:
     )
     if [ -z "$todo" ]; then echo "[resume] all stages done for {{date}}"; exit 0; fi
     echo "[resume] pending:"; echo "$todo" | sed 's/^/  /'
-    set -o pipefail
-    set -a; [ -f secrets.env ] && . ./secrets.env; set +a
+    set -a; if [ -f secrets.env ]; then . ./secrets.env; fi; set +a
     while IFS=$'\t' read -r name script extra; do
-      [ -z "$name" ] && continue
+      if [ -z "$name" ]; then continue; fi
       echo "[resume] === $name ==="
-      flock "$RD/.just.lock" uv run "stages/$script" --run-dir "$RD" $extra 2>&1 | tee -a "$RD/logs/$name.log" \
-        || { echo "[resume] $name FAILED — fix and re-run: just resume {{date}}"; exit 1; }
+      rc=0
+      flock -E 200 -w 3600 "$RD/.just.lock" uv run "stages/$script" --run-dir "$RD" $extra 2>&1 \
+        | tee -a "$RD/logs/$name.log" || rc=$?
+      if [ "$rc" -eq 200 ]; then
+        echo "[resume] $RD 有运行进行中 — .just.lock 等满 1h 未拿到" >&2
+        exit 1
+      elif [ "$rc" -ne 0 ]; then
+        echo "[resume] $name FAILED — fix and re-run: just resume {{date}}"
+        exit 1
+      fi
     done <<< "$todo"
     echo "[resume] complete for {{date}}"
 

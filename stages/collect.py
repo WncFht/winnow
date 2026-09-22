@@ -86,6 +86,8 @@ SITEMAP_CHILD_CAP = 5                # sitemapindex 子图最多抓几个
 CHANGELOG_LINK_CAP = 120
 MAX_CONTENT_PER_SOURCE = 60          # 每源正文补抓上限
 HTML_MIN = 1 << 14                   # >16KB 才可能走 changelog 链接抽取
+CONTENT_HTML_CAP = 1 << 15           # content_html 32K 字符硬上限（全文在 _raw_ref）
+CONTENT_TEXT_CAP = 8000              # content_text 上限（对齐 trafilatura 回填 8000）
 
 # 防盗链图床（浏览器热链 403）：本地化下载到 run_dir/media/
 WALLED_IMG_HOSTS = (
@@ -417,6 +419,30 @@ def _post_json(url: str, payload, headers: dict, proxy: str | None,
 
 # ====================================================== raw_item 构造/校验 ==
 
+# str.splitlines() 会断行、而 json.dumps 不转义的字符（C1 NEL + Unicode
+# 段落分隔符 + VT/FF）。写盘侧 meta.dumps_jsonl 已转义，这里再把字段值
+# 归一成空格做纵深防御——内容字段是事故字符的主要来源（2026-09-22
+# ben_evans 两条 content_html 即含 U+2028，切碎了下游 splitlines 读者）。
+_LINE_SEPS = str.maketrans({c: " " for c in "\x85\x0b\x0c\u2028\u2029"})
+
+_TRUNC_MARK = "…[截断]"
+
+
+def _bounded_text(s, cap: int):
+    """内容字段归一：行分隔符族字符 → 空格 + 字符硬上限截断（留痕 marker）。
+
+    content_html 只保留截断片段供 JSON Feed 兼容/快速预览——整页原文始终
+    可从 _raw_ref 落盘响应回放，不需要进 JSONL（qwen_blog 曾单条 849KB
+    HTML 把 10_raw_items.jsonl 撑到 21.5MB）。非 str 原样放行交契约拒。
+    """
+    if not isinstance(s, str):
+        return s or None
+    if not s:
+        return None
+    s = s.translate(_LINE_SEPS)
+    return s if len(s) <= cap else s[:cap] + _TRUNC_MARK
+
+
 def mk_item(*, url: str, title: str, src: dict, kind: str,
             date: str | None = None, summary: str | None = None,
             content_html: str | None = None, image: str | None = None,
@@ -434,8 +460,8 @@ def mk_item(*, url: str, title: str, src: dict, kind: str,
         "url": url,
         "url_canon": canon,
         "title": normalize.title_norm(title or "") or _slug_title(url),
-        "content_text": (summary or None),
-        "content_html": content_html,
+        "content_text": _bounded_text(summary, CONTENT_TEXT_CAP),
+        "content_html": _bounded_text(content_html, CONTENT_HTML_CAP),
         "date_published": date,
         "date_fetched": fetched or _utcnow(),
         "language": lang if lang is not None else _guess_lang(title or "", summary or ""),
@@ -454,8 +480,16 @@ def mk_item(*, url: str, title: str, src: dict, kind: str,
 
 
 def _validate_item(it: dict) -> dict | None:
-    """契约校验；不合法条目丢 + 记日志（宁缺勿炸）。"""
+    """契约校验 + 内容上限兜底；不合法条目丢 + 记日志（宁缺勿炸）。
+
+    平台采集器（x/reddit/weibo）直造 raw dict 绕过 mk_item——截断/行分隔符
+    归一在这里再兜一次，保证「无 >CAP 内容字段」是全路径不变量。"""
     try:
+        it = {**it,
+              "content_text": _bounded_text(it.get("content_text"),
+                                            CONTENT_TEXT_CAP),
+              "content_html": _bounded_text(it.get("content_html"),
+                                            CONTENT_HTML_CAP)}
         return RawItem.model_validate(it).model_dump(by_alias=True)
     except Exception as e:
         log.warning("drop invalid item url=%s: %s",
@@ -1438,7 +1472,7 @@ def content_pass(item: dict, src: dict, ctx) -> None:
         meta_d = {}
     ext_text = (meta_d.get("text") or meta_d.get("raw_text") or "").strip()
     if ext_text and len(ext_text) > len(text):
-        item["content_text"] = ext_text[:8000]
+        item["content_text"] = _bounded_text(ext_text, CONTENT_TEXT_CAP)
     if not item.get("content_html") and len(body) < (1 << 22):
         item["content_html"] = None      # 原 HTML 太大不入契约，留 _raw_ref
     if meta_d.get("title") and (
@@ -1490,7 +1524,7 @@ def media_pass(item: dict, src: dict, ctx) -> None:
     media_dir.mkdir(parents=True, exist_ok=True)
     name = f"{_sha16(img)}{ext}"
     try:
-        (media_dir / name).write_bytes(r.body)
+        meta.atomic_write(media_dir / name, r.body)   # tmp+replace，免半截文件
         item["image"] = f"media/{name}"
     except OSError as e:
         log.debug("media write fail: %s", e)
@@ -1788,7 +1822,7 @@ def manual_item(url: str, title: str | None, ctx) -> dict:
                                       with_metadata=True)
             d = json.loads(out) if out else {}
             if d.get("text"):
-                it["content_text"] = d["text"][:8000]
+                it["content_text"] = _bounded_text(d["text"], CONTENT_TEXT_CAP)
             if not title and d.get("title"):
                 it["title"] = normalize.title_norm(d["title"])
             if d.get("date"):
@@ -1816,8 +1850,10 @@ def _ntfy(cfg, title, msg, priority="default", tags=None):
 
 
 def _write_outputs(run_dir: Path, items: list[dict], manifest: dict):
-    lines = "".join(json.dumps(it, ensure_ascii=False) + "\n" for it in items)
-    meta.atomic_write(run_dir / ITEMS_NAME, lines)
+    # dumps_jsonl：整写 + 转义 NEL/U+2028/U+2029——产物里唯一行分隔符是 \n，
+    # 任何按行读取器（含 str.splitlines）都不会在字符串内断行；再经
+    # atomic_write tmp+os.replace 落盘，读者永不碰到写了一半的文件。
+    meta.atomic_write(run_dir / ITEMS_NAME, meta.dumps_jsonl(items))
     RawManifest.model_validate(manifest)            # 契约 lint，错则炸
     meta.atomic_write(run_dir / MANIFEST_NAME, manifest)
 
@@ -1874,8 +1910,7 @@ def run(args) -> int:
             old = []
             p = run_dir / ITEMS_NAME
             if p.is_file():
-                old = [json.loads(x) for x in
-                       p.read_text(encoding="utf-8").splitlines() if x.strip()]
+                old = list(meta.iter_jsonl(p))
             old = [o for o in old if o.get("item_key") != v["item_key"]] + [v]
             _write_outputs(run_dir, old, _manifest(run_date, win, old, ctx,
                                                  note="manual"))
@@ -1980,6 +2015,36 @@ def run(args) -> int:
         return 0 if n_ok or not sources else 1
 
 
+def _items_stats(items: list[dict]) -> dict:
+    """产物体积簿记 → manifest["stats"]：行字节按落盘序列化（dumps_jsonl_row）
+    实测，截断数按 _TRUNC_MARK 留痕识别（启发式，理论误报≈0）。"""
+    n_html = n_html_trunc = n_text = n_text_trunc = 0
+    max_html = max_text = max_line = total = 0
+    for it in items:
+        h = it.get("content_html") or ""
+        t = it.get("content_text") or ""
+        if h:
+            n_html += 1
+            max_html = max(max_html, len(h))
+            if h.endswith(_TRUNC_MARK):
+                n_html_trunc += 1
+        if t:
+            n_text += 1
+            max_text = max(max_text, len(t))
+            if t.endswith(_TRUNC_MARK):
+                n_text_trunc += 1
+        b = len((meta.dumps_jsonl_row(it) + "\n").encode("utf-8"))
+        max_line, total = max(max_line, b), total + b
+    return {
+        "jsonl_bytes": total,
+        "max_line_bytes": max_line,
+        "content_html": {"cap_chars": CONTENT_HTML_CAP, "n_present": n_html,
+                         "n_truncated": n_html_trunc, "max_chars": max_html},
+        "content_text": {"cap_chars": CONTENT_TEXT_CAP, "n_present": n_text,
+                         "n_truncated": n_text_trunc, "max_chars": max_text},
+    }
+
+
 def _manifest(run_date, win, items, ctx, preflight=None, degraded=False,
               note=None) -> dict:
     sources_stats = []
@@ -2002,6 +2067,7 @@ def _manifest(run_date, win, items, ctx, preflight=None, degraded=False,
         "n_items": len(items),
         "sources": sources_stats,
         "produced_at": _utcnow(),
+        "stats": _items_stats(items),
     }
 
 
@@ -2089,10 +2155,9 @@ def selftest(args) -> int:
         return 1
     _save_json(run_dir / "seen_selftest.json", ctx.seen)
 
-    n_lines = sum(1 for _ in open(run_dir / ITEMS_NAME, encoding="utf-8"))
-    valid = all(RawItem.model_validate(json.loads(x))
-                for x in (run_dir / ITEMS_NAME)
-                .read_text(encoding="utf-8").splitlines() if x.strip())
+    rows = list(meta.iter_jsonl(run_dir / ITEMS_NAME))
+    n_lines = len(rows)
+    valid = all(RawItem.model_validate(x) for x in rows)
     print(f"selftest: ok_sources={ok_sources}/3 items={n_lines} "
           f"contract_valid={valid}")
     if ok_sources >= 2 and valid and n_lines > 0:

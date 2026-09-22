@@ -5,8 +5,8 @@ Implements the PLAN.md contract:
   {schema, episode, created_at, stages{}}; stages{} -> {artifact, sha256,
   status∈done|pending|failed|skipped, produced_at, producer}（extra=forbid）;
   it is the basis for breakpoint resume (§9 幂等).
-- Artifacts are written to "<name>.tmp" then os.replace() so a crash never
-  leaves a half-written file.
+- Artifacts are written to "<name>.<pid>.<rand>.tmp" then os.replace() so a
+  crash never leaves a half-written file.
 - Every stage takes an exclusive flock on runs/<date>/.lock at start.
 
 Stages use it like:
@@ -28,11 +28,12 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import sys
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator, Union
+from typing import Any, Callable, Iterator, Union
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RUNS_DIR = REPO_ROOT / "runs"
@@ -74,11 +75,15 @@ def sha256_file(path: Union[str, Path]) -> str:
 
 
 def atomic_write(path: Union[str, Path], data: Any) -> Path:
-    """Write data to "<path>.tmp" then os.replace() onto path.
+    """Write data to a unique "<path>.<pid>.<rand>.tmp" then os.replace().
 
     data: bytes written as-is; str encoded utf-8; dict/list serialized to
     JSON (utf-8, ensure_ascii=False, trailing newline); anything else is
     str()-ified and encoded utf-8.
+
+    tmp 名带 pid+随机后缀——共享 "<name>.tmp" inode 会让并发/重入写
+    互相踩（一方 replace 后另一方的 fd 还指着已 unlinked 的旧 inode，
+    最终落盘的是后写者的半截或旧内容）。
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -90,13 +95,114 @@ def atomic_write(path: Union[str, Path], data: Any) -> Path:
         raw = data.encode("utf-8")
     else:
         raw = str(data).encode("utf-8")
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "wb") as f:
-        f.write(raw)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        with open(tmp, "wb") as f:
+            f.write(raw)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()          # replace 成功则已不存在；失败则清残
+        except OSError:
+            pass
     return path
+
+
+# ---------------------------------------------------------------------------
+# JSONL 读写（全管道统一入口）
+#
+# 背景事故（runs/2026-09-22）：10_raw_items.jsonl 内嵌 3 个字面 U+2029，
+# filter 端 read_text().splitlines() 把 U+2028/U+2029 当换行，3349 行被拆成
+# 3352 段 → "Unterminated string line 1 col 4337"。文件对象迭代走
+# universal-newlines，只按 \n / \r\n / \r 切行（\r 与 \n 在 dumps 产物里必被
+# 转义，故不会在字符串内断行）；写端再把 splitlines 族分隔符全部转义，
+# 产物对任何按行读取器都安全。
+# ---------------------------------------------------------------------------
+
+# str.splitlines() 会断行、而 json.dumps 不转义的字符：C1 NEL + Unicode 段落
+# 分隔符（C0 控制字符 dumps 已转义）。转义后 json.loads 往返逐字节等价。
+_JSONL_UNSAFE = str.maketrans({
+    "": "\\u0085",
+    " ": "\\u2028",
+    " ": "\\u2029",
+})
+
+
+class JsonlError(ValueError):
+    """JSONL 行解析/校验失败，消息含 {path}:{lineno} 定位。"""
+
+    def __init__(self, path: Union[str, Path], lineno: int, msg: str):
+        self.path = str(path)
+        self.lineno = lineno
+        super().__init__(f"{self.path}:{lineno}: {msg}")
+
+
+def iter_jsonl(
+    path: Union[str, Path],
+    errors: Union[list, None] = None,
+    check: Union[Callable[[Any], Union[str, None]], None] = None,
+) -> Iterator[Any]:
+    """逐行产出 JSONL 解析结果；纯空白行跳过。
+
+    只按 \\n/\\r\\n/\\r 切行——绝不使用 str.splitlines()（会被字符串内
+    U+2028/U+2029/NEL 截断，见模块注释的事故说明）。
+
+    errors=None（默认）：坏行抛 JsonlError（fail-fast，消息带行号与行首
+    预览）。errors=list：坏行追加 JsonlError 到该 list 并跳过——调用方
+    聚合计数，不因为一行坏掉而崩掉整批。
+    check(obj)：可选逐条校验钩子，返回 None 放行，返回错误描述串则把该行
+    按坏行走同一 errors/raise 路径（带行号定位）。
+    """
+    path = Path(path)
+    with open(path, "r", encoding="utf-8", newline=None) as f:
+        for i, ln in enumerate(f, 1):
+            if not ln.strip():
+                continue
+            try:
+                obj = json.loads(ln)
+            except json.JSONDecodeError as e:
+                err = JsonlError(
+                    path, i,
+                    f"JSON 解析失败 {e.msg} (char {e.pos}): {ln[:80]!r}")
+                if errors is None:
+                    raise err from e
+                errors.append(err)
+                continue
+            if check is not None:
+                msg = check(obj)
+                if msg:
+                    err = JsonlError(path, i, msg)
+                    if errors is None:
+                        raise err
+                    errors.append(err)
+                    continue
+            yield obj
+
+
+def load_jsonl(
+    path: Union[str, Path],
+    errors: Union[list, None] = None,
+    check: Union[Callable[[Any], Union[str, None]], None] = None,
+) -> list:
+    """iter_jsonl 的 list 包装（全量读入场景）。"""
+    return list(iter_jsonl(path, errors=errors, check=check))
+
+
+def dumps_jsonl_row(obj: Any) -> str:
+    """一行 JSONL 序列化：ensure_ascii=False + 转义 NEL/U+2028/U+2029。
+
+    转义对 json.loads 完全透明（\\uXXXX 解码回原字符），但保证产物中
+    唯一的行分隔符就是 \\n——任何按行切分器（含 str.splitlines）都不会
+    在字符串内部断行。
+    """
+    return json.dumps(obj, ensure_ascii=False).translate(_JSONL_UNSAFE)
+
+
+def dumps_jsonl(rows) -> str:
+    """多行 JSONL 序列化（每行 dumps_jsonl_row + '\\n'）。"""
+    return "".join(dumps_jsonl_row(r) + "\n" for r in rows)
 
 
 def ensure_run(date: Union[str, Path], base: Union[str, Path, None] = None) -> Path:

@@ -40,6 +40,20 @@
       "description": "RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00",
       "title": "Produced At",
       "type": "string"
+    },
+    "stats": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "产物体积簿记：jsonl_bytes/max_line_bytes + content_text|content_html {cap_chars,n_present,n_truncated,max_chars}（collect 填，可选）",
+      "title": "Stats"
     }
   },
   "required": [

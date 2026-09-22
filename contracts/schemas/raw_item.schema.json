@@ -160,6 +160,7 @@
         }
       ],
       "default": null,
+      "description": "feed HTML 原文片段（collect 硬截断 ≤32K 字符；整页原文见 _raw_ref 落盘响应）",
       "title": "Content Html"
     },
     "date_published": {

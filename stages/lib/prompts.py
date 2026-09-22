@@ -167,32 +167,35 @@ def _item_body(item: Any, *, max_chars: int = 600) -> str:
     lines: list[str] = []
     title = _field(item, "headline", "title_zh", "title")
     if title:
-        lines.append(f"标题: {title}")
+        lines.append(f"标题: {_clip(title, 240)}")
     src = _source_name(item)
     if src:
-        lines.append(f"来源: {src}")
+        lines.append(f"来源: {_clip(src, 80)}")
     date = _field(item, "date_published", "published_at", "date")
     if date:
-        lines.append(f"日期: {date}")
+        lines.append(f"日期: {_clip(date, 40)}")
     sec = _field(item, "section", "section_guess")
     if sec:
-        lines.append(f"分区: {sec}")
+        lines.append(f"分区: {_clip(sec, 40)}")
     facts = item.get("facts")
     if facts:
-        lines.append("事实: " + "；".join(str(f) for f in facts))
+        lines.append("事实: " + _clip("；".join(str(f) for f in facts), 1000))
     ents = item.get("entities")
     if ents:
-        lines.append("实体: " + "、".join(str(e) for e in ents))
+        lines.append("实体: " + _clip("、".join(str(e) for e in ents), 400))
     links = item.get("links") or item.get("urls")
     if links:
+        seq = list(links)                        # 非 list 可迭代对象先物化
         parts = []
-        for i, l in enumerate(links, 1):
+        for i, l in enumerate(seq[:12], 1):
             label = l.get("label") or l.get("kind") if isinstance(l, Mapping) else l
-            parts.append(f"u{i}={label}")
+            parts.append(f"u{i}={_clip(str(label), 60)}")
+        if len(seq) > 12:
+            parts.append("…")
         lines.append("链接: " + "  ".join(parts))
     tldr = _field(item, "tldr", "summary")
     if tldr:
-        lines.append(f"概要: {tldr}")
+        lines.append(f"概要: {_clip(tldr, 600)}")
     body = item.get("body")
     if isinstance(body, Sequence) and not isinstance(body, str):
         body = "\n\n".join(str(p) for p in body)

@@ -208,7 +208,7 @@ def _load_json(p: Path):
 
 
 def _load_jsonl(p: Path) -> list:
-    return [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+    return meta.load_jsonl(p)
 
 
 def _die(msg: str, hint: str = "") -> "SystemExit":
@@ -751,7 +751,10 @@ def build_metrics(run_dir: Path, qa: dict, title_provs: list,
     counts = {}
     def _n_jsonl(name):
         p = run_dir / name
-        return sum(1 for l in p.read_text().splitlines() if l.strip()) if p.exists() else None
+        if not p.exists():
+            return None
+        with open(p, encoding="utf-8", newline=None) as f:
+            return sum(1 for l in f if l.strip())
     counts["raw_items"] = _n_jsonl("10_raw_items.jsonl")
     counts["filtered"] = _n_jsonl("20_filtered.jsonl")
     counts["summaries"] = _n_jsonl("30_summaries.jsonl")

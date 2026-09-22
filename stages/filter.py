@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import json
 import re
 import sys
 import time
@@ -42,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 import yaml  # noqa: E402
 
 from adapters import llm_swe2max as llm  # noqa: E402
-from contracts.models import FilterVerdict, Summary  # noqa: E402
+from contracts.models import FilterVerdict, RawItem, Summary  # noqa: E402
 from lib import meta, normalize, prompts, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
@@ -166,7 +165,7 @@ def _prov(model: str, prompt_tag: str, item_key: str, ts: str | None = None) -> 
 
 
 def _jsonl(rows: list[dict]) -> str:
-    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+    return meta.dumps_jsonl(rows)
 
 
 def _out_id(x):
@@ -192,16 +191,45 @@ def _as_verdict_list(out) -> list:
 # 输入规整
 # ---------------------------------------------------------------------------
 
-def load_items(run_dir: Path, limit: int | None) -> list[dict]:
+def _raw_check(obj) -> str | None:
+    """iter_jsonl 的逐条校验钩子：返回 None 放行，错误描述串则该行按坏行处理。
+
+    能解析出 _source.name 时把它带进错误串——坏行报告同时给文件行号和
+    来源源名两个定位维度。
+    """
+    if not isinstance(obj, dict):
+        return "行不是 JSON object"
+    src = (obj.get("_source") or {}).get("name") \
+        if isinstance(obj.get("_source"), dict) else None
+    tag = f" [src={src}]" if src else ""
+    try:
+        RawItem.model_validate(obj)
+    except Exception as e:
+        errs = e.errors() if hasattr(e, "errors") else []
+        if errs:
+            loc = ".".join(str(x) for x in errs[0].get("loc", ()))
+            return (f"raw_item/1 校验失败({len(errs)}处): "
+                    f"{loc} {errs[0].get('msg')}{tag}")[:160]
+        return f"raw_item/1 校验失败: {str(e).splitlines()[0]}{tag}"[:160]
+    return None
+
+
+def load_items(run_dir: Path, limit: int | None) -> tuple[list[dict], list]:
+    """读 10_raw_items.jsonl -> (items, bad)。
+
+    坏行策略（明确）：skip + 记账，不因一行崩掉全量——
+      * JSON 解析失败 / raw_item/1 校验失败的行被跳过，定位
+        ({file}:{lineno}: 原因) 收进 bad 并逐条打到 stderr；
+      * 正常行继续处理。调用方把 len(bad) 记进 stage stats 与报告。
+    meta.iter_jsonl 用文件迭代切行（只认 \\n/\\r\\n/\\r），不会被字符串内
+    字面 U+2028/U+2029 截断（runs/2026-09-22 事故根因：splitlines 把
+    3349 行拆成 3352 段 → Unterminated string col 4337）。
+    """
     p = run_dir / RAW_IN
     if not p.exists():
         sys.exit(f"[filter] 缺少输入 {p}（先跑 collect）")
-    items = []
-    seen = set()
-    for ln in p.read_text(encoding="utf-8").splitlines():
-        if not ln.strip():
-            continue
-        it = json.loads(ln)
+    items, bad, seen = [], [], set()
+    for it in meta.iter_jsonl(p, errors=bad, check=_raw_check):
         uc = normalize.url_canon(it.get("url_canon") or it.get("url") or "")
         it["url_canon"] = uc
         it["item_key"] = normalize.item_key(uc)
@@ -213,7 +241,14 @@ def load_items(run_dir: Path, limit: int | None) -> list[dict]:
         items.append(it)
         if limit and len(items) >= limit:
             break
-    return items
+    if bad:
+        print(f"[filter] WARN {p}: {len(bad)} 条坏行已跳过（不计入处理）",
+              file=sys.stderr)
+        for e in bad[:20]:
+            print(f"  {e}", file=sys.stderr)
+        if len(bad) > 20:
+            print(f"  … 其余 {len(bad) - 20} 条略", file=sys.stderr)
+    return items, bad
 
 
 def l0_lookup(items: list[dict], db_path: Path | None) -> dict:
@@ -424,24 +459,27 @@ def main() -> int:
 
     run_dir = Path(args.run_dir).resolve()
     t0 = time.time()
-    items = load_items(run_dir, args.limit or None)
-    rulebook = RULEBOOK_PATH.read_text(encoding="utf-8")
-    aliases = normalize.load_aliases()
-    cfg = ({"model": "no-llm", "batch_size": 24} if args.no_llm
-           else llm.load_cfg(args.config))
-    batch_size = args.batch_size or int(cfg.get("batch_size") or 24)
 
-    if args.db:
-        db_path = Path(args.db)
-    else:
-        cfg_path = Path(args.config) if args.config else REPO / "config.yaml"
-        if not cfg_path.exists():
-            cfg_path = REPO / "config.example.yaml"
-        doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-        db_path = REPO / ((doc.get("storage") or {}).get("history_db")
-                          or "state/history.sqlite")
-
+    # 输入读全部移进 run_lock：collect 持锁写 10_raw_items 期间 filter 若先读
+    # 会拿到旧版/缺席 artifact；锁内读保证见到的是上游完整产物。
     with meta.run_lock(run_dir):
+        items, bad = load_items(run_dir, args.limit or None)
+        rulebook = RULEBOOK_PATH.read_text(encoding="utf-8")
+        aliases = normalize.load_aliases()
+        cfg = ({"model": "no-llm", "batch_size": 24} if args.no_llm
+               else llm.load_cfg(args.config))
+        batch_size = args.batch_size or int(cfg.get("batch_size") or 24)
+
+        if args.db:
+            db_path = Path(args.db)
+        else:
+            cfg_path = Path(args.config) if args.config else REPO / "config.yaml"
+            if not cfg_path.exists():
+                cfg_path = REPO / "config.example.yaml"
+            doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            db_path = REPO / ((doc.get("storage") or {}).get("history_db")
+                              or "state/history.sqlite")
+
         l0 = l0_lookup(items, db_path)
         verdicts = run_filter(items, l0, cfg, rulebook, batch_size, args.no_llm)
         ordered = [verdicts[it["item_key"]] for it in items]
@@ -450,6 +488,7 @@ def main() -> int:
         meta.atomic_write(run_dir / OUT_FILTER, _jsonl(ordered))
         meta.stage_done(run_dir, "filter", OUT_FILTER,
                         extra={"n_items": len(items), "l0_hits": len(l0),
+                               "bad_lines": len(bad),
                                "kept": sum(1 for r in ordered if r["verdict"] == "keep"),
                                "dropped": sum(1 for r in ordered if r["verdict"] == "drop"),
                                "review": sum(1 for r in ordered if r["verdict"] == "review")})
@@ -469,18 +508,24 @@ def main() -> int:
                 if (e, k) in seen:
                     continue
                 seen.add((e, k))
-                lines.append(json.dumps({"ts": _now(), "entity": e,
-                                         "item_key": k, "run": run_dir.name},
-                                        ensure_ascii=False))
-            with open(ALIAS_SUGGESTIONS, "a", encoding="utf-8") as f:
-                f.write("\n".join(lines) + "\n")
+                lines.append(meta.dumps_jsonl_row(
+                    {"ts": _now(), "entity": e,
+                     "item_key": k, "run": run_dir.name}))
+            # 读旧+整写 tmp+replace：崩溃不留半行（journal 体量小，重写代价
+            # 可忽略）；旧 journal 若有历史坏行则跳过，不阻塞主产物。
+            old_lines = ([meta.dumps_jsonl_row(o) for o in
+                          meta.iter_jsonl(ALIAS_SUGGESTIONS, errors=[])]
+                         if ALIAS_SUGGESTIONS.exists() else [])
+            meta.atomic_write(ALIAS_SUGGESTIONS,
+                              "\n".join(old_lines + lines) + "\n")
 
     # ---- 报告 ----
     n = len(items)
     cnt = {v: sum(1 for r in ordered if r["verdict"] == v) for v in VERDICTS}
     print(f"[filter] {run_dir.name}: {n} items in {time.time()-t0:.0f}s | "
           f"L0={len(l0)} keep={cnt['keep']} drop={cnt['drop']} review={cnt['review']} "
-          f"| summaries={len(summaries)} alias_new={len(unknown)}")
+          f"| summaries={len(summaries)} alias_new={len(unknown)}"
+          + (f" bad_lines={len(bad)}" if bad else ""))
     for r in ordered:
         it = next(i for i in items if i["item_key"] == r["item_key"])
         print(f"  {r['verdict']:6s} ai={r['ai_relevance']:.2f} "

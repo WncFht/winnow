@@ -99,8 +99,7 @@ _TOK_ZH = re.compile(r"[一-鿿]+")
 def _load_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    return [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines()
-            if l.strip()]
+    return meta.load_jsonl(path)
 
 
 def _dump_jsonl(rows: list[dict]) -> str:
