@@ -1,21 +1,25 @@
+# secrets / runtime state
 secrets.env
-runs/
 state/
 data/
+runs/
+.claude/
+
+# python / node
 node_modules/
 __pycache__/
 *.pyc
 .DS_Store
 repro-venv/
+
+# composer build
 composer/node_modules/
 composer/out/
 composer/.remotion/
 composer/.tmp/
-/out/
 composer/smoke/
-runs/
-state/
-data/
-.claude/
-secrets.env
+/out/
+
+# experiment scratch / logs
 experiments/card-density/probe_vendor_selfhost/
+experiments/orchestration-sched/server.log
