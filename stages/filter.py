@@ -326,7 +326,7 @@ def verdict_row(item_key: str, verdict: str, ai, nv, reasons: list,
 
 def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
                batch_size: int, no_llm: bool,
-               pool_rows: dict | None = None) -> tuple[dict, dict]:
+               pool_rows: dict | None = None, jobs: int = 1) -> tuple[dict, dict]:
     """-> ({item_key: filter_verdict row} 按输入序, aux)。
 
     aux 键：
@@ -374,29 +374,36 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
                 rest.append(it)
         aux["cache_misses"] = aux["pool_known"] - aux["cache_hits"]
         pending = rest
-    for i in range(0, len(pending), batch_size):
-        batch = pending[i:i + batch_size]
-        outs, missing, prov, err = filter_batch(batch, cfg, rulebook)
-        ts = (prov or {}).get("ts")
-        model = (prov or {}).get("model") or cfg.get("model", "swe-2-max")
-        by_id = {it["id"]: it for it in batch}
-        for o in outs:
-            src = by_id.get(_out_id(o)) or {}
-            key = src.get("item_key") or str(_out_id(o))
-            v = str(o.get("verdict") or "").strip().lower()
-            reasons = o.get("reasons") or []
-            if v not in VERDICTS:
-                v, reasons = "review", list(reasons) + [f"非法 verdict 归一: {o.get('verdict')}"]
-            rows[key] = verdict_row(key, v, o.get("ai_relevance"),
-                                    o.get("news_value"), reasons,
-                                    model=model, prompt_tag=ptag, ts=ts)
-            aux["judged_keys"].add(key)
-        for it in missing:                       # 重批 2 轮仍缺 → review
-            rows[it["item_key"]] = verdict_row(
-                it["item_key"], "review", 0.5, None,
-                [f"coverage-miss: 重批2轮仍缺，转人工"
-                 + (f"；网关错误 {type(err).__name__}" if err else "")],
-                model=model, prompt_tag=ptag, ts=ts)
+    batches = [pending[i:i + batch_size]
+               for i in range(0, len(pending), batch_size)]
+    def _judge(b):                               # 批与批相互独立，可并行打网关
+        return b, filter_batch(b, cfg, rulebook)
+    with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(batches)))) as ex:
+        results_iter = (ex.map(_judge, batches)
+                        if jobs > 1 else map(_judge, batches))
+        for bi, (batch, (outs, missing, prov, err)) in enumerate(results_iter):
+            ts = (prov or {}).get("ts")
+            model = (prov or {}).get("model") or cfg.get("model", "swe-2-max")
+            by_id = {it["id"]: it for it in batch}
+            for o in outs:
+                src = by_id.get(_out_id(o)) or {}
+                key = src.get("item_key") or str(_out_id(o))
+                v = str(o.get("verdict") or "").strip().lower()
+                reasons = o.get("reasons") or []
+                if v not in VERDICTS:
+                    v, reasons = "review", list(reasons) + [f"非法 verdict 归一: {o.get('verdict')}"]
+                rows[key] = verdict_row(key, v, o.get("ai_relevance"),
+                                        o.get("news_value"), reasons,
+                                        model=model, prompt_tag=ptag, ts=ts)
+                aux["judged_keys"].add(key)
+            for it in missing:                   # 重批 2 轮仍缺 → review
+                rows[it["item_key"]] = verdict_row(
+                    it["item_key"], "review", 0.5, None,
+                    [f"coverage-miss: 重批2轮仍缺，转人工"
+                     + (f"；网关错误 {type(err).__name__}" if err else "")],
+                    model=model, prompt_tag=ptag, ts=ts)
+            print(f"[filter] verdict batch {bi + 1}/{len(batches)} "
+                  f"out={len(outs)} miss={len(missing)}", file=sys.stderr)
     rows, aux["guarded_keys"] = _apply_injection_guard(rows, items)
     return rows, aux
 
@@ -580,7 +587,7 @@ def main() -> int:
     ap.add_argument("--db", default=None, help="history.sqlite（默认 config.storage.history_db）")
     ap.add_argument("--limit", type=int, default=0, help="只处理前 N 条（测试用）")
     ap.add_argument("--batch-size", type=int, default=0, help="覆盖 llm.batch_size")
-    ap.add_argument("--jobs", type=int, default=4, help="summary 并发数")
+    ap.add_argument("--jobs", type=int, default=4, help="LLM 并发数（判定批/概要/修复共用）")
     ap.add_argument("--no-llm", action="store_true", help="不调网关：全部 review（冒烟用）")
     ap.add_argument("--items-db", default=None,
                     help="items.sqlite 路径（默认 config.storage.items_db > state/）")
@@ -628,7 +635,7 @@ def main() -> int:
 
         l0 = l0_lookup(items, db_path)
         verdicts, faux = run_filter(items, l0, cfg, rulebook, batch_size,
-                                    args.no_llm, pool_rows)
+                                    args.no_llm, pool_rows, args.jobs)
         ordered = [verdicts[it["item_key"]] for it in items]
         for r in ordered:                        # 契约 lint（写完即调 §4）
             FilterVerdict.model_validate(r)
