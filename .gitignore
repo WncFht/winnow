@@ -23,3 +23,10 @@ composer/smoke/
 # experiment scratch / logs
 experiments/card-density/probe_vendor_selfhost/
 experiments/orchestration-sched/server.log
+
+# vendored upstream build artifacts + parked gitdir
+upstream/juya-news-card/node_modules/
+upstream/juya-news-card/.next/
+upstream/juya-news-card/dist/
+upstream/juya-news-card/out/
+upstream/juya-news-card.gitdir/

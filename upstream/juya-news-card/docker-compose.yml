@@ -1,0 +1,17 @@
+services:
+  app:
+    container_name: juya-news-card-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.docker
+        required: false
+    environment:
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    restart: unless-stopped

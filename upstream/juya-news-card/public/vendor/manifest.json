@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-09-21T19:35:45.421Z",
+  "urls": {
+    "https://cdn.tailwindcss.com": "vendor/tailwindcss.js",
+    "https://fonts.googleapis.com/icon?family=Material+Icons": "vendor/fonts/material-icons.css",
+    "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0&display=swap": "vendor/fonts/material-symbols-rounded-400.css",
+    "https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,300,0,0&display=swap": "vendor/fonts/material-symbols-rounded-300.css",
+    "https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap": "vendor/fonts/nunito-400-600-700.css",
+    "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=Poppins:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Exo+2:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&family=Orbitron:wght@500;700;900&family=Press+Start+2P&family=VT323&family=Fira+Code:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Bebas+Neue&family=Space+Grotesk:wght@400;500;700&family=Fredoka+One&family=Nunito:wght@400;600;700;800&family=Quicksand:wght@500;600;700&family=Playfair+Display:wght@400;500;600;700;900&family=Lora:wght@400;500;600&family=Righteous&family=Noto+Sans+SC:wght@400;500;700&family=Google+Sans:wght@400;500;700&display=swap": "vendor/fonts/common-fonts.css"
+  }
+}

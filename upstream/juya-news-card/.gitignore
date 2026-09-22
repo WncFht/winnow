@@ -1,0 +1,41 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.tsbuildinfo
+
+# Dependencies and build artifacts
+node_modules
+dist
+dist-ssr
+.next
+output/*
+.tmp/*
+
+# Environment files
+.env
+.env.*
+!.env.example
+!.env.docker.example
+*.local
+
+# Generated previews
+card-*.png
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Optional local font asset
+assets/htmlFont.ttf
