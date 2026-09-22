@@ -29,7 +29,11 @@ render:
   concurrency: 4
 storage:
   history_db: state/history.sqlite
+  items_db: state/items.sqlite  # 跨期条目池：verdict/summary/used 缓存 + 结转候选源
   raw_cache_days: 30
+pool:
+  # undated/backlog 条目按 first_seen 给的到达宽限天数；daily 源不走此宽限（陈旧不结转）
+  arrival_grace_days: 2
 x_collector:
   nitter_instances: []    # 池，健康分轮换
   paid_adapter: {enabled: false, api_key_env: X_PAID_KEY}

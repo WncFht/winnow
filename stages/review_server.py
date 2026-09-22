@@ -10,7 +10,7 @@
 随后自动关闭（just pick 配方前台运行，提交后即释放终端）。
 
 用法：
-  review_server.py --run-dir runs/<date> [--port 8923]
+  review_server.py --run-dir runs/<date> [--port 8923] [--items-db P]
   REVIEW_PORT=8923 review_server.py --run-dir R
 绑定 0.0.0.0 —— 验收要求局域网手机可开。启动时生成一次性 token 打进 URL
 （http://<ip>:<port>/?t=…）：GET / 与 POST /decide 无 token 一律 403，
@@ -617,6 +617,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 meta.stage_done(self.server.run_dir, "gate_select", gs.SEL_NAME,
                                 status="done", extra={"decided_by": "human",
                                                       "n_kept": len(kept)})
+                # 池 used 回写：文件已落盘为权威——失败只记 warning，200 照发
+                try:
+                    n_mu = gs.mark_used(self.server.run_dir, doc["episode"],
+                                        [k["item_key"] for k in doc["kept"]],
+                                        items_db=self.server.items_db)
+                    if n_mu is None:
+                        errs.append("items.sqlite used 标记失败"
+                                    "（40_selected 已写，权威不受影响）")
+                except Exception as e:
+                    print(f"[review_server] WARN mark_used: {e}",
+                          file=sys.stderr)
+                    errs.append(f"items.sqlite used 标记异常: {e}")
         except Exception as e:
             self._send_json(500, {"ok": False, "error": f"write failed: {e}"})
             return
@@ -665,6 +677,9 @@ def main(argv=None) -> int:
     ap.add_argument("--run-dir", required=True)
     ap.add_argument("--port", type=int,
                     default=int(environ.get("REVIEW_PORT", "8923")))
+    ap.add_argument("--items-db", default=None,
+                    help="items.sqlite 路径（used 回写目标；默认 "
+                         "config.storage.items_db > state/items.sqlite）")
     args = ap.parse_args(argv)
     run_dir = gs.resolve_run_dir(args.run_dir)
 
@@ -708,6 +723,7 @@ def main(argv=None) -> int:
         srv.token = token
         srv.decided = None
         srv.cand_mtime = cand_mtime
+        srv.items_db = args.items_db
         print(f"[review_server] http://127.0.0.1:{args.port}/?t={token} "
               f"(局域网 http://<本机IP>:{args.port}/?t={token}) — {run_dir}",
               file=sys.stderr)

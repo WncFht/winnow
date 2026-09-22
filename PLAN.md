@@ -55,6 +55,7 @@ ai-news-pipeline/
 │       ├── simhash.py     # 64-bit simhash(title+summary)
 │       ├── embed.py       # Qwen3-Embedding-0.6B-ONNX（CPU，instruct/doc 双模式）
 │       ├── store.py       # history.sqlite 读写（种子：experiments/dedup-history/store.py）
+│       ├── pool.py        # items.sqlite 跨期条目池（§5.6：判定/概要/used 缓存 + 结转候选）
 │       ├── prompts.py     # 全部 LLM prompt 模板（filter/judge/summary/CallA/CallB/title）
 │       ├── ttsnorm.py     # 口播文本规范化（数字/英文/术语发音词典）
 │       ├── shotlib.py     # 来源页截图（种子：experiments/webshot-hardening/shotlib.py）
@@ -69,7 +70,7 @@ ai-news-pipeline/
 │   └── package.json remotion.config.ts
 ├── upstream/juya-news-card/   # vendored 上游渲染器（已 npm install；CDN 自托管补丁见 §7.6）
 ├── runs/<date>/         # 每期 artifact（§4 契约表）
-├── state/               # 跨天状态：history.sqlite、seen、source_health.json、aliases 建议队列
+├── state/               # 跨天状态：history.sqlite、items.sqlite（§5.6 条目池）、seen、source_health.json、aliases 建议队列
 ├── data/raw_cache/      # 原始响应留档（30d，可回放修 parser）
 ├── justfile             # 薄驱动（§9）
 └── experiments/ evidence/ upstream/ repro/   # 调研与证据区（不动）
@@ -147,6 +148,8 @@ ai-news-pipeline/
 | `20_filtered.jsonl` | filter_verdict/1 | {item_key, verdict∈keep\|drop\|review, ai_relevance, news_value, reasons, prov} |
 | `30_summaries.jsonl` | summary/1 | {item_key, title_zh, summary, entities[], facts[], section_guess, prov} |
 | `35_dedup.jsonl` | dedup_verdict/1 | {item_key, verdict∈fresh\|suppressed\|reissue\|gray, cluster_id, match_cos, judge}；真源 `state/history.sqlite` |
+| `38_pool_items.jsonl` | raw_item/1 | 条目池结转投影（§5.6）：非当期采集成员、窗口三子句 + projected_dedup≠suppressed；真源 `state/items.sqlite` |
+| `38_pool_summaries.jsonl` | summary/1 | 同批结转条目的池缓存概要投影（prov 由池 summary_* 列重建） |
 | `40_selected.json` | selected/1 | {episode, decided_at, decided_by, kept[{item_key,id,section,note}] 有序=正片序 + `max_items`, dropped[]} |
 | `50_issue.json` | issue/v1 | sections[] + items[{id,section,nav,headline,tldr,body[],sources[{url,kind,primary,reachable}],media[],confidence,facts,voice[],cards[],video.shot_sentences}] + `degraded`；配 `50_review.md` |
 | `60_voice_script.jsonl` | voice_seg/1 | {seg_id=NNN_item_si, item, si, text, role∈intro\|body\|outro} |
@@ -181,7 +184,7 @@ kept 条目原始 url 集合，回填后可达性由 link-check 填 `reachable`�
 ```
 
 `just lint-sources`：schema 校验、重复 domain/feed_url、method∈枚举、failover 目标存在、
-freshness_sla 0<x≤168、max_items≤200、enabled 源的 feed_url 可达性抽样。
+freshness_sla 0<x≤168、max_items≤200、`daily` 非 bool→warn、enabled 源的 feed_url 可达性抽样。
 种子数据：`experiments/domains.json`（135 域，含 method 判定结果）+ `rss_titles.json`。
 
 ### 5.2 抓取流程（每源）
@@ -216,6 +219,25 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 ### 5.5 手工入口
 
 `collect.py --manual "<url>" [--title "..."]`：抓正文→走同一 raw_item 管道→`_source.kind:"manual"`。
+
+### 5.6 跨期条目池（`stages/lib/pool.py` + `state/items.sqlite`）
+
+- **角色**：一行 = 一条新闻的机械身份（`item_key`=sha256(url_canon)[:16]），跨 episode 累积
+  verdict/summary/dedup/used 生命周期缓存；同时是**结转候选源**——当期未选、窗口内迟到或
+  无日期的 keep|review 条目经 `select_candidates` 投影成 `38_pool_items.jsonl` +
+  `38_pool_summaries.jsonl` 汇入勾选闸。**per-run 文件产物仍是唯一权威**；池只是缓存与
+  结转面，删掉重建 = `just pool-import` 幂等回填全部 runs/。
+- **`daily:` 旗标语义**（sources.yaml）：`daily: true` ⇒ item pubDate 权威，按
+  date_published 入窗且**不走陈旧结转**（stale-daily 死区——每日快照页的旧条目不复活）；
+  缺省/false ⇒ archive/signal/undated 源，无日期或迟到的条目按 first_seen 到达宽限
+  （`pool.arrival_grace_days`，默认 2 天）入窗。采集时按源名快照进 items.daily 列。
+- **L0 保留角色**：filter 的 url_hash 精确命中仍走 `state/history.sqlite` 本地压制
+  （不进 LLM，35 标 suppressed）；池的判定缓存只省重复 LLM 调用，不替代 L0 跨期硬去重。
+- **写序约定**：collect 先写 10_* 再 upsert 池（file→pool）；filter 先查池命中缓存判定
+  再写 20/30（pool→file）；dedup/gate 先写 35/40 再回写池 dedup_* / used_in_episode
+  （file→pool）。文件先行保证崩溃后 run 目录自洽，池可随时整体重建。
+- **运维**：`just pool-import`（回填）、`pool-stats`（行数分布）、`pool-vacuum`（清 >90d
+  未判定行 + VACUUM）；`just backup-state` 随 history.sqlite 一并备份 items-*.sqlite。
 
 ## 6. LLM 适配层（`adapters/llm_swe2max.py`）契约
 
@@ -380,7 +402,7 @@ wechat: {enabled: false}
 
 ## 9. 运维
 
-- **justfile 目标**：`setup-toolchain doctor lint-sources collect filter dedup pick pick-auto digest edit-import voice cards render-plan compose meta all resume=<date> judge-eval shot-test`。
+- **justfile 目标**：`setup-toolchain doctor lint-sources collect filter dedup pick pick-auto digest edit-import voice cards render-plan compose meta all resume=<date> backup-state pool-import pool-stats pool-vacuum judge-eval shot-test`。
   规则：recipe 不跨人工闸串链（gate 后由 cron/手动接着跑）；`resume` 读 00_meta 跳已完成。
 - **幂等**：每 stage 开头 `flock runs/<date>/.lock`；产物先写 `.tmp` 再 mv（崩溃不留半个文件）；00_meta 记 sha256 断点续跑（种子：experiments/idempotent-resume）。
 - **调度**：systemd user timer `Persistent=true` 06:30 → `just collect filter dedup && ntfy 推送`；gate 死线 watcher 两个 oneshot timer（08:30/09:30 检查 40/50 是否存在，不在则 auto 放行 + 继续下游）；10:00 前 compose 完 → deadman ping。

@@ -19,11 +19,17 @@
   4) keep|review 逐条 SUMMARY_PROMPT（线程池并发，默认 4 路）→
      title_zh/summary/entities/facts/section_guess；别名归一后未命中
      实体回流 state/alias_suggestions.jsonl
+  5) 条目池缓存（state/items.sqlite，--no-llm/--no-pool 时完全断开）：
+     判定命中条件 judged_content_sha==content_sha 且 prompt/model 未变；
+     概要命中条件 summary_sha（被概要内容的 content_sha）+prompt+model。
+     判定/概要回写先于文件落盘——池是主记录，20/30 是可重放投影；
+     跑完后扫 needs_summary 补结转行概要（pool-only，不写 30）。
 输出  : 20_filtered.jsonl (filter_verdict/1，全量含 L0，输入序)
         30_summaries.jsonl (summary/1)
 
 用法: uv run stages/filter.py --run-dir runs/2026-09-22 [--limit N]
       [--config config.yaml] [--db state/history.sqlite] [--jobs 4] [--no-llm]
+      [--items-db state/items.sqlite] [--no-pool]
 """
 from __future__ import annotations
 
@@ -33,7 +39,7 @@ import re
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
@@ -42,12 +48,13 @@ import yaml  # noqa: E402
 
 from adapters import llm_swe2max as llm  # noqa: E402
 from contracts.models import FilterVerdict, RawItem, Summary  # noqa: E402
-from lib import meta, normalize, prompts, store  # noqa: E402
+from lib import meta, normalize, pool, prompts, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 RULEBOOK_PATH = REPO / "rulebook.md"
 ALIAS_SUGGESTIONS = REPO / "state" / "alias_suggestions.jsonl"
 VERDICTS = ("keep", "drop", "review")
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 RAW_IN = "10_raw_items.jsonl"
 OUT_FILTER = "20_filtered.jsonl"
@@ -129,10 +136,15 @@ def _injection_hit(item: dict) -> str | None:
     return None
 
 
-def _apply_injection_guard(rows: dict, items: list[dict]) -> dict:
+def _apply_injection_guard(rows: dict, items: list[dict]) -> tuple[dict, set]:
     """§7.1 验收：注入指令条目确定性 drop——覆盖 LLM/no-llm/coverage-miss
     全部路径（L0 已是 drop 不重复改写）。分数保留 LLM 原判：条目主题
-    可以高度相关，drop 是安全处置而非相关性结论。"""
+    可以高度相关，drop 是安全处置而非相关性结论。
+
+    -> (rows, guarded_keys)：guarded_keys = 本次实际被守卫改写的键，
+    供池回写打 'injection-guard-v1' 标记（守卫判不以 LLM prompt 版本入账，
+    下期照常重判，缓存永不喂守卫行）。"""
+    guarded: set = set()
     for it in items:
         hit = _injection_hit(it)
         if not hit:
@@ -151,7 +163,8 @@ def _apply_injection_guard(rows: dict, items: list[dict]) -> dict:
             model=prov.get("model") or "injection-guard",
             prompt_tag=prov.get("prompt") or "injection-guard-v1",
             ts=prov.get("decided_at"))
-    return rows
+        guarded.add(it["item_key"])
+    return rows, guarded
 
 
 def _prov(model: str, prompt_tag: str, item_key: str, ts: str | None = None) -> dict:
@@ -312,10 +325,22 @@ def verdict_row(item_key: str, verdict: str, ai, nv, reasons: list,
 
 
 def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
-               batch_size: int, no_llm: bool) -> dict:
-    """-> {item_key: filter_verdict row}，按输入序输出。"""
+               batch_size: int, no_llm: bool,
+               pool_rows: dict | None = None) -> tuple[dict, dict]:
+    """-> ({item_key: filter_verdict row} 按输入序, aux)。
+
+    aux 键：
+      judged_keys   本轮真 LLM outs 行对应的 item_key（含非法 verdict 归一的
+                    review；coverage-miss/LLMError 占位、L0、no-llm 一律不算）
+      guarded_keys  注入守卫改写的键（_apply_injection_guard 返回值）
+      pool_known    pending 中池里已有的条数（跨期再现）
+      cache_hits    判定缓存命中数（judged_content_sha+prompt+model 全同）
+      cache_misses  pool_known 中未命中数（命中率金丝雀用）
+    """
     rows: dict[str, dict] = {}
     ptag = prompts.PROMPT_VERSIONS["filter"]
+    aux = {"judged_keys": set(), "guarded_keys": set(),
+           "pool_known": 0, "cache_hits": 0, "cache_misses": 0}
     for it in items:
         if it["item_key"] in l0:
             rows[it["item_key"]] = verdict_row(
@@ -328,7 +353,27 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
             rows[it["item_key"]] = verdict_row(
                 it["item_key"], "review", 0.5, None,
                 ["no-llm 模式，全部转人工"], model="no-llm", prompt_tag=ptag)
-        return _apply_injection_guard(rows, items)
+        rows, aux["guarded_keys"] = _apply_injection_guard(rows, items)
+        return rows, aux
+    # ---- 条目池判定缓存：内容指纹 + prompt + model 全同 → 放行原判（原始 prov）
+    if pool_rows:
+        rest = []
+        for it in pending:
+            pr = pool_rows.get(it["item_key"])
+            if pr is None:
+                rest.append(it)
+                continue
+            aux["pool_known"] += 1
+            if (pr.get("filter_verdict") is not None
+                    and pr.get("judged_content_sha") == pool.content_sha(it)
+                    and pr.get("verdict_prompt") == ptag
+                    and pr.get("verdict_model") == cfg.get("model")):
+                rows[it["item_key"]] = pool.to_verdict_row(pr)
+                aux["cache_hits"] += 1
+            else:
+                rest.append(it)
+        aux["cache_misses"] = aux["pool_known"] - aux["cache_hits"]
+        pending = rest
     for i in range(0, len(pending), batch_size):
         batch = pending[i:i + batch_size]
         outs, missing, prov, err = filter_batch(batch, cfg, rulebook)
@@ -345,13 +390,15 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
             rows[key] = verdict_row(key, v, o.get("ai_relevance"),
                                     o.get("news_value"), reasons,
                                     model=model, prompt_tag=ptag, ts=ts)
+            aux["judged_keys"].add(key)
         for it in missing:                       # 重批 2 轮仍缺 → review
             rows[it["item_key"]] = verdict_row(
                 it["item_key"], "review", 0.5, None,
                 [f"coverage-miss: 重批2轮仍缺，转人工"
                  + (f"；网关错误 {type(err).__name__}" if err else "")],
                 model=model, prompt_tag=ptag, ts=ts)
-    return _apply_injection_guard(rows, items)
+    rows, aux["guarded_keys"] = _apply_injection_guard(rows, items)
+    return rows, aux
 
 
 # ---------------------------------------------------------------------------
@@ -406,40 +453,120 @@ def summary_row(it: dict, out, provs: list, cfg: dict,
     }
 
 
+def _pool_summary_row(prow: dict, aliases: dict) -> dict:
+    """缓存命中：池行 → summary/1（原始 prov），再跑一遍别名归一——
+    aliases.json 后续更新要传播到旧概要，不能被缓存冻住。"""
+    row = pool.to_summary_row(prow)
+    row["title_zh"] = normalize.apply_aliases(row["title_zh"], aliases)
+    row["summary"] = normalize.apply_aliases(row["summary"], aliases)
+    seen, ents = set(), []
+    for e in (normalize.apply_aliases(str(e), aliases) for e in row["entities"]):
+        if e and e not in seen:
+            seen.add(e)
+            ents.append(e)
+    row["entities"] = ents
+    return row
+
+
+def _summary_llm_row(it: dict, cfg: dict, aliases: dict) -> tuple[dict, bool]:
+    """单条 SUMMARY_PROMPT → (summary_row, real)。
+
+    real=False 表示走了本地兜底（LLMError）——兜底行绝不写回条目池。
+    l0/no-llm 的兜底分流在调用方，这里只管真调网关。"""
+    sm, um = prompts.SUMMARY_PROMPT(it)
+    provs: list = []
+    try:
+        out = llm.chat_json(prompts.messages(sm, um), prov_out=provs,
+                            cfg=cfg, tag="summary")
+    except llm.LLMError:
+        out = None
+    return (summary_row(it, out, provs, cfg, aliases, l0_hit=False),
+            isinstance(out, dict))
+
+
 def run_summaries(items: list[dict], verdicts: dict, l0: dict, cfg: dict,
-                  aliases: dict, jobs: int, no_llm: bool) -> tuple[list, list]:
-    """-> (summary rows 按输入序, 未命中别名实体 [(entity,item_key)])."""
+                  aliases: dict, jobs: int, no_llm: bool,
+                  pool_rows: dict | None = None) -> tuple[list, list, dict]:
+    """-> (summary rows 按输入序, 未命中别名实体 [(entity,item_key)], aux)。
+
+    aux: summary_hits = 池概要缓存命中数（summary_sha==content_sha 且
+    prompt/model 未变，命中行重跑别名归一后原样放出）；
+    fresh_rows = 本轮真 LLM 概要行（调用方回写 items.sqlite 用——本地
+    兜底/no-llm 行不在其列）。
+    """
     todo = [it for it in items
             if verdicts[it["item_key"]]["verdict"] in ("keep", "review")
             or it["item_key"] in l0]
     rows: dict[str, dict] = {}
     unknown: list[tuple[str, str]] = []
+    aux: dict = {"summary_hits": 0, "fresh_rows": []}
     known = {t.casefold() for canon, als in aliases.items()
              for t in [canon, *als]}
+    ptag = prompts.PROMPT_VERSIONS["summary"]
+
+    llm_todo: list[dict] = []
+    for it in todo:
+        k = it["item_key"]
+        pr = (pool_rows or {}).get(k)
+        if (pr is not None and k not in l0 and not no_llm
+                and pr.get("summary") is not None
+                and pr.get("summary_sha") == pool.content_sha(it)
+                and pr.get("summary_prompt") == ptag
+                and pr.get("summary_model") == cfg.get("model")):
+            rows[k] = _pool_summary_row(pr, aliases)
+            aux["summary_hits"] += 1
+        else:
+            llm_todo.append(it)
 
     def work(it):
         if it["item_key"] in l0 or no_llm:
-            return it["item_key"], summary_row(it, None, [], cfg, aliases,
-                                               l0_hit=it["item_key"] in l0)
-        sm, um = prompts.SUMMARY_PROMPT(it)
-        provs: list = []
-        try:
-            out = llm.chat_json(prompts.messages(sm, um), prov_out=provs,
-                                cfg=cfg, tag="summary")
-        except llm.LLMError:
-            out = None
-        return it["item_key"], summary_row(it, out, provs, cfg, aliases,
-                                           l0_hit=False)
+            return (it["item_key"],
+                    summary_row(it, None, [], cfg, aliases,
+                                l0_hit=it["item_key"] in l0), False)
+        row, real = _summary_llm_row(it, cfg, aliases)
+        return it["item_key"], row, real
 
-    if todo:
-        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(todo)))) as ex:
-            for key, row in ex.map(work, todo):
+    if llm_todo:
+        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(llm_todo)))) as ex:
+            for key, row, real in ex.map(work, llm_todo):
                 rows[key] = row
+                if real:
+                    aux["fresh_rows"].append(row)
     for it in todo:
         for e in rows[it["item_key"]]["entities"]:
             if e.casefold() not in known:
                 unknown.append((e, it["item_key"]))
-    return [rows[it["item_key"]] for it in todo], unknown
+    return [rows[it["item_key"]] for it in todo], unknown, aux
+
+
+def _repair_summaries(pconn, episode: str, cfg: dict, aliases: dict,
+                      jobs: int, batch_keys: set, cfg_doc: dict) -> int:
+    """结转条目补概要：池内 keep|review + 窗口超集 + summary 缺席的行，
+    走同一条 LLM 概要路径写回 items.sqlite——pool-only，不进
+    30_summaries（那些键不在当期批）。返回实际写入行数。"""
+    wfrom, wto = pool.window_bounds(episode)
+    grace_days = int((cfg_doc.get("pool") or {}).get("arrival_grace_days") or 2)
+    try:
+        ep = datetime.strptime(episode, "%Y-%m-%d").date()
+    except ValueError:
+        ep = datetime.now(pool.TZ).date()
+    grace_from = (ep - timedelta(days=grace_days)).isoformat()
+    due = [r for r in pool.needs_summary(pconn, episode, wfrom, wto,
+                                         grace_from, limit=48)
+           if r["item_key"] not in batch_keys]
+    if not due:
+        return 0
+    rep_items = [pool.to_raw_item(r) for r in due]
+    by_key = {r["item_key"]: it for r, it in zip(due, rep_items)}
+    fresh: list[dict] = []
+    with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(rep_items)))) as ex:
+        for row, real in ex.map(
+                lambda it: _summary_llm_row(it, cfg, aliases), rep_items):
+            if real:
+                fresh.append(row)
+    if not fresh:
+        return 0
+    return pool.write_summaries(pconn, by_key, fresh, episode=episode)
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +582,10 @@ def main() -> int:
     ap.add_argument("--batch-size", type=int, default=0, help="覆盖 llm.batch_size")
     ap.add_argument("--jobs", type=int, default=4, help="summary 并发数")
     ap.add_argument("--no-llm", action="store_true", help="不调网关：全部 review（冒烟用）")
+    ap.add_argument("--items-db", default=None,
+                    help="items.sqlite 路径（默认 config.storage.items_db > state/）")
+    ap.add_argument("--no-pool", action="store_true",
+                    help="禁用条目池读写（池缓存完全断开，同 --no-llm 的池行为）")
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir).resolve()
@@ -470,37 +601,110 @@ def main() -> int:
                else llm.load_cfg(args.config))
         batch_size = args.batch_size or int(cfg.get("batch_size") or 24)
 
+        cfg_path = Path(args.config) if args.config else REPO / "config.yaml"
+        if not cfg_path.exists():
+            cfg_path = REPO / "config.example.yaml"
+        cfg_doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
         if args.db:
             db_path = Path(args.db)
         else:
-            cfg_path = Path(args.config) if args.config else REPO / "config.yaml"
-            if not cfg_path.exists():
-                cfg_path = REPO / "config.example.yaml"
-            doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-            db_path = REPO / ((doc.get("storage") or {}).get("history_db")
+            db_path = REPO / ((cfg_doc.get("storage") or {}).get("history_db")
                               or "state/history.sqlite")
 
+        episode = run_dir.name
+        is_date = bool(_DATE_RE.fullmatch(episode))
+        # --no-llm / --no-pool → conn=None：池零读零写，冒烟判定绝不污染缓存。
+        # 池打开失败只告警（file-first：文件管线是真源，同 dedup 约定）。
+        pconn = None
+        if not (args.no_llm or args.no_pool):
+            try:
+                pconn = pool.init_db(pool.resolve_path(args.items_db, cfg_doc))
+            except Exception as e:
+                print(f"[filter] WARN items.sqlite 打开失败，池缓存停用: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
+        pool_rows = (pool.get_many(pconn, [it["item_key"] for it in items])
+                     if pconn is not None else {})
+        by_key = {it["item_key"]: it for it in items}
+
         l0 = l0_lookup(items, db_path)
-        verdicts = run_filter(items, l0, cfg, rulebook, batch_size, args.no_llm)
+        verdicts, faux = run_filter(items, l0, cfg, rulebook, batch_size,
+                                    args.no_llm, pool_rows)
         ordered = [verdicts[it["item_key"]] for it in items]
         for r in ordered:                        # 契约 lint（写完即调 §4）
             FilterVerdict.model_validate(r)
+        # 金丝雀：pool-known 跨期再现 ≥20 且过半未命中 → 内容指纹口径疑似漂移
+        if (faux["pool_known"] >= 20
+                and faux["cache_misses"] > faux["pool_known"] / 2):
+            print(f"[filter] WARN content_sha divergence suspected: "
+                  f"{faux['pool_known']} pool-known re-arrivals, "
+                  f"{faux['cache_misses']} cache misses (>50%)",
+                  file=sys.stderr)
+        # 判定回写先于 20_filtered 落盘：池里的判定是主记录，文件是可重放投影。
+        # 守卫覆盖键以 injection-guard-v1 入账——不冒充 LLM prompt 版本，
+        # 下期必重判（守卫行永不喂缓存）。
+        if pconn is not None and is_date and faux["judged_keys"]:
+            try:
+                guarded = faux["guarded_keys"]
+                vrows = []
+                for k in faux["judged_keys"]:
+                    r = verdicts[k]
+                    if k in guarded:
+                        r = {**r, "prov": {**r["prov"],
+                                           "prompt": "injection-guard-v1"}}
+                    vrows.append(r)
+                n_v = pool.write_verdicts(
+                    pconn, by_key, vrows,
+                    lambda k: ("injection-guard-v1" if k in guarded
+                               else prompts.PROMPT_VERSIONS["filter"]),
+                    episode=episode)
+                if n_v:
+                    print(f"[filter] pool: {n_v} 行判定回写")
+            except Exception as e:
+                print(f"[filter] WARN items.sqlite 判定回写失败（不影响文件管线）: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
         meta.atomic_write(run_dir / OUT_FILTER, _jsonl(ordered))
         meta.stage_done(run_dir, "filter", OUT_FILTER,
                         extra={"n_items": len(items), "l0_hits": len(l0),
                                "bad_lines": len(bad),
                                "kept": sum(1 for r in ordered if r["verdict"] == "keep"),
                                "dropped": sum(1 for r in ordered if r["verdict"] == "drop"),
-                               "review": sum(1 for r in ordered if r["verdict"] == "review")})
+                               "review": sum(1 for r in ordered if r["verdict"] == "review"),
+                               "cache_hits": faux["cache_hits"],
+                               "cache_misses": faux["cache_misses"],
+                               "pool_known": faux["pool_known"]})
 
-        summaries, unknown = run_summaries(items, verdicts, l0, cfg, aliases,
-                                           args.jobs, args.no_llm)
+        summaries, unknown, saux = run_summaries(
+            items, verdicts, l0, cfg, aliases, args.jobs, args.no_llm, pool_rows)
         for r in summaries:
             Summary.model_validate(r)
+        # 概要回写先于 30_summaries 落盘（同上：池是主记录）；只写真 LLM 行。
+        if pconn is not None and is_date and saux["fresh_rows"]:
+            try:
+                n_s = pool.write_summaries(pconn, by_key, saux["fresh_rows"],
+                                           episode=episode)
+                if n_s:
+                    print(f"[filter] pool: {n_s} 行概要回写")
+            except Exception as e:
+                print(f"[filter] WARN items.sqlite 概要回写失败（不影响文件管线）: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
         meta.atomic_write(run_dir / OUT_SUMMARY, _jsonl(summaries))
+        # 结转修补：池内 keep|review 无概要的条目补概要（pool-only，不进 30）
+        repair_n = 0
+        if pconn is not None and is_date:
+            try:
+                repair_n = _repair_summaries(
+                    pconn, episode, cfg, aliases, args.jobs, set(by_key),
+                    cfg_doc)
+                if repair_n:
+                    print(f"[filter] pool: repair {repair_n} 行结转概要")
+            except Exception as e:
+                print(f"[filter] WARN 结转概要修补失败（不影响文件管线）: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
         meta.stage_done(run_dir, "summaries", OUT_SUMMARY,
                         extra={"n": len(summaries),
-                               "alias_suggestions": len(unknown)})
+                               "alias_suggestions": len(unknown),
+                               "summary_hits": saux["summary_hits"],
+                               "repair_n": repair_n})
         if unknown:
             ALIAS_SUGGESTIONS.parent.mkdir(parents=True, exist_ok=True)
             seen, lines = set(), []
@@ -518,6 +722,8 @@ def main() -> int:
                          if ALIAS_SUGGESTIONS.exists() else [])
             meta.atomic_write(ALIAS_SUGGESTIONS,
                               "\n".join(old_lines + lines) + "\n")
+        if pconn is not None:
+            pconn.close()
 
     # ---- 报告 ----
     n = len(items)
@@ -525,7 +731,11 @@ def main() -> int:
     print(f"[filter] {run_dir.name}: {n} items in {time.time()-t0:.0f}s | "
           f"L0={len(l0)} keep={cnt['keep']} drop={cnt['drop']} review={cnt['review']} "
           f"| summaries={len(summaries)} alias_new={len(unknown)}"
-          + (f" bad_lines={len(bad)}" if bad else ""))
+          + (f" bad_lines={len(bad)}" if bad else "")
+          + (f" | pool verdict_cache={faux['cache_hits']}hit/"
+             f"{faux['cache_misses']}miss of {faux['pool_known']} "
+             f"summary_cache={saux['summary_hits']} repair={repair_n}"
+             if pconn is not None else ""))
     for r in ordered:
         it = next(i for i in items if i["item_key"] == r["item_key"])
         print(f"  {r['verdict']:6s} ai={r['ai_relevance']:.2f} "

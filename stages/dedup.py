@@ -56,6 +56,8 @@ CLI：
 
   --db P   直接给 history.sqlite 文件路径；
   --state D 给跨天 state 目录（取 <D>/history.sqlite），与 --db 互斥。
+  --items-db P  条目池 items.sqlite（默认 config.storage.items_db > state/items.sqlite）；
+           cmd_run 写完 35_dedup.jsonl 后把 dedup 列投影进池（file-first，失败只告警）。
   --run-dir 的末级目录必须是期号 YYYY-MM-DD（episode/day 由它派生，
   非日期名会 fail-fast exit 2，且不触碰 history.sqlite）。
 """
@@ -73,7 +75,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 import numpy as np
 
-from lib import meta, normalize, prompts, simhash, store
+from lib import meta, normalize, pool, prompts, simhash, store
 from lib import embed as embedlib
 from adapters import llm_swe2max as llm
 from contracts import models as cm
@@ -249,6 +251,21 @@ def _resolve_db(cli_db: str | None, cli_state: str | None = None) -> Path:
                 pass
             break
     return REPO / "state" / "history.sqlite"
+
+
+def _resolve_items_db(cli_arg: str | None) -> Path:
+    """--items-db > config.storage.items_db > state/items.sqlite（同 _resolve_db 约定）。"""
+    cfg_doc: dict = {}
+    for name in ("config.yaml", "config.example.yaml"):
+        p = REPO / name
+        if p.exists():
+            try:
+                import yaml
+                cfg_doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            except Exception:
+                pass
+            break
+    return pool.resolve_path(cli_arg, cfg_doc)
 
 
 def load_items(run_dir: Path) -> list[dict]:
@@ -539,6 +556,19 @@ def cmd_run(args) -> int:
                                "n_gray": sum(1 for r in rows
                                              if r["verdict"] == "gray"),
                                "judge_calls": judge.calls})
+        # 条目池投影：35_dedup.jsonl 是真源（file-first），池写失败只告警
+        if _DATE_RE.fullmatch(run_dir.name):
+            try:
+                items_db = _resolve_items_db(args.items_db)
+                pconn = pool.init_db(items_db)
+                try:
+                    n_pool = pool.write_dedup(pconn, rows)
+                finally:
+                    pconn.close()
+                print(f"[dedup] pool: {n_pool} 行 dedup 列回写 → {items_db}")
+            except Exception as e:
+                print(f"[dedup] WARN items.sqlite 回写失败（不影响文件管线）: "
+                      f"{type(e).__name__}: {e}", file=sys.stderr)
     vc = {}
     for r in rows:
         vc[r["verdict"]] = vc.get(r["verdict"], 0) + 1
@@ -770,6 +800,8 @@ def main(argv=None) -> int:
     ap.add_argument("--db", help="history.sqlite 路径（默认 config.storage 或 state/）")
     ap.add_argument("--state",
                     help="跨天 state 目录（取 <dir>/history.sqlite；与 --db 互斥）")
+    ap.add_argument("--items-db",
+                    help="items.sqlite 路径（默认 config.storage.items_db 或 state/items.sqlite）")
     ap.add_argument("--no-judge", action="store_true",
                     help="禁用 LLM judge：灰区全落 gray_pending（离线/调试）")
     ap.add_argument("--split", metavar="CLUSTER_ID",

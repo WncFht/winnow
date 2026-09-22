@@ -77,7 +77,7 @@ PROXY_POLICIES = {"required", "prefer", "direct_only"}
 
 _RAW_ITEM_KEYS = {  # contracts/models.py RawItem extra="forbid" 全集
     "schema", "item_key", "id", "url", "url_canon", "title", "content_text",
-    "content_html", "date_published", "date_fetched", "language", "tags",
+    "date_published", "date_fetched", "language", "tags",
     "image", "_source", "_fetch", "_raw_ref",
 }
 
@@ -337,7 +337,6 @@ def _tweet_to_item(tw: dict, user: dict, handle: str, *,
         "url_canon": canon,
         "title": title,
         "content_text": text or None,
-        "content_html": None,
         "date_published": (_iso_ms(tw["created_at_ms"])
                            if tw.get("created_at_ms") else None),
         "date_fetched": fetched_at,

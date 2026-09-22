@@ -11,12 +11,21 @@
 候选集 = filter verdict∈{keep,review} 且 dedup verdict∉{suppressed}
 （dedup 的 gray/gray_pending 自动进列表并打灰区标记）。
 
+POOL-MODE（run_dir 名为 YYYY-MM-DD 且 state/items.sqlite 已有本期 item_runs）：
+候选集 = 当期文件路径 ∪ 条目池结转（lib.pool.select_candidates），统一过
+used-check / eligible 窗口 / projected-dedup（叠加 history.sqlite 已出片
+cluster 投影）谓词；结转条目的 raw/summary 每次 build 都重新物化到
+38_pool_items.jsonl / 38_pool_summaries.jsonl（stale-safe）。40_selected
+落盘后 mark_used 回写池的 used_in_episode。池缺席/无本期 → 退回纯文件路径
+（响亮 WARN，绝不静默半空）。
+
 用法：
   gate_select.py --run-dir runs/<date>            # = --prepare：重建 40_candidates.json
   gate_select.py --run-dir R --prepare           # 同上
   gate_select.py --run-dir R --serve             # prepare + 启动 review_server 勾选 UI
   gate_select.py --run-dir R --auto [--force]    # top-K by news_value → decided_by:auto
   gate_select.py --run-dir R --deadline-check HH:MM  # 死线已过且未提交 → 自动放行（供 timer 调用）
+  gate_select.py --run-dir R --items-db P        # 条目池改走 P（> config.storage.items_db）
   gate_select.py --selftest                      # fixture 端到端自测（含 schema 断言）
 
 不覆盖原则：40_selected.json 已存在时 --auto/--deadline-check 直接跳过（人工已拍板），
@@ -29,16 +38,17 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import unicodedata
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-from lib import meta  # stages/lib/meta.py（stages/ 即 sys.path 脚本目录）
+from lib import meta, pool  # stages/lib/{meta,pool}.py（stages/ 即 sys.path 脚本目录）
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -49,6 +59,8 @@ SUMS_NAME = "30_summaries.jsonl"
 DED_NAME = "35_dedup.jsonl"
 CAND_NAME = "40_candidates.json"
 SEL_NAME = "40_selected.json"
+POOL_ITEMS_NAME = "38_pool_items.jsonl"     # 结转池 raw_item/1 投影（digest 可选输入）
+POOL_SUMS_NAME = "38_pool_summaries.jsonl"  # 结转池 summary/1 投影
 
 GRAY = {"gray", "gray_pending"}
 SUPPRESSED = {"suppressed"}
@@ -95,8 +107,25 @@ def resolve_run_dir(s: str) -> Path:
     return meta.ensure_run(p)
 
 
-def load_config() -> dict:
-    """config.yaml > config.example.yaml；只取本阶段需要的 schedule.* 字段。"""
+def _daily_map() -> dict:
+    """sources.yaml -> {source_name: daily(bool)}；文件缺失/解析失败 -> {}
+    （全员 False = fail-open，daily 死区判定不生效）。"""
+    try:
+        import yaml  # lazy：同 load_config 约定
+        data = yaml.safe_load((REPO / "sources.yaml").read_text(encoding="utf-8"))
+    except Exception as e:
+        eprint(f"[gate_select] warn: sources.yaml 读取失败 {e} — daily_map 按空集")
+        return {}
+    if not isinstance(data, list):
+        return {}
+    return {str(s["name"]): bool(s.get("daily"))
+            for s in data if isinstance(s, dict) and s.get("name")}
+
+
+def load_config(items_db: str | None = None) -> dict:
+    """config.yaml > config.example.yaml；取本阶段需要的 schedule/storage/pool
+    字段 + sources.yaml 的 daily_map。--items-db CLI 覆盖 storage.items_db
+    （与 collect/filter/dedup 的 --items-db 约定相同）。"""
     import yaml  # lazy：review_server import 本模块时无 yaml 也能跑
 
     cfg = {}
@@ -109,10 +138,16 @@ def load_config() -> dict:
                 eprint(f"[gate_select] warn: {name} 解析失败 {e} — 用默认值")
             break
     sch = cfg.get("schedule") or {}
+    sto = cfg.get("storage") or {}
+    pcfg = cfg.get("pool") or {}
     return {
         "topk_autopick": int(sch.get("topk_autopick") or 14),
         "max_items": int(sch.get("max_items") or 20),
         "gate1_deadline": str(sch.get("gate1_deadline") or "08:30"),
+        "items_db": str(items_db or sto.get("items_db") or "state/items.sqlite"),
+        "history_db": str(sto.get("history_db") or "state/history.sqlite"),
+        "arrival_grace_days": int(pcfg.get("arrival_grace_days") or 2),
+        "daily_map": _daily_map(),
     }
 
 
@@ -212,10 +247,149 @@ def pydantic_validate(doc: dict) -> list[str]:
         return [str(e).splitlines()[0] if str(e) else "pydantic validation failed"]
 
 
+# ------------------------------------------------------------- pool helpers
+
+def mark_used(run_dir: Path, episode: str, keys,
+              items_db: str | None = None) -> "int | None":
+    """出片标记：kept keys -> items.sqlite used_in_episode=episode（只标记不清除，
+    force 重提交不会抹掉既有标记）。
+
+    items_db 直给时跳过 config 读取（--items-db 覆盖路径，同 build_candidates
+    口径）。40_selected 已落盘且为权威——空 kept / 池未启用（库不存在）静默
+    跳过，池写异常只 WARN。返回新标记行数；失败返回 None（调用方据此追加
+    warning）。
+    """
+    ks = [k for k in dict.fromkeys(keys or []) if k]
+    if not ks:
+        return 0
+    try:
+        if items_db is None:
+            try:
+                items_db = load_config().get("items_db")
+            except ImportError:
+                items_db = None     # review_server 环境无 yaml：退默认池路径
+        db = pool.resolve_path(items_db)
+        if not db.exists():
+            return 0                    # 池未启用：无物可标
+        return pool.mark_used(db, str(episode), ks)
+    except Exception as e:
+        eprint(f"[gate_select] WARN items.sqlite used 标记失败（{SEL_NAME} 已写，"
+               f"权威不受影响）: {type(e).__name__}: {e}")
+        return None
+
+
+def _published_cluster_ids(cfg: dict) -> set:
+    """history.sqlite 已出片 cluster_id 集（clusters.published=1，只读连接）；
+    库缺席/打不开 -> 空集（projected_dedup 退化为纯存储判定）。"""
+    p = Path(str(cfg.get("history_db") or "state/history.sqlite"))
+    if not p.is_absolute():
+        p = REPO / p
+    if not p.exists():
+        return set()
+    try:
+        conn = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        try:
+            return {r[0] for r in conn.execute(
+                "SELECT cluster_id FROM clusters WHERE published=1")}
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        eprint(f"[gate_select] WARN history.sqlite 只读打开失败 {e}"
+               " — published 投影按空集")
+        return set()
+
+
+def _open_pool(cfg: dict, episode: str):
+    """POOL-MODE 判定：run_dir 名是日期 + items.sqlite 存在 + item_runs 有本期
+    -> (conn, wfrom, wto, grace_from, published_cids)；否则全 None 五元组 +
+    响亮 WARN（配置/库就位却半空，绝不静默）。
+
+    grace_from = episode - arrival_grace_days（first_seen 是期号日期：迟到的
+    无日期/陈旧条目只再宽限这么多期）。
+    """
+    none = (None, "", "", "", set())
+    if not DATE_RE.fullmatch(episode):
+        return none                                   # fixture/冒烟目录：纯文件
+    db = pool.resolve_path(cfg.get("items_db"))
+    if not db.exists():
+        eprint(f"[gate_select] WARN 条目池 {db} 不存在 — 退回纯文件路径"
+               "（collect 池回写尚未接入/未跑？）")
+        return none
+    try:
+        conn = pool.init_db(db)
+    except Exception as e:
+        eprint(f"[gate_select] WARN 条目池 {db} 打开失败 {e} — 退回纯文件路径")
+        return none
+    try:
+        has_ep = conn.execute(
+            "SELECT 1 FROM item_runs WHERE episode=? LIMIT 1",
+            (episode,)).fetchone() is not None
+    except sqlite3.Error as e:
+        conn.close()
+        eprint(f"[gate_select] WARN 条目池 {db} 读 item_runs 失败 {e}"
+               " — 退回纯文件路径")
+        return none
+    if not has_ep:
+        conn.close()
+        eprint(f"[gate_select] WARN 条目池 {db} 无 episode={episode} 的 "
+               "item_runs — 退回纯文件路径（池半空，collect 池回写缺失？）")
+        return none
+    wfrom, wto = pool.window_bounds(episode)
+    grace_from = (datetime.strptime(episode, "%Y-%m-%d").date()
+                  - timedelta(days=int(cfg.get("arrival_grace_days") or 2))
+                  ).isoformat()
+    return conn, wfrom, wto, grace_from, _published_cluster_ids(cfg)
+
+
+def _pool_candidate(row: dict) -> dict:
+    """池行 -> 与文件路径同形的 candidate dict + carried=True +
+    first_seen/last_seen/seen_count 展示字段。"""
+    key = row["item_key"]
+    ri = pool.to_raw_item(row)
+    sr = pool.to_summary_row(row)
+    src = ri.get("_source") or {}
+    judge = row.get("dedup_judge")
+    if isinstance(judge, str):                       # 库里存的是 JSON 文本
+        try:
+            judge = json.loads(judge)
+        except json.JSONDecodeError:
+            pass
+    dv = row.get("projected") or row.get("dedup_verdict") or "fresh"
+    fv = row.get("filter_verdict")
+    return {
+        "item_key": key,
+        "id": "",  # 排序后统一 slug 化
+        "section": section_slug(sr.get("section_guess"), key),
+        "title_zh": sr.get("title_zh") or ri.get("title") or "",
+        "summary": sr.get("summary") or (ri.get("content_text") or "")[:140],
+        "date_published": ri.get("date_published"),
+        "date_fetched": ri.get("date_fetched"),
+        "ai_relevance": row.get("ai_relevance"),
+        "news_value": row.get("news_value"),
+        "reasons": [str(x) for x in (row.get("reasons_json") or [])],
+        "url": ri.get("url") or ri.get("url_canon") or "",
+        "source": src.get("name") or "?",
+        "filter_verdict": fv,
+        "dedup": {"verdict": dv,
+                  "cluster_id": row.get("dedup_cluster_id"),
+                  "match_cos": row.get("dedup_match_cos"),
+                  "judge": judge},
+        "recommend": (fv == "keep") and dv in ("fresh", "reissue"),
+        "gray": dv in GRAY,
+        "carried": True,
+        "first_seen": row.get("first_seen"),
+        "last_seen": row.get("last_seen"),
+        "seen_count": row.get("seen_count"),
+        "_slug_basis": [*(sr.get("entities") or []), ri.get("title") or "",
+                        sr.get("title_zh") or ""],
+    }
+
+
 # ---------------------------------------------------------- build candidates
 
-def build_candidates(run_dir: Path) -> dict:
-    """20+30+35(+10) -> candidates envelope。缺输入即 fail-fast（文件即依赖边）。"""
+def build_candidates(run_dir: Path, items_db: str | None = None) -> dict:
+    """20+30+35(+10) ∪ 条目池结转 -> candidates envelope。缺输入即 fail-fast（文件即依赖边）。
+    items_db = --items-db 覆盖（> config.storage.items_db）。"""
     missing = [n for n in (RAW_NAME, FILT_NAME, SUMS_NAME, DED_NAME)
                if not (run_dir / n).exists()]
     if missing:
@@ -236,49 +410,156 @@ def build_candidates(run_dir: Path) -> dict:
     sums = {s["item_key"]: s for s in load_jsonl(run_dir / SUMS_NAME)}
     ded = {d["item_key"]: d for d in load_jsonl(run_dir / DED_NAME)}
 
-    cfg = load_config()
+    cfg = load_config(items_db)
     episode = run_dir.name
+    daily_map = cfg.get("daily_map") or {}
     candidates, suppressed, skipped = [], [], []
-    for f in filts:
-        key = f.get("item_key", "")
-        fv = f.get("verdict")
-        d = ded.get(key)
-        dv = (d or {}).get("verdict") or "fresh"  # 无 dedup 行按 fresh
-        if dv in SUPPRESSED:
-            suppressed.append({"item_key": key,
-                               "cluster_id": (d or {}).get("cluster_id"),
-                               "match_cos": (d or {}).get("match_cos")})
-            continue
-        if fv not in ("keep", "review"):
-            skipped.append({"item_key": key, "verdict": fv})
-            continue
-        s = sums.get(key) or {}
-        r = raw.get(key) or {}
-        src = r.get("_source") or {}
-        gray = dv in GRAY
-        candidates.append({
-            "item_key": key,
-            "id": "",  # 排序后统一 slug 化
-            "section": section_slug(s.get("section_guess"), key),
-            "title_zh": s.get("title_zh") or r.get("title") or "",
-            "summary": s.get("summary") or (r.get("content_text") or "")[:140],
-            "date_published": r.get("date_published"),
-            "date_fetched": r.get("date_fetched"),
-            "ai_relevance": f.get("ai_relevance"),
-            "news_value": f.get("news_value"),
-            "reasons": f.get("reasons") or [],
-            "url": r.get("url") or r.get("url_canon") or "",
-            "source": src.get("name") or "?",
-            "filter_verdict": fv,
-            "dedup": {"verdict": dv,
-                      "cluster_id": (d or {}).get("cluster_id"),
-                      "match_cos": (d or {}).get("match_cos"),
-                      "judge": (d or {}).get("judge")},
-            "recommend": (fv == "keep") and dv in ("fresh", "reissue"),
-            "gray": gray,
-            "_slug_basis": [*(s.get("entities") or []), r.get("title") or "",
-                            s.get("title_zh") or ""],
-        })
+    skipped_window, skipped_used = [], []
+
+    pconn, wfrom, wto, grace_from, published_cids = _open_pool(cfg, episode)
+    pool_rows_out: list[dict] = []
+    try:
+        served = set(raw)                       # 当期批次（10_raw_items 的键）
+        prows = pool.get_many(pconn, served) if pconn is not None else {}
+        for f in filts:
+            key = f.get("item_key", "")
+            fv = f.get("verdict")
+            d = ded.get(key)
+            dv = (d or {}).get("verdict") or "fresh"  # 无 dedup 行按 fresh
+            prow = prows.get(key)
+            # 自压制：35 行 cluster 与池行在位 cluster 相同 → 迟到的 dup_exact
+            # 不杀在位条目，落回正常候选评估（同 cluster 语义见 pool.write_dedup）
+            self_supp = (prow is not None
+                         and prow.get("dedup_cluster_id") is not None
+                         and prow.get("dedup_cluster_id")
+                         == (d or {}).get("cluster_id"))
+            if dv in SUPPRESSED and not self_supp:
+                suppressed.append({"item_key": key,
+                                   "cluster_id": (d or {}).get("cluster_id"),
+                                   "match_cos": (d or {}).get("match_cos")})
+                continue
+            if fv not in ("keep", "review"):
+                # L0 丢行兜底：feed 重发一条在窗未选的 keep 不该因 url_hash
+                # 命中历史而丢候选格——池行 standing verdict∈{keep,review}
+                # 且 eligible → 结转候选（carried=True）。兜底一旦评估过，
+                # 排除理由以 eligible 为准归账（used/窗口），不再计
+                # n_dropped_by_filter——占位 verdict 非真判，记 filter 丢弃
+                # 是假账（上期 kept 条目重发时会被埋进错误的桶）。
+                if (prow is not None
+                        and (f.get("prov") or {}).get("model") == "l0-url-hash"
+                        and prow.get("filter_verdict") in ("keep", "review")):
+                    ok, why = pool.eligible(prow, episode, wfrom, wto,
+                                            grace_from, daily_map)
+                    if ok:
+                        candidates.append(_pool_candidate(prow))
+                    elif why == "used":
+                        skipped_used.append(
+                            {"item_key": key,
+                             "used_in_episode": prow.get("used_in_episode")})
+                    else:
+                        skipped_window.append({"item_key": key,
+                                               "reason": why})
+                    continue
+                skipped.append({"item_key": key, "verdict": fv})
+                continue
+            s = sums.get(key) or {}
+            r = raw.get(key) or {}
+            src = r.get("_source") or {}
+            gray = dv in GRAY
+            candidates.append({
+                "item_key": key,
+                "id": "",  # 排序后统一 slug 化
+                "section": section_slug(s.get("section_guess"), key),
+                "title_zh": s.get("title_zh") or r.get("title") or "",
+                "summary": s.get("summary") or (r.get("content_text") or "")[:140],
+                "date_published": r.get("date_published"),
+                "date_fetched": r.get("date_fetched"),
+                "ai_relevance": f.get("ai_relevance"),
+                "news_value": f.get("news_value"),
+                "reasons": f.get("reasons") or [],
+                "url": r.get("url") or r.get("url_canon") or "",
+                "source": src.get("name") or "?",
+                "filter_verdict": fv,
+                "dedup": {"verdict": dv,
+                          "cluster_id": (d or {}).get("cluster_id"),
+                          "match_cos": (d or {}).get("match_cos"),
+                          "judge": (d or {}).get("judge")},
+                "recommend": (fv == "keep") and dv in ("fresh", "reissue"),
+                "gray": gray,
+                "_slug_basis": [*(s.get("entities") or []), r.get("title") or "",
+                                s.get("title_zh") or ""],
+            })
+
+        carried_rows = []
+        if pconn is not None:
+            # 池结转候选：往期 keep/review 未出片且仍在窗/宽限内
+            # （当期 item_runs 成员已被 SQL 排除，served 双保险）
+            for row in pool.select_candidates(pconn, episode, wfrom, wto,
+                                              grace_from, daily_map):
+                if row["item_key"] in served:
+                    continue
+                carried_rows.append(row)
+                candidates.append(_pool_candidate(row))
+            # 压制审计：文件侧 suppressed ∪ 池投影 suppressed
+            for row in pool.select_suppressed(pconn, episode, wfrom, wto,
+                                              grace_from, daily_map):
+                if row["item_key"] in served:
+                    continue
+                suppressed.append({"item_key": row["item_key"],
+                                   "cluster_id": row.get("dedup_cluster_id"),
+                                   "match_cos": row.get("dedup_match_cos"),
+                                   "carried": True})
+
+        if pconn is not None:
+            # ---- 统一谓词：used -> 窗口 -> projected-dedup（覆盖整个并集）----
+            rows_by_key = dict(prows)
+            rows_by_key.update({r["item_key"]: r for r in carried_rows})
+            kept_c = []
+            for c in candidates:
+                row = rows_by_key.get(c["item_key"])
+                if row is None:
+                    kept_c.append(c)
+                    continue
+                used = row.get("used_in_episode")
+                if used is not None and used != episode:
+                    skipped_used.append({"item_key": c["item_key"],
+                                         "used_in_episode": used})
+                    continue
+                ok, reason = pool.eligible(row, episode, wfrom, wto,
+                                           grace_from, daily_map)
+                if not ok:
+                    skipped_window.append({"item_key": c["item_key"],
+                                           "reason": reason})
+                    continue
+                proj = pool.projected_dedup(row, published_cids)
+                if proj == "suppressed":
+                    suppressed.append({"item_key": c["item_key"],
+                                       "cluster_id": row.get("dedup_cluster_id"),
+                                       "match_cos": row.get("dedup_match_cos"),
+                                       "carried": bool(c.get("carried"))})
+                    continue
+                # 出片投影覆盖展示判定：NULL->gray / 已出片 cluster->suppressed
+                # （reissue 例外存活）；recommend/gray 随之重算
+                c["dedup"]["verdict"] = proj
+                c["gray"] = proj in GRAY
+                c["recommend"] = (c.get("filter_verdict") == "keep"
+                                  and proj in ("fresh", "reissue"))
+                kept_c.append(c)
+            candidates = kept_c
+            pool_rows_out = [rows_by_key[c["item_key"]] for c in candidates
+                             if c.get("carried") and c["item_key"] not in served
+                             and c["item_key"] in rows_by_key]
+
+        # 结转条目物化：每次 build 都重写（stale-safe），digest 按 item_key 兜底
+        meta.atomic_write(run_dir / POOL_ITEMS_NAME,
+                          meta.dumps_jsonl([pool.to_raw_item(r)
+                                            for r in pool_rows_out]))
+        meta.atomic_write(run_dir / POOL_SUMS_NAME,
+                          meta.dumps_jsonl([pool.to_summary_row(r)
+                                            for r in pool_rows_out]))
+    finally:
+        if pconn is not None:
+            pconn.close()
 
     # 分区排序：分区按区内最高 news_value 排，区内按 news_value→ai_relevance 排
     def nv(c):
@@ -307,26 +588,38 @@ def build_candidates(run_dir: Path) -> dict:
         "config": cfg,
         "stats": {"n_candidates": len(candidates),
                   "n_suppressed": len(suppressed),
-                  "n_dropped_by_filter": len(skipped)},
+                  "n_dropped_by_filter": len(skipped),
+                  "n_carried": sum(1 for c in candidates if c.get("carried")),
+                  "n_skipped_window": len(skipped_window),
+                  "n_skipped_used": len(skipped_used)},
         "candidates": candidates,
         "suppressed": suppressed,
+        "skipped_window": skipped_window,
+        "skipped_used": skipped_used,
     }
 
 
-def cmd_prepare(run_dir: Path) -> int:
-    env = build_candidates(run_dir)
+def cmd_prepare(run_dir: Path, items_db: str | None = None) -> int:
+    env = build_candidates(run_dir, items_db=items_db)
     meta.atomic_write(run_dir / CAND_NAME, env)
     meta.stage_done(run_dir, "gate_prepare", CAND_NAME, status="done")
     st = env["stats"]
     print(f"[gate_select] {CAND_NAME}: {st['n_candidates']} 候选 "
-          f"(suppressed {st['n_suppressed']}, filter-drop {st['n_dropped_by_filter']})")
+          f"(suppressed {st['n_suppressed']}, filter-drop {st['n_dropped_by_filter']}"
+          + (f", carried {st['n_carried']}, "
+             f"skip-window {st['n_skipped_window']}, "
+             f"skip-used {st['n_skipped_used']}"
+             if st.get("n_carried") or st.get("n_skipped_window")
+             or st.get("n_skipped_used") else "")
+          + ")")
     return 0
 
 
 # ------------------------------------------------------------- write selected
 
 def write_selected(run_dir: Path, kept_cands: list[dict], dropped_cands: list[dict],
-                   decided_by: str, drop_reason: str) -> int:
+                   decided_by: str, drop_reason: str,
+                   items_db: str | None = None) -> int:
     doc = {
         "schema": "selected/1",
         "episode": run_dir.name,
@@ -344,13 +637,16 @@ def write_selected(run_dir: Path, kept_cands: list[dict], dropped_cands: list[di
     meta.atomic_write(run_dir / SEL_NAME, doc)
     meta.stage_done(run_dir, "gate_select", SEL_NAME, status="done",
                     extra={"decided_by": decided_by, "n_kept": len(kept_cands)})
+    mark_used(run_dir, doc["episode"], [k["item_key"] for k in doc["kept"]],
+              items_db=items_db)
     print(f"[gate_select] {SEL_NAME}: kept={len(kept_cands)} "
           f"dropped={len(dropped_cands)} by={decided_by}"
           + (" [kept 为空 — §11 no_items]" if not kept_cands else ""))
     return 0
 
 
-def cmd_auto(run_dir: Path, force: bool = False, topk: int | None = None) -> int:
+def cmd_auto(run_dir: Path, force: bool = False, topk: int | None = None,
+             items_db: str | None = None) -> int:
     sel = run_dir / SEL_NAME
     if sel.exists() and not force:
         try:
@@ -359,7 +655,7 @@ def cmd_auto(run_dir: Path, force: bool = False, topk: int | None = None) -> int
             by = "?"
         print(f"[gate_select] {SEL_NAME} 已存在 (decided_by={by}) — 跳过 (--force 可覆盖)")
         return 0
-    env = build_candidates(run_dir)
+    env = build_candidates(run_dir, items_db=items_db)
     meta.atomic_write(run_dir / CAND_NAME, env)  # 同步刷新 UI 数据源
     cfg = env["config"]
     k = min(topk or cfg["topk_autopick"], cfg["max_items"])
@@ -367,10 +663,12 @@ def cmd_auto(run_dir: Path, force: bool = False, topk: int | None = None) -> int
                    key=lambda c: (-(c["news_value"] if isinstance(c.get("news_value"), (int, float)) else -1),
                                   -(c.get("ai_relevance") or 0), c["item_key"]))
     kept, dropped = order[:k], order[k:]
-    return write_selected(run_dir, kept, dropped, "auto", "below_topk")
+    return write_selected(run_dir, kept, dropped, "auto", "below_topk",
+                          items_db=items_db)
 
 
-def cmd_deadline_check(run_dir: Path, hhmm: str) -> int:
+def cmd_deadline_check(run_dir: Path, hhmm: str,
+                       items_db: str | None = None) -> int:
     """timer 死线路径：40_selected 缺失且 now > run_date HH:MM(Asia/Shanghai) → auto。"""
     sel = run_dir / SEL_NAME
     if sel.exists():
@@ -391,7 +689,7 @@ def cmd_deadline_check(run_dir: Path, hhmm: str) -> int:
         print(f"[gate_select] 未到死线 {hhmm}（now {now.strftime('%H:%M')}）— 等待人工")
         return 0
     print(f"[gate_select] 已过死线 {hhmm} 且未提交 — 自动放行 top-K")
-    return cmd_auto(run_dir)
+    return cmd_auto(run_dir, items_db=items_db)
 
 
 # ------------------------------------------------------------------ selftest
@@ -626,6 +924,9 @@ def main(argv=None) -> int:
     ap.add_argument("--topk", type=int, default=None, help="覆盖 config.schedule.topk_autopick")
     ap.add_argument("--deadline-check", metavar="HH:MM",
                     help="死线检查：无 40_selected 且已过点 → auto")
+    ap.add_argument("--items-db", default=None,
+                    help="items.sqlite 路径（默认 config.storage.items_db > state/；"
+                         "--serve 会转发给 review_server）")
     ap.add_argument("--selftest", action="store_true", help="fixture 端到端自测")
     args = ap.parse_args(argv)
 
@@ -637,27 +938,31 @@ def main(argv=None) -> int:
 
     if args.deadline_check:
         with _run_lock(run_dir):
-            return cmd_deadline_check(run_dir, args.deadline_check)
+            return cmd_deadline_check(run_dir, args.deadline_check,
+                                      items_db=args.items_db)
     if args.auto:
         with _run_lock(run_dir):
-            return cmd_auto(run_dir, force=args.force, topk=args.topk)
+            return cmd_auto(run_dir, force=args.force, topk=args.topk,
+                            items_db=args.items_db)
     if args.serve:
         with _run_lock(run_dir):
-            rc = cmd_prepare(run_dir)
+            rc = cmd_prepare(run_dir, items_db=args.items_db)
         if rc != 0:
             return rc
         # 服务器持锁会阻塞 pick-auto 死线 watcher —— 锁外启动（justfile 同款约定）
-        return cmd_serve_no_prepare(run_dir)
+        return cmd_serve_no_prepare(run_dir, items_db=args.items_db)
     # 默认 = --prepare
     with _run_lock(run_dir):
-        return cmd_prepare(run_dir)
+        return cmd_prepare(run_dir, items_db=args.items_db)
 
 
-def cmd_serve_no_prepare(run_dir: Path) -> int:
+def cmd_serve_no_prepare(run_dir: Path, items_db: str | None = None) -> int:
     server = REPO / "stages" / "review_server.py"
+    argv = [sys.executable, str(server), "--run-dir", str(run_dir)]
+    if items_db:                 # 人工提交的 used 回写须落在同一条目池上
+        argv += ["--items-db", str(items_db)]
     print("[gate_select] 启动 review_server（Ctrl-C 退出）…")
-    return subprocess.call([sys.executable, str(server), "--run-dir", str(run_dir)],
-                           env=dict(os.environ))
+    return subprocess.call(argv, env=dict(os.environ))
 
 
 if __name__ == "__main__":

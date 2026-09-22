@@ -92,7 +92,8 @@ class RawItem(BaseModel):
     content_text: Optional[str] = Field(default=None, description="feed summary/正文纯文本")
     content_html: Optional[str] = Field(
         default=None,
-        description="feed HTML 原文片段（collect 硬截断 ≤32K 字符；整页原文见 _raw_ref 落盘响应）")
+        description="DEPRECATED — not emitted since the pool refactor; "
+                    "full HTML lives via _raw_ref -> data/raw_cache")
     date_published: Optional[str] = Field(default=None, description="源站发布时间，可为空")
     date_fetched: str = RFC3339
     language: Optional[str] = Field(default=None, description="BCP-47-ish: zh/en/…")
@@ -115,7 +116,7 @@ class RawManifest(BaseModel):
     produced_at: str = RFC3339
     stats: Optional[dict] = Field(
         default=None,
-        description="产物体积簿记：jsonl_bytes/max_line_bytes + content_text|content_html "
+        description="产物体积簿记：jsonl_bytes/max_line_bytes + content_text "
                     "{cap_chars,n_present,n_truncated,max_chars}（collect 填，可选）")
 
 

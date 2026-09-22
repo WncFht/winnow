@@ -70,7 +70,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 from adapters import alert_ntfy, deadman  # noqa: E402
 from adapters import llm_swe2max as llm  # noqa: E402
-from lib import meta, prompts, store  # noqa: E402
+from lib import meta, pool, prompts, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -78,6 +78,7 @@ REPO = Path(__file__).resolve().parents[1]
 F_ISSUE = "50_issue.json"
 F_SELECTED = "40_selected.json"
 F_RAW = "10_raw_items.jsonl"
+F_POOL_ITEMS = "38_pool_items.jsonl"   # 结转池 raw 投影（可选输入）
 F_QA = "90_qa.json"
 F_TITLES = "90_title_candidates.json"
 F_COVER = "90_cover.png"
@@ -597,9 +598,12 @@ def link_audit(run_dir: Path, issue: dict, cfg: dict, flags: list) -> dict:
 # ③b contracts.validate_run（schema lint + 跨字段 + coverage reconcile）
 # ---------------------------------------------------------------------------
 
-def validate_audit(run_dir: Path, flags: list) -> dict:
+def validate_audit(run_dir: Path, flags: list, cfg: dict | None = None) -> dict:
+    """contracts.validate_run 包装；cfg.storage.items_db 透传给 db-consistency
+    （--config 指向 scratch 配置时查的是同一个池，与 writeback 口径一致）。"""
     from contracts.validate import validate_run
-    rep = validate_run(run_dir)
+    items_db = (((cfg or {}).get("storage") or {}).get("items_db"))
+    rep = validate_run(run_dir, items_db=items_db)
     for v in rep.get("violations", []):
         flags.append(_flag(v.get("where", "?"),
                            f"validate_{v.get('rule', 'rule')}",
@@ -684,13 +688,20 @@ def _kept_maps(run_dir: Path, issue: dict) -> tuple[list, dict]:
             if k.get("item_key") and k.get("id"):
                 key_by_id[k["id"]] = k["item_key"]
                 keys.append(k["item_key"])
-    if not key_by_id and (run_dir / F_RAW).exists():
+    if not key_by_id:
         by_url = {}
-        for r in _load_jsonl(run_dir / F_RAW):
-            for u in {r.get("url"), r.get("url_canon"),
-                      (r.get("url") or "").rstrip("/"),
-                      (r.get("url_canon") or "").rstrip("/")} - {None, ""}:
-                by_url[u] = r["item_key"]
+        for name in (F_RAW, F_POOL_ITEMS):   # 当期 raw ∪ 结转池投影（缺文件跳过）
+            p = run_dir / name
+            if not p.exists():
+                continue
+            for r in _load_jsonl(p):
+                k = r.get("item_key")
+                if not k:
+                    continue
+                for u in {r.get("url"), r.get("url_canon"),
+                          (r.get("url") or "").rstrip("/"),
+                          (r.get("url_canon") or "").rstrip("/")} - {None, ""}:
+                    by_url[u] = k
         for it in issue.get("items", []) or []:
             for s in it.get("sources", []) or []:
                 u = (s.get("url") or "")
@@ -718,11 +729,20 @@ def writeback(run_dir: Path, issue: dict, cfg: dict, keys: list,
                            str(e)[:80], f"history.sqlite 回写失败: {db}"))
         check["error"] = str(e)[:120]
         return check
+    # items.sqlite 池回写（独立 try：历史库成功后池失败不拖累主回写）
+    try:
+        check["pool_marked"] = pool.mark_used(
+            pool.resolve_path(None, cfg), episode, keys)
+    except Exception as e:
+        check["pool_marked"] = 0
+        check["pool_error"] = str(e)[:120]
+        flags.append(_flag("_writeback", "pool_mark_used_failed", "low",
+                           str(e)[:80], "items.sqlite used_in_episode 回写失败"))
     if keys and check["marked"] == 0:
         flags.append(_flag("_writeback", "history_writeback_empty", "medium",
                            f"{len(keys)} kept keys", "kept 条目不在 history.sqlite（dedup 未跑？）"))
     print(f"writeback: marked={check['marked']}/{len(keys)} "
-          f"expired={check['expired']} db={db}")
+          f"expired={check['expired']} pool_marked={check['pool_marked']} db={db}")
     return check
 
 
@@ -880,7 +900,7 @@ def run(run_dir: Path, config_path=None, *, skip_links=False, skip_embed=False,
                        else link_audit(run_dir, issue, cfg, flags))
     sub["links"] = time.time() - t
     t = time.time()
-    checks["validate"] = validate_audit(run_dir, flags)
+    checks["validate"] = validate_audit(run_dir, flags, cfg)
     sub["validate"] = time.time() - t
     t = time.time()
     checks["embed_leak"] = ({"skipped": True, "reason": "--skip-embed/degraded"}

@@ -14,6 +14,11 @@ item_key(u)      sha256(url_canon(u))[:16] — the mechanical identity used by
                  every artifact contract (contracts/models.py ItemKey).
 title_norm(t)    NFKC + zero-width/control strip + fancy-punct fold +
                  whitespace collapse; optional casefold for matching.
+parse_date_utc(v)
+                 multi-format publish date -> RFC3339 UTC seconds
+                 (epoch s/ms/us, ISO, RFC822, common CN formats);
+                 moved verbatim from collect._parse_date — collect keeps a
+                 same-name wrapper delegating here.
 load_aliases(p)  read aliases.json {canonical: [alias, …]}.
 apply_aliases(t, aliases)
                  rewrite every known alias/canonical spelling to the
@@ -29,10 +34,14 @@ import hashlib
 import json
 import re
 import sys
+import time
 import unicodedata
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
@@ -171,6 +180,61 @@ def apply_aliases(text: str, aliases: dict) -> str:
     return pat.sub(lambda m: table[m.group(0).casefold()], text)
 
 
+# ------------------------------------------------------------- dates --------
+
+TZ = ZoneInfo("Asia/Shanghai")
+UTC = timezone.utc
+
+
+def parse_date_utc(v) -> str | None:
+    """多格式发布时间 → RFC3339 UTC。识别 epoch(s/ms/µs)/ISO/RFC822/中文格式。"""
+    if v is None or v == "":
+        return None
+    if isinstance(v, time.struct_time):
+        return datetime(*v[:6], tzinfo=UTC).isoformat(timespec="seconds")
+    if isinstance(v, (int, float)):
+        ts = float(v)
+        if ts > 1e14:
+            ts /= 1e6
+        elif ts > 1e11:
+            ts /= 1e3
+        if ts < 9e8 or ts > 4e9:        # <1998 / >2096 视为无效
+            return None
+        return datetime.fromtimestamp(ts, UTC).isoformat(timespec="seconds")
+    s = str(v).strip()
+    if not s:
+        return None
+    if re.fullmatch(r"\d{10,13}", s):
+        return parse_date_utc(float(s))
+    try:                               # RFC 822 / feed dates
+        return parsedate_to_datetime(s).astimezone(UTC).isoformat(timespec="seconds")
+    except (TypeError, ValueError):
+        pass
+    try:                               # ISO 8601 (+ 'Z')
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=TZ)  # 裸时间按源站常见时区
+        return dt.astimezone(UTC).isoformat(timespec="seconds")
+    except ValueError:
+        pass
+    for fmt in ("%Y/%m/%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
+                "%Y/%m/%d", "%Y.%m.%d %H:%M"):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=TZ) \
+                            .astimezone(UTC).isoformat(timespec="seconds")
+        except ValueError:
+            continue
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})", s)
+    if m:                            # 残损 ISO，给个保底
+        try:
+            return datetime.fromisoformat(
+                f"{m.group(1)}T{m.group(2)}+08:00") \
+                .astimezone(UTC).isoformat(timespec="seconds")
+        except ValueError:
+            pass
+    return None
+
+
 # ------------------------------------------------------------- self test ----
 
 if __name__ == "__main__":
@@ -217,4 +281,16 @@ if __name__ == "__main__":
     assert t3 == "ChatGPT 发布", t3
     assert apply_aliases(t3, al) == t3, "aliases must be idempotent"
     print("apply_aliases OK")
+
+    # --- parse_date_utc ------------------------------------------------------
+    assert parse_date_utc(1700000000) == "2023-11-14T22:13:20+00:00"
+    assert parse_date_utc("1700000000000") == "2023-11-14T22:13:20+00:00"
+    assert parse_date_utc("2026-09-21T06:30:00+08:00") == "2026-09-20T22:30:00+00:00"
+    assert parse_date_utc("2026-09-21T06:30:00Z") == "2026-09-21T06:30:00+00:00"
+    assert parse_date_utc("Mon, 21 Sep 2026 06:30:00 GMT") == "2026-09-21T06:30:00+00:00"
+    assert parse_date_utc("2026/09/21 06:30") == "2026-09-20T22:30:00+00:00"
+    assert parse_date_utc("2026-09-21 06:30") == "2026-09-20T22:30:00+00:00"
+    assert parse_date_utc("garbage") is None
+    assert parse_date_utc(None) is None and parse_date_utc("") is None
+    print("parse_date_utc OK")
     print("normalize.py self-test OK")

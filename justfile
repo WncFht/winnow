@@ -281,6 +281,8 @@ lint-sources:
             try:
                 if not (0 < int(mi) <= 200): fails.append(f"{n}: max_items_per_source {mi} >200")
             except (TypeError, ValueError): fails.append(f"{n}: max_items_per_source {mi!r} not int")
+        if "daily" in s and not isinstance(s["daily"], bool):
+            warns.append(f"{n}: 'daily' present but not a bool ({s['daily']!r})")
         fu = s.get("feed_url")
         if s.get("method") not in NO_FEED_OK and not fu: fails.append(f"{n}: missing feed_url")
         if fu:
@@ -580,11 +582,47 @@ status:
 ls-run:
     @ls -la {{RUN}}
 
-# daily history.sqlite backup, keep newest 14 (§9)
+# daily history.sqlite + items.sqlite backup, keep newest 14 each (§9)
 backup-state:
     @mkdir -p state/backups
     @[ -f state/history.sqlite ] && cp state/history.sqlite "state/backups/history-$(date +%F-%H%M).sqlite" && echo "backed up" || echo "no history.sqlite yet"
+    @[ -f state/items.sqlite ] && cp state/items.sqlite "state/backups/items-$(date +%F-%H%M).sqlite" && echo "items backed up" || echo "no items.sqlite yet"
     @ls -t state/backups/history-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
+    @ls -t state/backups/items-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
+
+# --------------------------------------------------------------------------
+# item pool (state/items.sqlite — 跨期条目池, PLAN §5.6)
+# --------------------------------------------------------------------------
+
+# backfill pool from all runs/<date>/ dirs (idempotent; verdicts/summaries/dedup/used)
+pool-import:
+    uv run stages/lib/pool.py --db state/items.sqlite --import runs/ --sources sources.yaml
+
+# row-count distribution (operator debug)
+pool-stats:
+    uv run stages/lib/pool.py --db state/items.sqlite --stats
+
+# prune unjudged rows idle >90d (NULL verdict + last_seen 过期), then VACUUM
+pool-vacuum:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -f state/items.sqlite ]; then echo "no items.sqlite yet"; exit 0; fi
+    python3 - <<'PY'
+    import sqlite3
+    from datetime import date, timedelta
+    conn = sqlite3.connect("state/items.sqlite", timeout=10)
+    cutoff = (date.today() - timedelta(days=90)).isoformat()
+    with conn:
+        n = conn.execute(
+            "DELETE FROM items WHERE filter_verdict IS NULL AND last_seen < ?",
+            (cutoff,)).rowcount
+        conn.execute("DELETE FROM item_runs WHERE item_key NOT IN"
+                     " (SELECT item_key FROM items)")
+    print(f"pruned {n} NULL-verdict rows with last_seen < {cutoff}")
+    conn.execute("VACUUM")
+    conn.close()
+    print("vacuum done")
+    PY
 
 # --------------------------------------------------------------------------
 # eval / dev tools (not run artifacts — no flock)

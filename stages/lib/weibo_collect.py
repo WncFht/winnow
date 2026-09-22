@@ -46,7 +46,7 @@ cfg (dict, all optional):
                    latency_ms,via,reminted,cookie} for 11_raw_manifest health
 
 raw_item fields satisfy contracts RawItem (raw_item/1): schema/item_key/id/
-url/url_canon/title/content_text/content_html/date_published/date_fetched/
+url/url_canon/title/content_text/date_published/date_fetched/
 language/tags/image/_source{name,feed_url,kind:"api",item_guid}/_fetch/_raw_ref.
 
 Smoke:  uv run stages/lib/weibo_collect.py            # live: mint + 2 AI uids
@@ -406,7 +406,6 @@ def _mblog_to_item(mb: dict, cfg, uid_fallback: str, status: int,
         "url_canon": canon,
         "title": title,
         "content_text": plain,
-        "content_html": text_html or None,
         "date_published": _parse_created_at(mb.get("created_at") or ""),
         "date_fetched": fetched_at,
         "language": "zh",
@@ -606,7 +605,6 @@ def _band_items(band: list[dict], cfg, status: int, fetched_at: str,
             "url_canon": canon,
             "title": title_norm(word)[:80],
             "content_text": desc,
-            "content_html": None,
             "date_published": None,  # signal-type source (PLAN §5.2.4)
             "date_fetched": fetched_at,
             "language": "zh",

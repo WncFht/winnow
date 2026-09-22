@@ -324,7 +324,6 @@ def _to_raw_item(t: dict, handle: str, *, feed_url: str, fetched: str,
         "title": text if len(text) <= _TITLE_MAX
         else text[:_TITLE_MAX - 1].rstrip() + "…",
         "content_text": text or None,
-        "content_html": None,
         "date_published": parse_created_at(t.get("created_at")),
         "date_fetched": fetched,
         "language": t.get("lang"),

@@ -4,7 +4,8 @@
 # method: rss|atom|json_api|sitemap_diff|changelog_diff|x|reddit|weibo|wechat|youtube_rss|manual
 # tier:   A=零凭据直连  B=平台采集器(反爬/凭证/池化)
 # proxy:  required(代理挂则跳过)|prefer(优先代理可直连)|direct_only
-# lint:   method∈枚举 / 无重复 feed_url / 0<freshness_sla_h≤168 / max_items_per_source≤200
+# daily:  true => item pubDate is authoritative — window by date_published; absent/false => archive/signal/undated — window by first_seen arrival grace
+# lint:   method∈枚举 / 无重复 feed_url / 0<freshness_sla_h≤168 / max_items_per_source≤200 / daily 非 bool→warn
 
 # ============ Tier A · AI 实验室与厂商官方 ============
 - name: openai_news
@@ -146,6 +147,7 @@
   tier: A
   feed_url: "https://blog.google/rss/"
   enabled: true
+  daily: true
   failover:
     - "https://blog.google/innovation-and-ai/rss/"
   freshness_sla_h: 36
@@ -717,6 +719,7 @@
   tier: A
   feed_url: "https://www.therundown.ai/feed"
   enabled: true
+  daily: true
   failover:
     - "https://www.therundown.ai/articles"
   freshness_sla_h: 36
@@ -753,6 +756,7 @@
   tier: A
   feed_url: "https://stratechery.com/feed"
   enabled: true
+  daily: true
   failover:
     - "https://public-api.wordpress.com/wp/v2/sites/188043415/posts"
   freshness_sla_h: 72
@@ -765,6 +769,7 @@
   tier: A
   feed_url: "https://www.platformer.news/rss/"
   enabled: true
+  daily: true
   failover:
     - "https://www.platformer.news/sitemap-posts.xml"
   freshness_sla_h: 72
@@ -908,6 +913,7 @@
   tier: A
   feed_url: "https://www.science.org/rss/news_current.xml"
   enabled: true
+  daily: true
   failover:
     - "https://api.crossref.org/journals/0036-8075/works?sort=published&order=desc&rows=20"
   freshness_sla_h: 24
@@ -957,6 +963,7 @@
   tier: A
   feed_url: "https://www.bloomberg.com/feeds/technology/news.rss"
   enabled: true
+  daily: true
   failover: []
   freshness_sla_h: 24
   max_items_per_source: 30
@@ -968,6 +975,7 @@
   tier: A
   feed_url: "https://bread-api.bloomberglaw.com/graphql"
   enabled: true
+  daily: true
   failover:
     - "https://news.bloomberglaw.com/artificial-intelligence"
   freshness_sla_h: 24
@@ -980,6 +988,7 @@
   tier: A
   feed_url: "https://www.reuters.com/arc/outboundfeeds/news-sitemap/?from=0"
   enabled: true
+  daily: true
   failover:
     - "https://news.google.com/rss/search?q=site:reuters.com+when:2d&hl=en-US&gl=US&ceid=US:en"
     - "https://rsshub.rssforever.com/reuters/technology"
@@ -993,6 +1002,7 @@
   tier: A
   feed_url: "https://news.google.com/rss/search?q=site:wsj.com+when:2d&hl=en-US&gl=US&ceid=US:en"
   enabled: true
+  daily: true
   failover:
     - "https://feeds.a.dj.com/rss/RSSWhatsNews.xml"
   freshness_sla_h: 24
@@ -1005,6 +1015,7 @@
   tier: A
   feed_url: "https://www.scmp.com/rss/91/feed/"
   enabled: true
+  daily: true
   failover:
     - "https://apigw.scmp.com/content-delivery/v2"
   freshness_sla_h: 24
@@ -1017,6 +1028,7 @@
   tier: A
   feed_url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
   enabled: true
+  daily: true
   failover:
     - "https://www.theverge.com/rss/index.xml"
   freshness_sla_h: 24
@@ -1029,6 +1041,7 @@
   tier: A
   feed_url: "https://arstechnica.com/ai/feed/"
   enabled: true
+  daily: true
   failover:
     - "https://arstechnica.com/feed/"
     - "https://arstechnica.com/tag/openai/feed/"
@@ -1042,6 +1055,7 @@
   tier: A
   feed_url: "https://www.wired.com/feed/tag/ai/latest/rss"
   enabled: true
+  daily: true
   failover:
     - "https://www.wired.com/feed/rss"
   freshness_sla_h: 24
@@ -1054,6 +1068,7 @@
   tier: A
   feed_url: "https://techcrunch.com/wp-json/wp/v2/posts?per_page=20"
   enabled: true
+  daily: true
   failover:
     - "https://techcrunch.com/category/artificial-intelligence/feed/"
   freshness_sla_h: 24
@@ -1066,6 +1081,7 @@
   tier: A
   feed_url: "https://venturebeat.com/feed/"
   enabled: true
+  daily: true
   failover:
     - "https://news.google.com/rss/search?q=site:venturebeat.com&hl=en-US&gl=US&ceid=US:en"
   freshness_sla_h: 24
@@ -1078,6 +1094,7 @@
   tier: A
   feed_url: "https://feeds.businessinsider.com/custom/all"
   enabled: true
+  daily: true
   failover:
     - "https://www.businessinsider.com/sitemap/google-news.xml"
   freshness_sla_h: 24
@@ -1090,6 +1107,7 @@
   tier: A
   feed_url: "https://fortune.com/wp-json/wp/v2/posts?section=447824447&per_page=20"
   enabled: true
+  daily: true
   failover: []
   freshness_sla_h: 24
   max_items_per_source: 30
@@ -1101,6 +1119,7 @@
   tier: A
   feed_url: "https://www.technologyreview.com/wp-json/wp/v2/posts?per_page=20"
   enabled: true
+  daily: true
   failover:
     - "https://www.technologyreview.com/feed/"
   freshness_sla_h: 24
@@ -1113,6 +1132,7 @@
   tier: A
   feed_url: "https://the-decoder.com/wp-json/wp/v2/posts?per_page=20"
   enabled: true
+  daily: true
   failover:
     - "https://the-decoder.com/feed/"
   freshness_sla_h: 24
@@ -1125,6 +1145,7 @@
   tier: A
   feed_url: "https://www.theinformation.com/feed"
   enabled: true
+  daily: true
   failover: []
   freshness_sla_h: 36
   max_items_per_source: 30
@@ -1186,6 +1207,7 @@
   tier: A
   feed_url: "https://github.blog/changelog/feed/"
   enabled: true
+  daily: true
   failover: []
   freshness_sla_h: 36
   max_items_per_source: 30
@@ -1198,6 +1220,7 @@
   tier: A
   feed_url: "https://www.cnbeta.com.tw/backend.php"
   enabled: true
+  daily: true
   failover:
     - "https://www.cnbeta.com.tw/home/more"
   freshness_sla_h: 24
@@ -1210,6 +1233,7 @@
   tier: A
   feed_url: "https://www.ithome.com/rss/"
   enabled: true
+  daily: true
   failover:
     - "https://api.ithome.com/json/newslist/news"
   freshness_sla_h: 24
@@ -1222,6 +1246,7 @@
   tier: A
   feed_url: "https://rss.huxiu.com/"
   enabled: true
+  daily: true
   failover:
     - "https://moment-api.huxiu.com/web-v3/moment/feed"
   freshness_sla_h: 24
@@ -1234,6 +1259,7 @@
   tier: A
   feed_url: "https://www.infoq.cn/public/v1/article/getList"
   enabled: true
+  daily: true
   failover:
     - "https://www.infoq.cn/feed"
   freshness_sla_h: 24
@@ -1246,6 +1272,7 @@
   tier: A
   feed_url: "https://www.jiqizhixin.com/api/article_library/articles.json?sort=time&page=1&per=20"
   enabled: true
+  daily: true
   failover:
     - "https://www.jiqizhixin.com/shared/sitemap.xml.gz"
   freshness_sla_h: 24
@@ -1258,6 +1285,7 @@
   tier: A
   feed_url: "https://api.juejin.cn/recommend_api/v1/article/recommend_cate_feed"
   enabled: true
+  daily: true
   failover:
     - "https://api.juejin.cn/content_api/v1/aicoding/content"
     - "https://juejin.cn/rss"
@@ -1271,6 +1299,7 @@
   tier: A
   feed_url: "https://www.oschina.net/ApiHomeNew/homeListByBlogTime?type=4&obj_type=3"
   enabled: true
+  daily: true
   failover:
     - "https://www.oschina.net/ApiHomeNew/homeListByNewType?type=9998&obj_type=4"
     - "https://www.oschina.net/news/rss"
@@ -1284,6 +1313,7 @@
   tier: A
   feed_url: "https://www.qbitai.com/wp-json/wp/v2/posts?per_page=20"
   enabled: true
+  daily: true
   failover:
     - "https://www.qbitai.com/feed"
   freshness_sla_h: 24
@@ -1296,6 +1326,7 @@
   tier: A
   feed_url: "https://sspai.com/api/v1/article/index/page/get?limit=20&offset=0"
   enabled: true
+  daily: true
   failover:
     - "https://sspai.com/api/v1/article/tag/page/get?tag=%E6%B4%BE%E6%97%A9%E6%8A%A5"
     - "https://sspai.com/feed"
@@ -1309,6 +1340,7 @@
   tier: A
   feed_url: "https://www.leiphone.com/feed"
   enabled: true
+  daily: true
   failover:
     - "https://www.leiphone.com/category/ai"
   freshness_sla_h: 24
@@ -1321,6 +1353,7 @@
   tier: A
   feed_url: "https://www.landian.news/wp-json/wp/v2/posts?categories=10983&per_page=50"
   enabled: true
+  daily: true
   failover:
     - "https://www.landian.news/feed"
   freshness_sla_h: 24
@@ -1333,6 +1366,7 @@
   tier: A
   feed_url: "https://api.tmtpost.com/v1/lists/new?limit=20"
   enabled: true
+  daily: true
   failover:
     - "https://api.tmtpost.com/v1/categories/multi_content/list?subtype=post&category_guid=6916385&limit=20"
     - "https://api.tmtpost.com/v1/word/list?limit=40"
@@ -1347,6 +1381,7 @@
   tier: A
   feed_url: "https://zhidx.com/wp-json/wp/v2/posts?per_page=30"
   enabled: true
+  daily: true
   failover:
     - "https://zhidx.com/rss"
   freshness_sla_h: 24
@@ -1357,8 +1392,9 @@
 - name: kr36_newsflash
   method: changelog_diff
   tier: A
-  feed_url: "https://www.36kr.com/newsflashes"
+  feed_url: "http://127.0.0.1:23176/36kr/newsflashes"   # 自建 RSSHub 实测路由; 旧 https://www.36kr.com/newsflashes SSR 正则路(见 note)
   enabled: true
+  daily: true
   failover:
     - "http://127.0.0.1:23176/36kr/newsflashes"
     - "https://36kr.com/information/web_news/"
@@ -1384,6 +1420,7 @@
   tier: A
   feed_url: "https://www.ifanr.com/feed"
   enabled: true
+  daily: true
   failover:
     - "https://sso.ifanr.com/api/v5/wp/web-feed/?limit=20&offset=0"
   freshness_sla_h: 24
@@ -1409,6 +1446,7 @@
   tier: A
   feed_url: "https://zhuanlan.zhihu.com/api/columns/qbitai/articles?limit=20"
   enabled: true
+  daily: true
   failover:
     - "https://api.zhihu.com/topstory/hot-list?limit=30"
     - "https://news-at.zhihu.com/api/4/news/latest"
@@ -1422,6 +1460,7 @@
   tier: A
   feed_url: "https://api.bilibili.com/x/web-interface/newlist?rid=36&ps=20"
   enabled: true
+  daily: true
   failover:
     - "https://api.bilibili.com/x/web-interface/popular"
     - "https://www.bilibili.com/sitemap/newlist.xml"
@@ -1447,6 +1486,7 @@
   tier: A
   feed_url: "https://news.google.com/rss/search?q=artificial+intelligence+when:1d&hl=en-US&gl=US&ceid=US:en"
   enabled: true
+  daily: true
   failover: []
   freshness_sla_h: 24
   max_items_per_source: 100
@@ -1458,6 +1498,7 @@
   tier: A
   feed_url: "https://hn.algolia.com/api/v1/search?tags=front_page"
   enabled: true
+  daily: true
   failover:
     - "https://hacker-news.firebaseio.com/v0/topstories.json"
     - "https://news.ycombinator.com/rss"
@@ -1472,6 +1513,7 @@
   tier: A
   feed_url: "https://lobste.rs/newest.json"
   enabled: true
+  daily: true
   failover:
     - "https://lobste.rs/rss"
   freshness_sla_h: 24
@@ -1498,6 +1540,7 @@
   tier: A
   feed_url: "https://www.producthunt.com/feed"
   enabled: true
+  daily: true
   failover:
     - "https://api.producthunt.com/v2/api/graphql"
   freshness_sla_h: 24
@@ -1514,6 +1557,7 @@
   tier: B
   feed_url: "https://x.com/OpenAI"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/OpenAI/rss"
     - "https://nitter.jaydenha.uk/OpenAI/rss"
@@ -1528,6 +1572,7 @@
   tier: B
   feed_url: "https://x.com/AnthropicAI"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/AnthropicAI/rss"
     - "https://nitter.jaydenha.uk/AnthropicAI/rss"
@@ -1542,6 +1587,7 @@
   tier: B
   feed_url: "https://x.com/GoogleAI"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/GoogleAI/rss"
     - "https://nitter.jaydenha.uk/GoogleAI/rss"
@@ -1556,6 +1602,7 @@
   tier: B
   feed_url: "https://x.com/AIatMeta"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/AIatMeta/rss"
     - "https://nitter.jaydenha.uk/AIatMeta/rss"
@@ -1570,6 +1617,7 @@
   tier: B
   feed_url: "https://x.com/deepseek_ai"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/deepseek_ai/rss"
     - "https://nitter.jaydenha.uk/deepseek_ai/rss"
@@ -1584,6 +1632,7 @@
   tier: B
   feed_url: "https://x.com/kaborative"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/kaborative/rss"
     - "https://nitter.jaydenha.uk/kaborative/rss"
@@ -1598,6 +1647,7 @@
   tier: B
   feed_url: "https://x.com/sama"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/sama/rss"
     - "https://nitter.jaydenha.uk/sama/rss"
@@ -1612,6 +1662,7 @@
   tier: B
   feed_url: "https://x.com/ChatGPT"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/ChatGPT/rss"
     - "https://nitter.jaydenha.uk/ChatGPT/rss"
@@ -1626,6 +1677,7 @@
   tier: B
   feed_url: "https://x.com/thsottiaux"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/thsottiaux/rss"
     - "https://nitter.jaydenha.uk/thsottiaux/rss"
@@ -1640,6 +1692,7 @@
   tier: B
   feed_url: "https://x.com/elonmusk"
   enabled: true
+  daily: true
   failover:
     - "https://nitter.meowing.monster/elonmusk/rss"
     - "https://nitter.jaydenha.uk/elonmusk/rss"
@@ -1656,6 +1709,7 @@
   tier: B
   feed_url: "https://www.reddit.com/r/LocalLLaMA/new/.rss?limit=50"
   enabled: true
+  daily: true
   failover:
     - "https://old.reddit.com/r/LocalLLaMA/new/.rss?limit=50"
     - "https://oauth.reddit.com/r/LocalLLaMA/new?limit=50"
@@ -1669,6 +1723,7 @@
   tier: B
   feed_url: "https://www.reddit.com/r/artificial/new/.rss?limit=50"
   enabled: true
+  daily: true
   failover:
     - "https://old.reddit.com/r/artificial/new/.rss?limit=50"
     - "https://oauth.reddit.com/r/artificial/new?limit=50"
@@ -1682,6 +1737,7 @@
   tier: B
   feed_url: "https://www.reddit.com/r/singularity/new/.rss?limit=50"
   enabled: true
+  daily: true
   failover:
     - "https://old.reddit.com/r/singularity/new/.rss?limit=50"
     - "https://oauth.reddit.com/r/singularity/new?limit=50"
@@ -1695,6 +1751,7 @@
   tier: B
   feed_url: "https://www.reddit.com/r/MachineLearning/new/.rss?limit=50"
   enabled: true
+  daily: true
   failover:
     - "https://old.reddit.com/r/MachineLearning/new/.rss?limit=50"
     - "https://oauth.reddit.com/r/MachineLearning/new?limit=50"
@@ -1708,6 +1765,7 @@
   tier: B
   feed_url: "https://www.reddit.com/r/OpenAI/new/.rss?limit=50"
   enabled: true
+  daily: true
   failover:
     - "https://old.reddit.com/r/OpenAI/new/.rss?limit=50"
     - "https://oauth.reddit.com/r/OpenAI/new?limit=50"
@@ -1930,6 +1988,7 @@
   tier: A
   feed_url: "https://ec.europa.eu/commission/presscorner/api/rss?language=en"
   enabled: true
+  daily: true
   failover: []
   freshness_sla_h: 72
   max_items_per_source: 10

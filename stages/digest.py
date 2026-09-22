@@ -66,6 +66,8 @@ ISSUE_SCHEMA_CANDIDATES = [
 F_SELECTED = "40_selected.json"
 F_SUMMARIES = "30_summaries.jsonl"
 F_RAW = "10_raw_items.jsonl"
+F_POOL_ITEMS = "38_pool_items.jsonl"      # 结转池 raw 投影（可选输入）
+F_POOL_SUMS = "38_pool_summaries.jsonl"   # 结转池 summary 投影（可选输入）
 F_ISSUE = "50_issue.json"
 F_REVIEW = "50_review.md"
 F_QA = "90_qa.json"
@@ -111,6 +113,17 @@ def _load_json(p: Path):
 
 def _load_jsonl(p: Path) -> list:
     return meta.load_jsonl(p)
+
+
+def _load_jsonl_opt(p: Path) -> list:
+    """可选 JSONL（38_pool_* 等）：缺文件 → []；坏行计数告警、不炸整批。"""
+    if not p.exists():
+        return []
+    errs: list = []
+    rows = meta.load_jsonl(p, errors=errs)
+    if errs:
+        sys.stderr.write(f"WARN {p.name}: {len(errs)} 坏行已跳过\n")
+    return [r for r in rows if isinstance(r, dict)]
 
 
 def _die(msg: str, hint: str = "") -> "SystemExit":
@@ -186,6 +199,12 @@ def build_kept(run_dir: Path) -> tuple[list[dict], dict]:
     selected = _load_json(sel_p)
     raws = {r["item_key"]: r for r in _load_jsonl(run_dir / F_RAW)}
     sums = {s["item_key"]: s for s in _load_jsonl(run_dir / F_SUMMARIES)}
+    # 结转池兜底（可选）：38_pool_* 提供往期结转条目的 raw/summary；
+    # 键冲突时当期文件赢（同 item_key 当期版本更新）
+    raws = {**{r["item_key"]: r for r in _load_jsonl_opt(run_dir / F_POOL_ITEMS)
+               if r.get("item_key")}, **raws}
+    sums = {**{s["item_key"]: s for s in _load_jsonl_opt(run_dir / F_POOL_SUMS)
+               if s.get("item_key")}, **sums}
     aliases = _load_aliases()
 
     kept = []
@@ -193,8 +212,9 @@ def build_kept(run_dir: Path) -> tuple[list[dict], dict]:
         ik, slug = k["item_key"], k["id"]
         raw = raws.get(ik)
         if raw is None:
-            raise _die(f"kept.item_key {ik} ({slug}) 不在 10_raw_items.jsonl",
-                       "raw_items 与 selected 不一致——重跑 `just pick`")
+            raise _die(f"kept.item_key {ik} ({slug}) 不在 10_raw_items.jsonl / "
+                       f"{F_POOL_ITEMS}",
+                       "raw_items/pool_items 与 selected 不一致——重跑 `just pick`")
         s = sums.get(ik, {})
         title = s.get("title_zh") or raw.get("title") or ""
         summary = s.get("summary") or ""

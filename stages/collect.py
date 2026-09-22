@@ -69,7 +69,7 @@ import yaml  # noqa: E402
 
 from contracts.models import RawItem, RawManifest  # noqa: E402
 from lib import http as lhttp  # noqa: E402
-from lib import meta, normalize  # noqa: E402
+from lib import meta, normalize, pool  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -87,7 +87,6 @@ SITEMAP_CHILD_CAP = 5                # sitemapindex 子图最多抓几个
 CHANGELOG_LINK_CAP = 120
 MAX_CONTENT_PER_SOURCE = 60          # 每源正文补抓上限
 HTML_MIN = 1 << 14                   # >16KB 才可能走 changelog 链接抽取
-CONTENT_HTML_CAP = 1 << 15           # content_html 32K 字符硬上限（全文在 _raw_ref）
 CONTENT_TEXT_CAP = 8000              # content_text 上限（对齐 trafilatura 回填 8000）
 
 # 防盗链图床（浏览器热链 403）：本地化下载到 run_dir/media/
@@ -126,52 +125,9 @@ def _window(run_date: str) -> tuple[datetime, datetime]:
 
 
 def _parse_date(v) -> str | None:
-    """多格式发布时间 → RFC3339 UTC。识别 epoch(s/ms/µs)/ISO/RFC822/中文格式。"""
-    if v is None or v == "":
-        return None
-    if isinstance(v, time.struct_time):
-        return datetime(*v[:6], tzinfo=UTC).isoformat(timespec="seconds")
-    if isinstance(v, (int, float)):
-        ts = float(v)
-        if ts > 1e14:
-            ts /= 1e6
-        elif ts > 1e11:
-            ts /= 1e3
-        if ts < 9e8 or ts > 4e9:        # <1998 / >2096 视为无效
-            return None
-        return datetime.fromtimestamp(ts, UTC).isoformat(timespec="seconds")
-    s = str(v).strip()
-    if not s:
-        return None
-    if re.fullmatch(r"\d{10,13}", s):
-        return _parse_date(float(s))
-    try:                               # RFC 822 / feed dates
-        return parsedate_to_datetime(s).astimezone(UTC).isoformat(timespec="seconds")
-    except (TypeError, ValueError):
-        pass
-    try:                               # ISO 8601 (+ 'Z')
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=TZ)  # 裸时间按源站常见时区
-        return dt.astimezone(UTC).isoformat(timespec="seconds")
-    except ValueError:
-        pass
-    for fmt in ("%Y/%m/%d %H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M",
-                "%Y/%m/%d", "%Y.%m.%d %H:%M"):
-        try:
-            return datetime.strptime(s, fmt).replace(tzinfo=TZ) \
-                            .astimezone(UTC).isoformat(timespec="seconds")
-        except ValueError:
-            continue
-    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2})", s)
-    if m:                            # 残损 ISO，给个保底
-        try:
-            return datetime.fromisoformat(
-                f"{m.group(1)}T{m.group(2)}+08:00") \
-                .astimezone(UTC).isoformat(timespec="seconds")
-        except ValueError:
-            pass
-    return None
+    """多格式发布时间 → RFC3339 UTC。实装已迁至 lib.normalize.parse_date_utc；
+    保留同名包装——其他模块可能 import collect._parse_date。"""
+    return normalize.parse_date_utc(v)
 
 
 def _in_window(date_rfc: str | None, win: tuple[datetime, datetime]) -> bool:
@@ -279,6 +235,7 @@ def load_sources(path: Path) -> list[dict]:
         s.setdefault("failover", []) or s.__setitem__("failover", [])
         s.setdefault("max_items_per_source", 40)
         s.setdefault("freshness_sla_h", 36)
+        s.setdefault("daily", False)   # 每日快照源（pool stale-daily 死区用）
         out.append(s)
     return out
 
@@ -432,9 +389,9 @@ _TRUNC_MARK = "…[截断]"
 def _bounded_text(s, cap: int):
     """内容字段归一：行分隔符族字符 → 空格 + 字符硬上限截断（留痕 marker）。
 
-    content_html 只保留截断片段供 JSON Feed 兼容/快速预览——整页原文始终
-    可从 _raw_ref 落盘响应回放，不需要进 JSONL（qwen_blog 曾单条 849KB
-    HTML 把 10_raw_items.jsonl 撑到 21.5MB）。非 str 原样放行交契约拒。
+    content_text 是唯一落 JSONL 的正文字段；content_html 已整体退役——整页
+    原文始终可从 _raw_ref 落盘响应回放，不需要进 JSONL（qwen_blog 曾单条
+    849KB HTML 把 10_raw_items.jsonl 撑到 21.5MB）。非 str 原样放行交契约拒。
     """
     if not isinstance(s, str):
         return s or None
@@ -446,7 +403,7 @@ def _bounded_text(s, cap: int):
 
 def mk_item(*, url: str, title: str, src: dict, kind: str,
             date: str | None = None, summary: str | None = None,
-            content_html: str | None = None, image: str | None = None,
+            image: str | None = None,
             tags: list[str] | None = None, guid: str | None = None,
             fetch_status: int = 200, via: str = "direct",
             etag: str | None = None, content_sha: str | None = None,
@@ -462,7 +419,6 @@ def mk_item(*, url: str, title: str, src: dict, kind: str,
         "url_canon": canon,
         "title": normalize.title_norm(title or "") or _slug_title(url),
         "content_text": _bounded_text(summary, CONTENT_TEXT_CAP),
-        "content_html": _bounded_text(content_html, CONTENT_HTML_CAP),
         "date_published": date,
         "date_fetched": fetched or _utcnow(),
         "language": lang if lang is not None else _guess_lang(title or "", summary or ""),
@@ -484,14 +440,17 @@ def _validate_item(it: dict) -> dict | None:
     """契约校验 + 内容上限兜底；不合法条目丢 + 记日志（宁缺勿炸）。
 
     平台采集器（x/reddit/weibo）直造 raw dict 绕过 mk_item——截断/行分隔符
-    归一在这里再兜一次，保证「无 >CAP 内容字段」是全路径不变量。"""
+    归一在这里再兜一次，保证「无 >CAP 内容字段」是全路径不变量。
+    content_html 已退役（契约字段保留但标 DEPRECATED）——这里单一收口
+    pop 掉，绕过 mk_item 的 producer/旧缓存残留也漏不进产物。"""
     try:
-        it = {**it,
-              "content_text": _bounded_text(it.get("content_text"),
-                                            CONTENT_TEXT_CAP),
-              "content_html": _bounded_text(it.get("content_html"),
-                                            CONTENT_HTML_CAP)}
-        return RawItem.model_validate(it).model_dump(by_alias=True)
+        it = dict(it)
+        it.pop("content_html", None)
+        it["content_text"] = _bounded_text(it.get("content_text"),
+                                           CONTENT_TEXT_CAP)
+        d = RawItem.model_validate(it).model_dump(by_alias=True)
+        d.pop("content_html", None)
+        return d
     except Exception as e:
         log.warning("drop invalid item url=%s: %s",
                     (it.get("url") or "?")[:80], str(e)[:160])
@@ -557,7 +516,6 @@ def parse_feed(body: bytes, src: dict, res: lhttp.FetchResult,
             url=link, title=e.get("title") or "", src=src, kind=kind,
             date=_feed_date(e),
             summary=text or None,
-            content_html=content_html or summary_html or None,
             image=_feed_image(e), tags=tags,
             guid=e.get("id") or e.get("guid"),
             fetch_status=res.status, via=_via(res), etag=res.etag,
@@ -580,7 +538,7 @@ def _looks_like_feed(body: bytes) -> bool:
 # ======================================================== json_api 适配 =====
 #
 # 每个 adapter: fn(data, src, ctx) -> (partial_items, extra_meta|None)
-# partial item 键: title/url/date/summary/content_html/image/tags/guid
+# partial item 键: title/url/date/summary/image/tags/guid
 # data = 已解析 JSON（GET 拿到非 JSON → 调用方降级 html diff）
 
 def _dget(d: dict, *keys):
@@ -757,7 +715,6 @@ def api_zhihu_col(d, src, ctx):
         out.append({"title": it.get("title"), "url": url or None,
                     "date": _parse_date(it.get("created")),
                     "summary": it.get("excerpt") or _strip_html(it.get("content")),
-                    "content_html": it.get("content"),
                     "guid": str(aid or ""),
                     "image": it.get("image_url") or it.get("title_image")})
     return [o for o in out if o["url"]], None
@@ -778,7 +735,6 @@ def api_qwen(d, src, ctx):
                     "summary": extra.get("introduction")
                                or extra.get("description")
                                or _strip_html(it.get("content"), 800),
-                    "content_html": it.get("content"),
                     "guid": str(it.get("id") or "")})
     return [o for o in out if o["url"]], None
 
@@ -1675,8 +1631,6 @@ def content_pass(item: dict, src: dict, ctx) -> None:
     ext_text = (meta_d.get("text") or meta_d.get("raw_text") or "").strip()
     if ext_text and len(ext_text) > len(text):
         item["content_text"] = _bounded_text(ext_text, CONTENT_TEXT_CAP)
-    if not item.get("content_html") and len(body) < (1 << 22):
-        item["content_html"] = None      # 原 HTML 太大不入契约，留 _raw_ref
     if meta_d.get("title") and (
             is_signal or not item.get("title") or
             item["title"] == _slug_title(item["url"])):
@@ -1746,7 +1700,7 @@ def _finish_items(partials: list[dict], src: dict, ctx,
         it = mk_item(
             url=p["url"], title=p.get("title") or "", src=src, kind=kind,
             date=p.get("date"), summary=p.get("summary"),
-            content_html=p.get("content_html"), image=p.get("image"),
+            image=p.get("image"),
             tags=p.get("tags") or [], guid=p.get("guid"),
             fetch_status=res.status, via=_via(res), etag=res.etag,
             content_sha=sha, raw_ref=raw_ref)
@@ -2088,6 +2042,32 @@ def _update_health(health: dict, stat: dict, run_date: str) -> None:
               "updated_at": _utcnow()})
 
 
+def _pool_upsert(args, cfg: dict, run_dir: Path, run_date: str,
+                 items: list[dict], sources: list[dict]) -> None:
+    """采批 → 跨期条目池 state/items.sqlite（lib/pool.py）。
+
+    仅真·日期目录（runs/YYYY-MM-DD）且日期 ≤ 今日(Asia/Shanghai) 才写池——
+    _doctor/手工目录与未来日期不污染。池写失败只记 warning，绝不炸 collect。
+    """
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", run_dir.name) \
+            or run_dir.name > _today_sh():
+        return
+    try:
+        conn = pool.init_db(pool.resolve_path(
+            getattr(args, "items_db", None), cfg))
+        try:
+            st = pool.upsert_items(
+                conn, items, run_date,
+                {s["name"]: bool(s.get("daily")) for s in sources})
+        finally:
+            conn.close()
+        log.info("pool_upserted episode=%s %s", run_date,
+                 json.dumps(st, ensure_ascii=False))
+    except Exception as e:
+        log.warning("pool upsert failed (non-fatal): %s: %s",
+                    type(e).__name__, e)
+
+
 def run(args) -> int:
     cfg = load_cfg(args.config)
     run_dir = meta.ensure_run(Path(args.run_dir)
@@ -2128,6 +2108,7 @@ def run(args) -> int:
             old = [o for o in old if o.get("item_key") != v["item_key"]] + [v]
             _write_outputs(run_dir, old, _manifest(run_date, win, old, ctx,
                                                  note="manual"))
+            _pool_upsert(args, cfg, run_dir, run_date, old, sources)
             print(json.dumps(v, ensure_ascii=False, indent=1)[:2000])
             return 0
 
@@ -2198,6 +2179,7 @@ def run(args) -> int:
         manifest = _manifest(run_date, win, deduped, ctx,
                              preflight=pre, degraded=degraded)
         _write_outputs(run_dir, deduped, manifest)
+        _pool_upsert(args, cfg, run_dir, run_date, deduped, sources)
         meta.stage_done(run_dir, "collect", ITEMS_NAME, status="done",
                         extra={"n_items": len(deduped)})
 
@@ -2232,16 +2214,10 @@ def run(args) -> int:
 def _items_stats(items: list[dict]) -> dict:
     """产物体积簿记 → manifest["stats"]：行字节按落盘序列化（dumps_jsonl_row）
     实测，截断数按 _TRUNC_MARK 留痕识别（启发式，理论误报≈0）。"""
-    n_html = n_html_trunc = n_text = n_text_trunc = 0
-    max_html = max_text = max_line = total = 0
+    n_text = n_text_trunc = 0
+    max_text = max_line = total = 0
     for it in items:
-        h = it.get("content_html") or ""
         t = it.get("content_text") or ""
-        if h:
-            n_html += 1
-            max_html = max(max_html, len(h))
-            if h.endswith(_TRUNC_MARK):
-                n_html_trunc += 1
         if t:
             n_text += 1
             max_text = max(max_text, len(t))
@@ -2252,8 +2228,6 @@ def _items_stats(items: list[dict]) -> dict:
     return {
         "jsonl_bytes": total,
         "max_line_bytes": max_line,
-        "content_html": {"cap_chars": CONTENT_HTML_CAP, "n_present": n_html,
-                         "n_truncated": n_html_trunc, "max_chars": max_html},
         "content_text": {"cap_chars": CONTENT_TEXT_CAP, "n_present": n_text,
                          "n_truncated": n_text_trunc, "max_chars": max_text},
     }
@@ -2371,6 +2345,8 @@ def selftest(args) -> int:
 
     rows = list(meta.iter_jsonl(run_dir / ITEMS_NAME))
     n_lines = len(rows)
+    assert all("content_html" not in r for r in rows), \
+        "content_html leaked into emitted rows"
     valid = all(RawItem.model_validate(x) for x in rows)
     print(f"selftest: ok_sources={ok_sources}/3 items={n_lines} "
           f"contract_valid={valid}")
@@ -2394,6 +2370,9 @@ def main() -> int:
                    help="只跑指定源，逗号分隔")
     p.add_argument("--max-content-fetches", type=int, default=600,
                    help="正文补抓全局上限（防高产源刷流量）")
+    p.add_argument("--items-db", default=None,
+                   help="条目池 items.sqlite 路径"
+                        "（默认 config.storage.items_db > state/items.sqlite）")
     p.add_argument("--manual", metavar="URL", default=None,
                    help="手工入口：抓单 URL 走同一管道")
     p.add_argument("--title", default=None, help="--manual 可选标题")

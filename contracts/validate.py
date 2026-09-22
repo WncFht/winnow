@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pydantic>=2"]   # 供 `uv run contracts/validate.py` 单跑；import 时无效
+# ///
 """Validate every artifact in a run dir: pydantic schema + cross-field rules.
 
 Cross-field layer (JSON Schema can't express):
@@ -14,6 +18,7 @@ import hashlib
 import json
 import math
 import re
+import sqlite3
 import sys
 from collections import Counter
 from pathlib import Path
@@ -23,7 +28,8 @@ from models import (AudioManifest, BuildManifest, Cards, DedupVerdict,
                     FilterVerdict, FramesManifest, RawItem, RawManifest,
                     RenderPlan, RunMeta, Selected, Summary, Timeline, VoiceSeg)
 
-RUN = Path(__file__).resolve().parents[1] / "runs" / "2026-09-20"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+RUN = REPO_ROOT / "runs" / "2026-09-20"
 errors, warns = [], []
 
 
@@ -205,13 +211,19 @@ def main():
 #
 # 规则（§4）:
 #   schema-lint     每个存在的 artifact 过 pydantic（50_issue/90_* 无 models 定义 → 结构 lint）
-#   id-closure      40.kept.item_key ⊆ (30∪35); 50.items.id == 40.kept.id;
+#   id-closure      40.kept.item_key ⊆ (30∪35∪38_pool_summaries) 且 ⊆ (10∪38_pool_items);
+#                   50.items.id == 40.kept.id;
 #                   60.seg.item ⊆ 50.items.id∪{intro,outro};
 #                   61.files.seg_id == 60.seg_id; 64.files.item ⊆ 63 ids∪{intro,outro,cover};
-#                   (+ 20/30/35/40 item_key ⊆ 10_raw_items 引用完整)
+#                   (+ 20/30/35/40 item_key ⊆ 10_raw_items∪38_pool_items 引用完整)
 #   url-membership  50.items.sources.url ⊆ kept 条目原始 url 集合(url∪url_canon)  [warn]
 #   digit-whitelist 50 body/60 text 数字 ⊆ facts[]∪{期号,年份,常见量词}豁免  [warn]
 #   coverage        LLM 批式输入条数 == 输出条数（双侧都在场才查）
+#   db-consistency  items_db（validate_run 参数 > config.storage.items_db >
+#                   state/items.sqlite，与 stages 各 --items-db 约定同）在场且
+#                   run_dir 为日期名才查：kept 条目 items.used_in_episode==episode
+#                   [error]；>20% 10_raw key 缺席 items 表 → collect-upsert
+#                   健康度告警 [warn]
 # ======================================================================
 
 PSEUDO_ITEMS = {"intro", "outro", "cover"}  # 非内容伪 item id（序场/尾场/封面帧）
@@ -221,6 +233,8 @@ _LINT_JSONL = {
     "20_filtered.jsonl": FilterVerdict,
     "30_summaries.jsonl": Summary,
     "35_dedup.jsonl": DedupVerdict,
+    "38_pool_items.jsonl": RawItem,       # 条目池结转投影（缺席→空集，老 run 目录不受影响）
+    "38_pool_summaries.jsonl": Summary,
     "60_voice_script.jsonl": VoiceSeg,
 }
 _LINT_JSON = {
@@ -311,7 +325,36 @@ def _load_jsonl(run, name, V):
     return rows, ok
 
 
-def validate_run(run_dir):
+def _resolve_items_db(items_db=None) -> Path:
+    """显式参数 > config.storage.items_db（config.yaml > config.example.yaml）
+    > state/items.sqlite；相对路径基于 repo 根（stages --items-db 同约定）。
+
+    yaml 惰性 import 且全 try 兜底——contracts 只硬依赖 pydantic，无 yaml /
+    无配置文件时安静落到默认池路径。"""
+    if items_db:
+        p = Path(items_db)
+        return p if p.is_absolute() else REPO_ROOT / p
+    for name in ("config.yaml", "config.example.yaml"):
+        f = REPO_ROOT / name
+        if not f.is_file():
+            continue
+        rel = None
+        try:
+            import yaml
+            doc = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            rel = (doc.get("storage") or {}).get("items_db")
+        except Exception:
+            rel = None
+        if rel:
+            p = Path(str(rel))
+            return p if p.is_absolute() else REPO_ROOT / p
+        break
+    return REPO_ROOT / "state" / "items.sqlite"
+
+
+def validate_run(run_dir, items_db=None):
+    """run 级跨字段校验。items_db 显式给定时 db-consistency 查该池
+    （scratch 池/非默认配置用），否则按 _resolve_items_db 解析。"""
     run = Path(run_dir)
     violations, checked, skipped = [], [], []
     if not run.is_dir():
@@ -409,30 +452,33 @@ def validate_run(run_dir):
 
     raws, filts, sums, deds = (M("10_raw_items.jsonl"), M("20_filtered.jsonl"),
                              M("30_summaries.jsonl"), M("35_dedup.jsonl"))
+    pool_raws, pool_sums = M("38_pool_items.jsonl"), M("38_pool_summaries.jsonl")
     sel, vs, am = (models.get("40_selected.json"), M("60_voice_script.jsonl"),
                    models.get("61_audio_manifest.json"))
     cards, fm = models.get("63_cards.json"), models.get("64_frames_manifest.json")
 
     # ---------- id closure ----------
-    raw_keys = {r.item_key for r in raws}
-    if len(raw_keys) != len(raws):
+    ten_keys = {r.item_key for r in raws}
+    raw_keys = ten_keys | {r.item_key for r in pool_raws}
+    if len(ten_keys) != len(raws):
         V("id-closure", "error", "10_raw_items.jsonl", "item_key 不唯一")
     for name, rows in (("20_filtered.jsonl", filts), ("30_summaries.jsonl", sums),
                        ("35_dedup.jsonl", deds)):
         for r in rows:
             if r.item_key not in raw_keys:
                 V("id-closure", "error", name,
-                  f"item_key {r.item_key} 不在 10_raw_items")
+                  f"item_key {r.item_key} 不在 10_raw_items∪38_pool_items")
     if sel is not None:
         kept_keys = {k.item_key for k in sel.kept}
-        pool = {r.item_key for r in sums} | {r.item_key for r in deds}
+        pool = ({r.item_key for r in sums} | {r.item_key for r in deds}
+                | {r.item_key for r in pool_sums})
         for kk in sorted(kept_keys - pool):
             V("id-closure", "error", "40_selected.json",
-              f"kept.item_key {kk} 不在 30∪35")
+              f"kept.item_key {kk} 不在 30∪35∪38_pool_summaries")
         for k in sel.kept:
             if k.item_key not in raw_keys:
                 V("id-closure", "error", "40_selected.json",
-                  f"kept.item_key {k.item_key} 不在 10_raw_items")
+                  f"kept.item_key {k.item_key} 不在 10∪38_pool_items")
         kept_ids = [k.id for k in sel.kept]
         if len(set(kept_ids)) != len(kept_ids):
             V("id-closure", "error", "40_selected.json", "kept.id 重复")
@@ -462,10 +508,10 @@ def validate_run(run_dir):
                   f"files.item {f.item} 不在 63.items.id∪{sorted(PSEUDO_ITEMS)}")
 
     # ---------- url membership ----------
-    if issue is not None and sel is not None and raws:
+    if issue is not None and sel is not None and (raws or pool_raws):
         kept_keys = {k.item_key for k in sel.kept}
         urls = set()
-        for r in raws:
+        for r in (*raws, *pool_raws):
             if r.item_key in kept_keys:
                 urls.update({r.url, r.url_canon,
                              r.url.rstrip("/"), r.url_canon.rstrip("/")})
@@ -479,6 +525,7 @@ def validate_run(run_dir):
     # ---------- digit whitelist ----------
     if issue is not None:
         fact_strs = [f for s in sums for f in s.facts]
+        fact_strs += [f for s in pool_sums for f in s.facts]
         fact_strs += [f for it in issue.get("items", []) for f in it.get("facts", [])]
         allowed = _facts_numbers(fact_strs)
         meta_txt = " ".join(str(issue.get(k, ""))
@@ -512,10 +559,11 @@ def validate_run(run_dir):
     # ---------- coverage（双侧在场才查） ----------
     if raws and filts:
         fkeys = {r.item_key for r in filts}
-        if len(filts) != len(raws) or fkeys != raw_keys:
+        # coverage 只覆盖当期采集批（10_raw）；38_pool_* 是结转投影，不进此比较
+        if len(filts) != len(raws) or fkeys != ten_keys:
             V("coverage", "error", "20_filtered.jsonl",
               f"输入 {len(raws)} 条 vs 输出 {len(filts)} 条; "
-              f"缺 {sorted(raw_keys - fkeys)[:8]} 多 {sorted(fkeys - raw_keys)[:8]}")
+              f"缺 {sorted(ten_keys - fkeys)[:8]} 多 {sorted(fkeys - ten_keys)[:8]}")
     if filts and sums:
         expect = {r.item_key for r in filts if r.verdict in ("keep", "review")}
         skeys = {r.item_key for r in sums}
@@ -554,6 +602,42 @@ def validate_run(run_dir):
                 V("coverage", "warn", "64_frames_manifest.json",
                   f"{c.id}.card 既无帧文件也不在 missing[]")
 
+    # ---------- db-consistency（条目池在场才查；只读连接） ----------
+    episode = run.name
+    db = _resolve_items_db(items_db)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", episode) and db.is_file():
+        try:
+            conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True,
+                                   timeout=5)
+            try:
+                if sel is not None:
+                    for k in sel.kept:
+                        row = conn.execute(
+                            "SELECT used_in_episode FROM items"
+                            " WHERE item_key=?", (k.item_key,)).fetchone()
+                        if row is None or row[0] != episode:
+                            V("db-consistency", "error", "40_selected.json",
+                              f"kept.item_key {k.item_key} items.used_in_episode="
+                              f"{row[0] if row else None!r} ≠ {episode}")
+                if ten_keys:
+                    ks, present = sorted(ten_keys), set()
+                    for i in range(0, len(ks), 500):
+                        q = ",".join("?" * len(ks[i:i + 500]))
+                        present.update(
+                            r[0] for r in conn.execute(
+                                "SELECT item_key FROM items"
+                                f" WHERE item_key IN ({q})", ks[i:i + 500]))
+                    miss = len(ten_keys) - len(present)
+                    if miss / len(ten_keys) > 0.2:
+                        V("db-consistency", "warn", str(db),
+                          f"10_raw {miss}/{len(ten_keys)} key 不在 items 表"
+                          "（collect-upsert 健康度超 20% 缺席线）")
+            finally:
+                conn.close()
+        except sqlite3.Error as ex:
+            V("db-consistency", "warn", str(db),
+              f"池读取失败，本组检查跳过: {ex}")
+
     ok = not any(v["level"] == "error" for v in violations)
     return {"ok": ok, "violations": violations,
             "checked": checked, "skipped": skipped}
@@ -574,13 +658,21 @@ def _print_report(run_dir, rep):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        _rep = validate_run(sys.argv[1])
-        _print_report(sys.argv[1], _rep)
+    import argparse
+    _ap = argparse.ArgumentParser(
+        description="run 级跨字段校验器（PLAN §4）")
+    _ap.add_argument("run_dir", nargs="?", help="runs/<date> 目录")
+    _ap.add_argument("--items-db", default=None, metavar="P",
+                     help="条目池 items.sqlite 路径"
+                          "（默认 config.storage.items_db > state/items.sqlite）")
+    _args = _ap.parse_args()
+    if _args.run_dir:
+        _rep = validate_run(_args.run_dir, items_db=_args.items_db)
+        _print_report(_args.run_dir, _rep)
         sys.exit(0 if _rep["ok"] else 1)
     if RUN.is_dir():
         main()  # legacy 自检：repo 根 runs/2026-09-20 fixture 在场时用
     else:
-        print(f"usage: {Path(sys.argv[0]).name} <run_dir>   "
+        print(f"usage: {Path(sys.argv[0]).name} <run_dir> [--items-db P]   "
               f"(默认自检目录 {RUN} 不存在)", file=sys.stderr)
         sys.exit(2)
