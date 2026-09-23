@@ -38,3 +38,28 @@ upstream/juya-news-card.gitdir/
 
 # MPE preview env (local link farm — scripts/crossnote-links.sh)
 /.crossnote/
+
+# 权重/生成物出库（2026-09-23）：模型一律走 HF/下载脚本，不进 git
+experiments/**/*.safetensors
+experiments/**/*.pt
+experiments/**/*.ckpt
+experiments/**/*.bin
+experiments/local-tts-try/pretrained_models/
+experiments/tts-local-eval/models/
+experiments/llm-filter-layer/llama/
+experiments/dedup-lab/models/
+experiments/dedup-history/model/
+experiments/storage-audit-fht/run/
+experiments/storage-audit-fht/crash/
+experiments/storage-audit-fht/gittest/
+adapters/bin/lychee
+
+# repro 生成产物（代码/数据保留，渲染/audio/字体出库）
+repro/audio/
+repro/chrome/
+repro/frames_v2/
+repro/subs/
+repro/shots/
+repro/assets/
+repro/v1/cards/
+repro/out.mp4
