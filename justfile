@@ -4,36 +4,49 @@
 #   just gather            collect -> filter -> dedup          (auto block A)
 #   just pick              gate 1: serve review UI             (HUMAN)
 #   just pick-auto         gate 1: deadline auto top-K         (non-interactive)
-#   just produce           digest -> voice -> cards -> render-plan -> compose -> meta
+#   just produce           digest -> callb -> voice -> cards -> subs -> render-plan -> compose -> meta
 #   just edit              gate 2: open 50_review.md in $EDITOR (HUMAN)
 #   just edit-import       gate 2: import edited review.md -> 50_issue.json
 #   just deadline1         gate-1 deadline watcher (ops/*.timer 08:30)
 #   just deadline2         gate-2 deadline watcher (ops/*.timer 09:30)
 #   just all               = gather (recipes never chain across human gates)
 #   just resume [date]     re-run missing/failed stages from 00_meta.json
-#   just status / ls-run   inspect the run bucket
+#   just from <stage>      force-run from a stage to end of its block — kills
+#                          the "just a && just b" antipattern（跨 just 进程在
+#                          .just.lock 上排队会饿死；同一 just 调用内的多配方
+#                          是顺序执行不排队）
+#
+#   just status            rich 仪表盘：阶段状态 + 运行中进度 + 锁持有者
+#   just watch             同上但 Live 实时刷新（只读，不占 .just.lock）
+#   just tail [stage]      tail -F run 日志（缺省全量交错）
+#
+#   just test              离线回归：全部 --selftest 并行 + compileall
+#   just exp <name> <stage> [args]   实验沙箱 runs/_exp-<name>（非日期目录
+#                          → 池写自动豁免），透传阶段参数
+#   just doctor            联网冒烟全组件（PLAN §3.6，与 test 互补）
 #
 #   just setup-toolchain   one-time machine setup (PLAN §3)
-#   just doctor            smoke-test every component (PLAN §3.6)
 #   just lint-sources      sources.yaml lint (PLAN §5.1)
-#   just judge-eval        dedup judge accuracy report (PLAN §11)
+#   just judge-eval        dedup judge accuracy (PENDING — flag 未实现)
 #   just shot-test         screenshot-pipeline self test (PLAN §7.6)
 #
 # Run a past/future date bucket:  just DATE=2026-09-20 gather
 #
-# Locking (§9): every stage line is prefixed with flock(1) on
+# Locking (§9): every stage line is prefixed with _jlock on
 # runs/<d>/.just.lock — a file *separate* from the stage-internal `.lock`
 # (stages/lib/meta.py run_lock). flock(1) exec's the stage while holding an
 # OFD lock; if both used the same inode the stage's own flock would block on
 # its parent forever -> guaranteed deadlock. .just.lock serializes only
 # just-level invocations for the same run bucket.
 #
-# Stale .just.lock / .lock files are harmless: flock binds to the open
-# inode, not the path — the lock dies with the holder, so leftover files
-# never block anyone and need no cleanup. _jlock (PREP below) bounds the
-# wait at 1h (-w 3600) and maps lock-timeout to exit 200 (-E 200) so it can
-# print "runs/<d> 有运行进行中" instead of silently hanging — while a real
-# stage failure keeps its own exit code/message.
+# _jlock 实现移进 ops/prelude.sh（两段式：-n 试探 → 占用时经 lslocks 打印
+# 持锁者 stage/pid/elapsed 再 -w 3600 排队；超时 exit 200）。残留锁文件
+# 无害：flock 绑定打开 inode，锁随持锁进程释放。
+#
+# Progress protocol: 阶段内长循环统一经 stages/lib/prog.py 上报——stderr
+# 人类行 + logs/<stage>.prog.jsonl 结构化事件（just watch 消费）；阶段入口
+# meta.stage_begin() 登记 00_running.json，stage_done 自动清除，崩溃残留
+# 按 /proc 判活显示为 stale。
 #
 # File-is-dependency-edge: a stage fails fast if its input artifact is
 # missing ("run `just gather` first"); the recipe graph stays shallow.
@@ -46,12 +59,10 @@ RUN         := "runs/" + DATE
 REVIEW_PORT := "8923"
 PROXY       := "http://127.0.0.1:7890"
 
-# line prefixes (see header): pipefail+log dir, dotenv export, per-run flock.
-# _jlock wraps flock so a 1h lock-timeout prints a friendly message (exit
-# 200) instead of hanging forever or looking like a stage failure.
-PREP := "set -o pipefail; mkdir -p " + RUN + "/logs; _jlock(){ flock -E 200 -w 3600 " + RUN + "/.just.lock \"$@\"; rc=$?; if [ \"$rc\" -eq 200 ]; then echo \"[just] " + RUN + " 有运行进行中 — .just.lock 等满 1h 未拿到（残留锁文件无害，锁随持锁进程释放）\" >&2; fi; return \"$rc\"; }; "
-ENV  := "set -a; if [ -f secrets.env ]; then . ./secrets.env; fi; set +a; "
-LOCK := "_jlock "
+# 配方前缀：SH = pipefail + secrets.env 导出（无 run-dir 配方用）；
+# STAGE = SH + PIPELINE_RUN + logs/ 目录 + _jlock 等锁（全部运行阶段用）。
+SH    := "source ops/prelude.sh; "
+STAGE := "export PIPELINE_RUN=" + RUN + "; source ops/prelude.sh; _jlock "
 
 default:
     @just --list --unsorted
@@ -157,9 +168,10 @@ doctor:
     base=$(cfg llm.base_url http://127.0.0.1:3033/v1)
     model=$(cfg llm.model swe-2-max)
     keyenv=$(cfg llm.api_key_env SWE2MAX_API_KEY)
+    keyenv_bg=$(cfg llm.api_key_env_bg SWE2MAX_BG_API_KEY)
     temp=$(cfg llm.temperature 0.2)   # NOTE: swe-2-max 502s on temperature:0 — use configured value
-    key="${!keyenv:-}"
-    if [ -z "$key" ]; then skip "llm ping" "$keyenv unset"
+    key="${!keyenv_bg:-${!keyenv:-}}"
+    if [ -z "$key" ]; then skip "llm ping" "$keyenv_bg/$keyenv unset"
     else
       http=$(curl -m 120 -s -o "$SCRATCH/llm.json" -w '%{http_code}' "$base/chat/completions" \
         -H "Authorization: Bearer $key" -H 'Content-Type: application/json' \
@@ -326,13 +338,13 @@ lint-sources:
 gather: collect filter dedup
 
 collect:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/collect.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/collect.log
+    {{STAGE}}uv run stages/collect.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/collect.log
 
 filter:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/filter.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/filter.log
+    {{STAGE}}uv run stages/filter.py --run-dir {{RUN}} --jobs 24 2>&1 | tee -a {{RUN}}/logs/filter.log
 
 dedup:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/dedup.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/dedup.log
+    {{STAGE}}uv run stages/dedup.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/dedup.log
 
 # --------------------------------------------------------------------------
 # gate 1 (HUMAN): 40_candidates -> 40_selected
@@ -342,12 +354,17 @@ dedup:
 # holding the run lock would block the pick-auto deadline watcher.
 # manual pick: prepare candidates, then serve the checkbox UI until submit
 pick:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/gate_select.py --run-dir {{RUN}} --prepare 2>&1 | tee -a {{RUN}}/logs/gate_select.log
-    {{PREP}}{{ENV}}REVIEW_PORT={{REVIEW_PORT}} uv run stages/review_server.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/review_server.log
+    {{STAGE}}uv run stages/gate_select.py --run-dir {{RUN}} --prepare 2>&1 | tee -a {{RUN}}/logs/gate_select.log
+    export PIPELINE_RUN={{RUN}}; source ops/prelude.sh; REVIEW_PORT={{REVIEW_PORT}} uv run stages/review_server.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/review_server.log
+
+# prepare-only: rebuild 40_candidates.json without serving the UI (resume uses
+# this — launching review_server would block the queue on a human)
+pick-prepare:
+    {{STAGE}}uv run stages/gate_select.py --run-dir {{RUN}} --prepare 2>&1 | tee -a {{RUN}}/logs/gate_select.log
 
 # non-interactive pick: top-K by news_value, decided_by:auto (deadline path)
 pick-auto:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/gate_select.py --run-dir {{RUN}} --auto 2>&1 | tee -a {{RUN}}/logs/gate_select.log
+    {{STAGE}}uv run stages/gate_select.py --run-dir {{RUN}} --auto 2>&1 | tee -a {{RUN}}/logs/gate_select.log
 
 # --------------------------------------------------------------------------
 # auto block B (after gate 1 + optional gate 2 edit)
@@ -368,7 +385,7 @@ produce:
     just DATE={{DATE}} callb voice cards subs render-plan compose meta
 
 digest:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/digest.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/digest.log
+    {{STAGE}}uv run stages/digest.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/digest.log
 
 # gate 2 (HUMAN): edit the exported review doc, then `just edit-import`
 edit:
@@ -376,35 +393,35 @@ edit:
 
 # import edited 50_review.md -> re-validated 50_issue.json
 edit-import:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/digest.py --run-dir {{RUN}} --import 2>&1 | tee -a {{RUN}}/logs/digest_import.log
+    {{STAGE}}uv run stages/digest.py --run-dir {{RUN}} --import 2>&1 | tee -a {{RUN}}/logs/digest_import.log
 
 # digest Call B: project voice/cards/video.shot_sentences into 50_issue.json +
 # compliance pass. Runs AFTER the gate-2 edit (edit-import), BEFORE voice/cards.
 # digest Call B projection + compliance pass (after edit-import, before voice)
 callb:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/digest.py --run-dir {{RUN}} --callb 2>&1 | tee -a {{RUN}}/logs/digest_callb.log
+    {{STAGE}}uv run stages/digest.py --run-dir {{RUN}} --callb 2>&1 | tee -a {{RUN}}/logs/digest_callb.log
 
 voice:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/voice.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/voice.log
+    {{STAGE}}uv run stages/voice.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/voice.log
 
 cards:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/cards.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/cards.log
+    {{STAGE}}uv run stages/cards.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/cards.log
 
 # per-seg subtitle pill PNGs for the ffmpeg compose path (Remotion renders
 # live-text pills itself and does not need this stage)
 subs:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/subs.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/subs.log
+    {{STAGE}}uv run stages/subs.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/subs.log
 
 render-plan:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/render_plan.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/render_plan.log
+    {{STAGE}}uv run stages/render_plan.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/render_plan.log
 
 # TMPDIR pinned to a real disk — /tmp is a small tmpfs; chrome OOMs there (§7.8)
 compose:
     mkdir -p state/compose-tmp
-    {{PREP}}{{ENV}}TMPDIR="$PWD/state/compose-tmp" {{LOCK}}uv run stages/compose.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/compose.log
+    export PIPELINE_RUN={{RUN}}; source ops/prelude.sh; TMPDIR="$PWD/state/compose-tmp" _jlock uv run stages/compose.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/compose.log
 
 meta:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/meta_qa.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/meta_qa.log
+    {{STAGE}}uv run stages/meta_qa.py --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/meta_qa.log
 
 # all = gather only — never chain across the human gates (§9)
 all: gather
@@ -421,7 +438,7 @@ all: gather
 deadline1:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{PREP}}
+    export PIPELINE_RUN={{RUN}}; source ops/prelude.sh
     dl=$(uv run -q --with pyyaml python3 - <<'PY'
     import os, yaml
     for f in ("config.yaml", "config.example.yaml"):
@@ -433,7 +450,7 @@ deadline1:
         print("08:30")
     PY
     )
-    {{ENV}}{{LOCK}}uv run stages/gate_select.py --run-dir {{RUN}} --deadline-check "$dl" 2>&1 | tee -a {{RUN}}/logs/gate_select.log \
+    _jlock uv run stages/gate_select.py --run-dir {{RUN}} --deadline-check "$dl" 2>&1 | tee -a {{RUN}}/logs/gate_select.log \
       || { rc=$?; echo "[deadline1] gate_select failed (rc=$rc) — see {{RUN}}/logs/gate_select.log" >&2; exit "$rc"; }
     if [ ! -f {{RUN}}/40_selected.json ]; then
       echo "[deadline1] no 40_selected.json (before deadline $dl or gather incomplete) — nothing to do"
@@ -453,7 +470,7 @@ deadline1:
 deadline2:
     #!/usr/bin/env bash
     set -euo pipefail
-    {{PREP}}
+    export PIPELINE_RUN={{RUN}}; source ops/prelude.sh
     # gate-1 safety net: if the 08:30 timer never fired, force 40+50 into being
     if [ ! -f {{RUN}}/40_selected.json ] || [ ! -f {{RUN}}/50_issue.json ]; then
       echo "[deadline2] upstream artifacts missing — running deadline1 first"
@@ -501,22 +518,27 @@ resume date=DATE:
     import sys, os
     sys.path.insert(0, "stages")
     rd = sys.argv[1]
-    # stage key -> (script, fallback artifact, extra args)
+    # stage key -> (recipe, fallback artifact)；同 recipe 去重（filter 产
+    # 20+30 两个 artifact；digest 系列共享 50_issue.json）。
+    # digest_export/digest_import 不在列——50_review.md 是人工编辑面，
+    # resume 不该替人重生成（sha 漂移是编辑的正常状态，不是缺损）。
     ORDER = [
-        ("collect",     "collect.py",     "11_raw_manifest.json",    []),
-        ("filter",      "filter.py",      "20_filtered.jsonl",       []),
-        ("dedup",       "dedup.py",       "35_dedup.jsonl",          []),
-        ("gate_select", "gate_select.py", "40_selected.json",        ["--auto"]),
-        ("digest",      "digest.py",      "50_issue.json",           []),
+        ("collect",       "collect",      "11_raw_manifest.json"),
+        ("filter",        "filter",       "20_filtered.jsonl"),
+        ("summaries",     "filter",       "30_summaries.jsonl"),
+        ("dedup",         "dedup",        "35_dedup.jsonl"),
+        ("gate_prepare",  "pick-prepare", "40_candidates.json"),
+        ("gate_select",   "pick-auto",    "40_selected.json"),
+        ("digest",        "digest",       "50_issue.json"),
         # callb shares 50_issue.json — use voice's artifact as the fallback:
         # 62_timeline.json can only exist if Call B already projected voice[].
-        ("digest_callb","digest.py",      "62_timeline.json",        ["--callb"]),
-        ("voice",       "voice.py",       "62_timeline.json",        []),
-        ("cards",       "cards.py",       "64_frames_manifest.json", []),
-        ("subs",        "subs.py",        "65_subs",                 []),
-        ("render_plan", "render_plan.py", "70_render_plan.json",     []),
-        ("compose",     "compose.py",     "80_build_manifest.json",  []),
-        ("meta_qa",     "meta_qa.py",     "90_qa.json",              []),
+        ("digest_callb",  "callb",        "62_timeline.json"),
+        ("voice",         "voice",        "62_timeline.json"),
+        ("cards",         "cards",        "64_frames_manifest.json"),
+        ("subs",          "subs",         "65_subs"),
+        ("render_plan",   "render-plan",  "70_render_plan.json"),
+        ("compose",       "compose",      "80_build_manifest.json"),
+        ("meta_qa",       "meta",         "90_qa.json"),
     ]
     try:
         from lib.meta import meta_status          # authoritative verify (sha)
@@ -528,56 +550,145 @@ resume date=DATE:
     stages = meta.get("stages") if isinstance(meta, dict) else {}
     stages = stages or {}
     OK = {"ok", "done", "success", "passed"}
-    out = []
-    for name, script, art, extra in ORDER:
+
+    def intact(e) -> bool:
+        return bool(e) and e.get("status") in OK \
+            and e.get("_verify", "ok") == "ok"
+
+    # 50_issue.json 被三个写者依次重写：Call A → edit-import → callb。
+    # "digest" 行的 sha 只覆盖 Call A 那次写——后两者写完必 sha_mismatch。
+    # 判定口径 = 任一写者的记录在文件上 verify ok 即视为产物完好；
+    # 否则 resume 会在每个正常跑完的 run 上重跑 Call A，冲掉人工编辑与投影。
+    digest_intact = any(intact(stages.get(k)) for k in
+                        ("digest", "digest_import", "digest_callb"))
+
+    seen, out = set(), []
+    for name, recipe, art in ORDER:
         e = stages.get(name)
-        if e and e.get("status") in OK and e.get("_verify", "ok") == "ok":
-            continue                                # recorded + artifact intact
-        # meta_status._verify 只认 is_file()——目录 artifact（如 subs 的
-        # 65_subs/）永远 "missing"，这里补 isdir 判定，否则 resume 每次都
-        # 重跑目录类阶段。
-        if e and e.get("status") in OK and e.get("_verify") == "missing" \
-                and os.path.isdir(os.path.join(rd, e.get("artifact") or "")):
-            continue
-        if e is None and os.path.exists(os.path.join(rd, art)):
-            continue                                # artifact exists, meta lost
-        out.append("\t".join([name, script] + extra))
+        ok = intact(e)
+        if name == "digest" and digest_intact:
+            ok = True
+        if not ok and e is None and os.path.exists(os.path.join(rd, art)):
+            ok = True                             # artifact exists, meta lost
+        if not ok and recipe not in seen:
+            out.append(recipe)
+            seen.add(recipe)
     print("\n".join(out))
     PY
     )
     if [ -z "$todo" ]; then echo "[resume] all stages done for {{date}}"; exit 0; fi
     echo "[resume] pending:"; echo "$todo" | sed 's/^/  /'
-    set -a; if [ -f secrets.env ]; then . ./secrets.env; fi; set +a
-    while IFS=$'\t' read -r name script extra; do
-      if [ -z "$name" ]; then continue; fi
-      echo "[resume] === $name ==="
-      rc=0
-      flock -E 200 -w 3600 "$RD/.just.lock" uv run "stages/$script" --run-dir "$RD" $extra 2>&1 \
-        | tee -a "$RD/logs/$name.log" || rc=$?
-      if [ "$rc" -eq 200 ]; then
-        echo "[resume] $RD 有运行进行中 — .just.lock 等满 1h 未拿到" >&2
-        exit 1
-      elif [ "$rc" -ne 0 ]; then
-        echo "[resume] $name FAILED — fix and re-run: just resume {{date}}"
+    # 逐阶段回调 just 配方——统一走 prelude 的 _jlock（等锁有持锁者提示、
+    # secrets 已导出），不再自行 flock。
+    while read -r recipe; do
+      [ -z "$recipe" ] && continue
+      echo "[resume] === $recipe ==="
+      if ! just DATE={{date}} "$recipe"; then
+        echo "[resume] $recipe FAILED — fix and re-run: just resume {{date}}"
         exit 1
       fi
     done <<< "$todo"
     echo "[resume] complete for {{date}}"
 
-# show recorded stage status of runs/<date>
+# rich 仪表盘（一次性快照）：阶段 DAG 状态 + 运行中进度 + 锁持有者
 status:
+    {{SH}}uv run tools/watch.py --run-dir {{RUN}} --once
+
+# 同上但 Live 实时刷新（Ctrl-C 退出；只读，不占 .just.lock）
+watch:
+    {{SH}}uv run tools/watch.py --run-dir {{RUN}}
+
+# tail -F run 日志；`just tail filter` 跟单阶段，缺省全量交错
+tail stage="":
     #!/usr/bin/env bash
-    python3 - "{{RUN}}" <<'PY'
-    import json, os, sys
-    p = os.path.join(sys.argv[1], "00_meta.json")
-    try:
-        m = json.load(open(p))
-    except Exception:
-        print(f"{sys.argv[1]}: no 00_meta.json — run `just gather` first"); raise SystemExit(0)
-    for k, v in (m.get("stages") or {}).items():
-        print(f"  {k:14} {v.get('status','?'):8} {v.get('artifact') or '-':32} {v.get('produced_at','')}")
-    if not m.get("stages"): print("  (stages{} empty)")
-    PY
+    if [ -n "{{stage}}" ]; then
+      exec tail -n 60 -F "{{RUN}}/logs/{{stage}}.log"
+    fi
+    shopt -s nullglob
+    logs=({{RUN}}/logs/*.log)
+    if [ ${#logs[@]} -eq 0 ]; then echo "[tail] {{RUN}}/logs 暂无日志"; exit 0; fi
+    exec tail -n 20 -F "${logs[@]}"
+
+# 从某阶段强制重跑到其所属 block 末尾（不用 && 串 just——跨进程排队会饿死）
+# 例：just from dedup  → dedup 为止（block A 末）；just from cards → cards..meta
+from stage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{stage}}" in
+      collect)            rest="collect filter dedup" ;;
+      filter)             rest="filter dedup" ;;
+      dedup)              rest="dedup" ;;
+      pick|gate_select)   rest="pick" ;;        # gate-1 人工：到 pick 为止
+      pick-auto)          rest="pick-auto" ;;
+      digest)             rest="digest callb voice cards subs render-plan compose meta" ;;
+      callb|digest_callb) rest="callb voice cards subs render-plan compose meta" ;;
+      edit-import)        rest="edit-import callb voice cards subs render-plan compose meta" ;;
+      voice)              rest="voice cards subs render-plan compose meta" ;;
+      cards)              rest="cards subs render-plan compose meta" ;;
+      subs)               rest="subs render-plan compose meta" ;;
+      render-plan|render_plan) rest="render-plan compose meta" ;;
+      compose)            rest="compose meta" ;;
+      meta|meta_qa)       rest="meta" ;;
+      *) echo "[from] 未知阶段 '{{stage}}' —— collect filter dedup pick digest callb edit-import voice cards subs render-plan compose meta" >&2; exit 2 ;;
+    esac
+    echo "[from] {{stage}} → $rest"
+    # shellcheck disable=SC2086
+    just DATE={{DATE}} $rest
+
+# 实验沙箱：runs/_exp-<name>（非日期目录 → pool 写自动豁免），参数透传阶段
+# 例：just exp batchsize filter --summary-batch 4
+exp name stage *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # name/stage 白名单：name 注入路径（_exp-x/../<date> 逃逸），stage 拼脚本路径
+    [[ "{{name}}" =~ ^[A-Za-z0-9._-]+$ ]] \
+      || { echo "[exp] name 须匹配 [A-Za-z0-9._-]+" >&2; exit 2; }
+    [[ "{{stage}}" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] \
+      || { echo "[exp] stage 须为 <name> 或 lib/<name>" >&2; exit 2; }
+    RD="runs/_exp-{{name}}"
+    if [ ! -d "$RD" ]; then
+      mkdir -p "$RD"
+      # 沙箱默认复制当日上游产物做输入（可用 --run-dir 覆盖）；无当日则空目录起跑
+      for f in {{RUN}}/1*.json* {{RUN}}/20_filtered.jsonl {{RUN}}/35_dedup.jsonl {{RUN}}/40_selected.json {{RUN}}/50_issue.json; do
+        [ -e "$f" ] && cp -n "$f" "$RD/" 2>/dev/null || true
+      done
+      echo "[exp] seeded $RD from {{RUN}}"
+    fi
+    mkdir -p "$RD/logs"
+    export PIPELINE_RUN="$RD"; source ops/prelude.sh
+    LOG="$RD/logs/$(echo '{{stage}}' | tr / _).log"
+    _jlock uv run "stages/{{stage}}.py" --run-dir "$RD" {{args}} 2>&1 | tee -a "$LOG"
+
+# 离线回归：全部 --selftest 并行 + py_compile；结果落 runs/_test/logs/*.rc
+test:
+    #!/usr/bin/env bash
+    set -u
+    SCRATCH="runs/_test"; mkdir -p "$SCRATCH/logs"
+    rm -f "$SCRATCH"/logs/*.rc   # 上轮残留 .rc 会掩盖本轮没写 rc 的死掉的 subshell
+    pass=0; fail=0; pids=(); names=()
+    # run <名字> <cmd...> —— 名字里的 / 压成 _ 做日志文件名
+    run() { local n="$1" f; shift; f="${n//\//_}"; names+=("$n")
+            ( "$@" >"$SCRATCH/logs/$f.log" 2>&1; echo $? >"$SCRATCH/logs/$f.rc" ) & pids+=($!); }
+    # --selftest 矩阵（离线）——加新阶段时同步这里
+    for s in lib/simhash lib/normalize lib/prompts lib/ttsnorm lib/store lib/pool lib/embed lib/prog meta_qa gate_select render_plan compose; do
+      run "$s" uv run "stages/$s.py" --selftest
+    done
+    run "lib/layout_d2" uv run stages/lib/layout_d2.py --selftest "$SCRATCH/layout-d2"
+    run "digest" uv run stages/digest.py --selftest --run-dir "$SCRATCH"
+    run "dedup-nojudge" uv run stages/dedup.py --selftest --no-judge
+    for s in lib/http lib/shotlib lib/reddit_collect lib/weibo_collect lib/x_ssr lib/x_nitter lib/x_synd; do
+      run "$s" uv run "stages/$s.py" --offline
+    done
+    run "pycompile" uv run -q python3 -m compileall -q stages tools
+    for p in "${pids[@]}"; do wait "$p"; done
+    for n in "${names[@]}"; do
+      f="${n//\//_}"
+      rc=$(cat "$SCRATCH/logs/$f.rc" 2>/dev/null || echo 9)
+      if [ "$rc" = 0 ]; then printf "  \033[32mPASS\033[0m %s\n" "$n"; pass=$((pass+1));
+      else printf "  \033[31mFAIL\033[0m %s (rc=%s) — %s\n" "$n" "$rc" "$(tail -2 "$SCRATCH/logs/$f.log" 2>/dev/null | tr '\n' ' ' | cut -c1-140)"; fail=$((fail+1)); fi
+    done
+    echo "test: $pass pass / $fail fail (logs: $SCRATCH/logs/)"
+    [ "$fail" -eq 0 ]
 
 ls-run:
     @ls -la {{RUN}}
@@ -589,6 +700,13 @@ backup-state:
     @[ -f state/items.sqlite ] && cp state/items.sqlite "state/backups/items-$(date +%F-%H%M).sqlite" && echo "items backed up" || echo "no items.sqlite yet"
     @ls -t state/backups/history-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
     @ls -t state/backups/items-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
+
+# data/raw_cache 保留 7 天：按日期目录整删（collect/ 子树按文件 mtime）
+gc-cache days="7":
+    @find data/raw_cache -mindepth 1 -maxdepth 1 -type d -name '20*' \
+        -mtime +{{days}} -print -exec rm -rf {} + 2>/dev/null | sed 's/^/gc-cache: 删 /'
+    @find data/raw_cache -mindepth 2 -type f -mtime +{{days}} -delete 2>/dev/null; \
+        find data/raw_cache -mindepth 1 -type d -empty -delete 2>/dev/null; true
 
 # --------------------------------------------------------------------------
 # item pool (state/items.sqlite — 跨期条目池, PLAN §5.6)
@@ -628,10 +746,13 @@ pool-vacuum:
 # eval / dev tools (not run artifacts — no flock)
 # --------------------------------------------------------------------------
 
-# dedup judge accuracy on fixtures (experiments/dedup-llm + dedup-lab seed)
+# dedup judge accuracy on fixtures — PENDING: dedup.py --judge-eval 未实现，
+# 此配方目前必挂；fixtures 在 experiments/dedup-llm/clusters.json
 judge-eval:
-    {{ENV}}uv run stages/dedup.py --judge-eval
+    @echo "judge-eval 未实现（dedup.py 无 --judge-eval flag）。" >&2
+    @echo "fixtures: experiments/dedup-llm/clusters.json — 待补 flag 后恢复" >&2
+    @exit 2
 
 # screenshot pipeline self test: domain-policy table + playwright path (§7.6)
 shot-test:
-    {{PREP}}{{ENV}}{{LOCK}}uv run stages/cards.py --shot-test --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/shot_test.log
+    {{STAGE}}uv run stages/cards.py --shot-test --run-dir {{RUN}} 2>&1 | tee -a {{RUN}}/logs/shot_test.log

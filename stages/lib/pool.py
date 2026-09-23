@@ -22,7 +22,8 @@
 select_candidates 语义（结转候选，非当期批次）：当期 item_runs 成员被排除
 （当期条目走文件管线 10→40），used_in_episode=当期 的条目豁免（同 episode
 内可重选）。窗口三子句：A pub∈[wfrom,wto) / B pub NULL 且 first_seen≥grace /
-C pub<wfrom 且 first_seen≥grace（迟到结转）；Python 精修把 C 对 daily 源
+C pub∈[sfloor,wfrom) 且 first_seen≥grace（迟到结转，sfloor=wfrom-
+carry_stale_max_days，更老的古董不结转）；Python 精修把 C 对 daily 源
 （sources.yaml daily:true，每日快照页）关掉 —— 陈旧日期不结转
 （stale-daily 死区）。projected_dedup 叠加"已出片 cluster"投影。
 
@@ -268,6 +269,13 @@ def window_bounds(episode: str) -> tuple[str, str]:
     start = end - timedelta(days=1)
     return (start.astimezone(UTC).isoformat(timespec="seconds"),
             end.astimezone(UTC).isoformat(timespec="seconds"))
+
+
+def stale_floor(wfrom: str, days: int) -> str:
+    """子句 C 的 pub 下限 = wfrom - N 天：只有窗口前 N 天内的迟到条目可
+    结转，更老的一律 stale（归档源全量目录/池冷启动 flood 的截断阀）。"""
+    return (datetime.fromisoformat(wfrom)
+            - timedelta(days=max(int(days), 0))).isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -541,10 +549,11 @@ def mark_used(conn_or_path, episode: str, keys: Iterable[str]) -> int:
 # ---------------------------------------------------------------------------
 
 def eligible(row: dict, episode: str, wfrom: str, wto: str, grace_from: str,
-             daily_map: Optional[dict] = None) -> tuple[bool, str]:
+             stale_floor: str, daily_map: Optional[dict] = None
+             ) -> tuple[bool, str]:
     """窗口+used 判定（served-today 行同样可用）。reason 词表：
     window / carry-nodate / carry-stale / used / stale-daily / stale /
-    nodate-old / future。
+    stale-floor / nodate-old / future。
     """
     used = row.get("used_in_episode")
     if used is not None and used != episode:
@@ -559,6 +568,8 @@ def eligible(row: dict, episode: str, wfrom: str, wto: str, grace_from: str,
     if pub < wfrom:                                  # 子句 C：陈旧但迟到
         if (daily_map or {}).get(row.get("source_name") or ""):
             return False, "stale-daily"              # daily 快照源不结转
+        if pub < stale_floor:
+            return False, "stale-floor"              # 古董不享受迟到宽限
         return (True, "carry-stale") if fs >= grace_from else (False, "stale")
     return False, "future"                           # pub >= wto
 
@@ -594,18 +605,21 @@ WHERE filter_verdict IN ('keep','review')
   AND item_key NOT IN (SELECT item_key FROM item_runs WHERE episode = :episode)
   AND ( (date_published >= :wfrom AND date_published < :wto)
      OR (date_published IS NULL AND first_seen >= :grace_from)
-     OR (date_published <  :wfrom AND first_seen >= :grace_from) )
+     OR (date_published <  :wfrom AND date_published >= :sfloor
+         AND first_seen >= :grace_from) )
 ORDER BY (news_value IS NULL), news_value DESC, first_seen DESC, item_key
 """
 
 
-def _pool_rows(conn, episode, wfrom, wto, grace_from, daily_map) -> list:
+def _pool_rows(conn, episode, wfrom, wto, grace_from, stale_floor,
+               daily_map) -> list:
     """SQL 预筛 + daily 精修（子句 C）+ projected_dedup 注解。"""
     dm = daily_map or {}
     pub = _published_cids(conn)
     rows = []
     for r in conn.execute(_SEL_SQL, {"episode": episode, "wfrom": wfrom,
-                                     "wto": wto, "grace_from": grace_from}):
+                                     "wto": wto, "grace_from": grace_from,
+                                     "sfloor": stale_floor}):
         d = _decoded(dict(r))
         dp = d.get("date_published")
         if dp is not None and dp < wfrom and dm.get(d.get("source_name") or ""):
@@ -616,23 +630,49 @@ def _pool_rows(conn, episode, wfrom, wto, grace_from, daily_map) -> list:
 
 
 def select_candidates(conn: sqlite3.Connection, episode: str, wfrom: str,
-                      wto: str, grace_from: str,
+                      wto: str, grace_from: str, stale_floor: str,
                       daily_map: Optional[dict] = None) -> list:
     """结转候选：预筛 + projected_dedup 注解，剔除 projected=='suppressed'。"""
     return [r for r in _pool_rows(conn, episode, wfrom, wto, grace_from,
-                                  daily_map) if r["projected"] != "suppressed"]
+                                  stale_floor, daily_map)
+            if r["projected"] != "suppressed"]
 
 
 def select_suppressed(conn: sqlite3.Connection, episode: str, wfrom: str,
-                      wto: str, grace_from: str,
+                      wto: str, grace_from: str, stale_floor: str,
                       daily_map: Optional[dict] = None) -> list:
     """同一谓词的压制审计列：只留 projected=='suppressed'。"""
     return [r for r in _pool_rows(conn, episode, wfrom, wto, grace_from,
-                                  daily_map) if r["projected"] == "suppressed"]
+                                  stale_floor, daily_map)
+            if r["projected"] == "suppressed"]
+
+
+def count_floor_cut(conn: sqlite3.Connection, episode: str,
+                    grace_from: str, stale_floor: str,
+                    daily_map: Optional[dict] = None) -> int:
+    """审计计数：其余条件全满足、仅因 pub<sfloor 被砍的结转条目数
+    （daily 源本就不走子句 C，不计）。用于 stats 的 n_stale_floor。"""
+    dm = daily_map or {}
+    n = 0
+    for (sn,) in conn.execute(
+            "SELECT source_name FROM items"
+            " WHERE filter_verdict IN ('keep','review')"
+            " AND (used_in_episode IS NULL OR used_in_episode = :episode)"
+            " AND title_zh IS NOT NULL AND summary IS NOT NULL"
+            " AND item_key NOT IN (SELECT item_key FROM item_runs"
+            "                    WHERE episode = :episode)"
+            " AND date_published < :sfloor"
+            " AND first_seen >= :grace_from",
+            {"episode": episode, "sfloor": stale_floor,
+             "grace_from": grace_from}):
+        if not dm.get(sn or ""):
+            n += 1
+    return n
 
 
 def needs_summary(conn: sqlite3.Connection, episode: str, wfrom: str,
-                  wto: str, grace_from: str, limit: int = 48) -> list:
+                  wto: str, grace_from: str, stale_floor: str,
+                  limit: int = 48) -> list:
     """待概要池行：keep/review + 未用/同期 + 窗口超集（不做 daily 精修）
     + summary IS NULL，按 first_seen 倒序封顶 limit。"""
     rows = conn.execute(
@@ -642,10 +682,12 @@ def needs_summary(conn: sqlite3.Connection, episode: str, wfrom: str,
         " AND summary IS NULL"
         " AND ( (date_published >= :wfrom AND date_published < :wto)"
         "    OR (date_published IS NULL AND first_seen >= :grace_from)"
-        "    OR (date_published <  :wfrom AND first_seen >= :grace_from) )"
+        "    OR (date_published <  :wfrom AND date_published >= :sfloor"
+        "        AND first_seen >= :grace_from) )"
         " ORDER BY first_seen DESC LIMIT :lim",
         {"episode": episode, "wfrom": wfrom, "wto": wto,
-         "grace_from": grace_from, "lim": int(limit)}).fetchall()
+         "grace_from": grace_from, "sfloor": stale_floor,
+         "lim": int(limit)}).fetchall()
     return [_decoded(dict(r)) for r in rows]
 
 
@@ -757,7 +799,8 @@ def import_run_dir(conn: sqlite3.Connection, dir_path, daily_map=None,
     n_v = write_verdicts(conn, by_key, real, lambda _k: "filter-v2",
                          episode=episode)
     sums = [r for r in _read_jsonl(d / SUMS_NAME, errs) if isinstance(r, dict)
-            and (r.get("prov") or {}).get("prompt") == "summary-v1"]
+            and re.fullmatch(r"summary-v\d+",
+                             str((r.get("prov") or {}).get("prompt") or ""))]
     n_s = write_summaries(conn, by_key, sums, episode=episode)
     deds = [r for r in _read_jsonl(d / DED_NAME, errs) if isinstance(r, dict)]
     n_d = write_dedup(conn, deds)
@@ -884,9 +927,13 @@ def _selftest() -> int:
     wfrom, wto = window_bounds(EP)
     assert (wfrom, wto) == ("2026-09-20T22:30:00+00:00",
                             "2026-09-21T22:30:00+00:00"), (wfrom, wto)
+    SFLOOR = stale_floor(wfrom, 14)
+    assert SFLOOR == "2026-09-06T22:30:00+00:00", SFLOOR
     PUB_IN, PUB_OLD, PUB_FUT = ("2026-09-21T10:00:00+00:00",
                               "2026-09-10T00:00:00+00:00",
                               "2026-09-22T01:00:00+00:00")
+    PUB_ANC = "2015-08-16T00:00:00+00:00"           # 远古：超 stale_floor
+    PUB_OLD2 = "2024-06-01T00:00:00+00:00"         # 旧但非远古：也超界
     DAILY = {"daily_feed": True}
 
     def mk(tag, title, pub, source="srcA", content="正文"):
@@ -956,21 +1003,28 @@ def _selftest() -> int:
     i_gy = mk("gy", "无 dedup 判定", PUB_IN)             # NULL→gray
     i_rs = mk("rs", "内容漂移重置", PUB_IN)              # re-judge 用
     i_gd = mk("gd", "自压制护栏", PUB_IN)                # dedup guard 用
+    i_anc = mk("anc", "远古迟到无概要", PUB_ANC)          # C×floor→stale，且
+                                                       # 不进 needs_summary
+    i_an2 = mk("an2", "远古迟到有概要", PUB_OLD2)         # C×floor→stale，
+                                                       # pre-fix 本可结转
+    i_bnd = mk("bnd", "恰在下限", SFLOOR)                # pub==sfloor → 界内
     upsert_items(conn, [i_a, i_b, i_c, i_d, i_h, i_i, i_dr, i_ns, i_sp,
-                        i_pb, i_ri, i_gy, i_rs, i_gd], PREV, DAILY)
+                        i_pb, i_ri, i_gy, i_rs, i_gd, i_anc, i_an2, i_bnd],
+                 PREV, DAILY)
     upsert_items(conn, [i_e, i_f, i_g], OLD, {})         # first_seen=OLD<GRACE
     all_keys = [key(x) for x in (i_dup, i_a, i_b, i_c, i_d, i_e, i_f, i_g,
                                  i_h, i_i, i_dr, i_ns, i_sp, i_pb, i_ri,
-                                 i_gy, i_rs, i_gd)]
+                                 i_gy, i_rs, i_gd, i_anc, i_an2, i_bnd)]
     by_key = {key(x): x for x in (i_dup, i_a, i_b, i_c, i_d, i_e, i_f, i_g,
                                   i_h, i_i, i_dr, i_ns, i_sp, i_pb, i_ri,
-                                  i_gy, i_rs, i_gd)}
+                                  i_gy, i_rs, i_gd, i_anc, i_an2, i_bnd)}
     write_verdicts(conn, by_key,
                    [vrow(k) for k in all_keys if k != key(i_dr)]
                    + [vrow(key(i_dr), "drop")], lambda _k: "filter-v2",
                    episode=PREV)
     write_summaries(conn, by_key,
-                    [srow(k) for k in all_keys if k != key(i_ns)],
+                    [srow(k) for k in all_keys
+                     if k not in (key(i_ns), key(i_anc))],
                     episode=PREV)
     write_dedup(conn, [drow(key(i_sp), "suppressed", 201),
                        drow(key(i_pb), "fresh", 202),
@@ -987,10 +1041,10 @@ def _selftest() -> int:
 
     # ---- select：窗口子句 + used 规则 + 当期 item_runs 排除 ----------------
     cands = {r["item_key"]: r for r in
-             select_candidates(conn, EP, wfrom, wto, GRACE, DAILY)}
+             select_candidates(conn, EP, wfrom, wto, GRACE, SFLOOR, DAILY)}
     got = set(cands)
     expect = {key(i_a), key(i_b), key(i_c), key(i_i),
-              key(i_ri), key(i_gy), key(i_gd)}
+              key(i_ri), key(i_gy), key(i_gd), key(i_bnd)}
     assert got == expect, {"missing": {k[:6] for k in expect - got},
                            "extra": {k[:6] for k in got - expect}}
     # i_dup 满足其余全部谓词，仅因 item_runs(EP) 被排除（当期批走文件管线）
@@ -1000,26 +1054,33 @@ def _selftest() -> int:
     assert cands[key(i_a)]["projected"] == "gray"      # dedup NULL → gray
     assert cands[key(i_gd)]["projected"] == "fresh"    # 未出片 cluster 原样
     supp = {r["item_key"] for r in
-            select_suppressed(conn, EP, wfrom, wto, GRACE, DAILY)}
+            select_suppressed(conn, EP, wfrom, wto, GRACE, SFLOOR, DAILY)}
     assert supp == {key(i_sp), key(i_pb)}, supp    # stored suppressed + published cid
     # eligible() 逐条核对（served-today 可用）
     rows = get_many(conn, all_keys)
-    assert eligible(rows[key(i_a)], EP, wfrom, wto, GRACE, DAILY) == (True, "window")
-    assert eligible(rows[key(i_b)], EP, wfrom, wto, GRACE, DAILY) == (True, "carry-nodate")
-    assert eligible(rows[key(i_c)], EP, wfrom, wto, GRACE, DAILY) == (True, "carry-stale")
-    assert eligible(rows[key(i_d)], EP, wfrom, wto, GRACE, DAILY) == (False, "stale-daily")
-    assert eligible(rows[key(i_e)], EP, wfrom, wto, GRACE, DAILY) == (False, "stale")
-    assert eligible(rows[key(i_f)], EP, wfrom, wto, GRACE, DAILY) == (False, "nodate-old")
-    assert eligible(rows[key(i_g)], EP, wfrom, wto, GRACE, DAILY) == (False, "future")
-    assert eligible(rows[key(i_h)], EP, wfrom, wto, GRACE, DAILY) == (False, "used")
-    assert eligible(rows[key(i_i)], EP, wfrom, wto, GRACE, DAILY) == (True, "window")
+    assert eligible(rows[key(i_a)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (True, "window")
+    assert eligible(rows[key(i_b)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (True, "carry-nodate")
+    assert eligible(rows[key(i_c)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (True, "carry-stale")
+    assert eligible(rows[key(i_d)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (False, "stale-daily")
+    assert eligible(rows[key(i_e)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (False, "stale")
+    assert eligible(rows[key(i_f)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (False, "nodate-old")
+    assert eligible(rows[key(i_g)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (False, "future")
+    assert eligible(rows[key(i_h)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (False, "used")
+    assert eligible(rows[key(i_i)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (True, "window")
+    assert eligible(rows[key(i_anc)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (False, "stale-floor")
+    assert eligible(rows[key(i_an2)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (False, "stale-floor")
+    assert eligible(rows[key(i_bnd)], EP, wfrom, wto, GRACE, SFLOOR, DAILY) == (True, "carry-stale")
+    # count_floor_cut：仅 i_an2 命中（i_anc 无 summary 出局；
+    # i_e/i_d pub≥sfloor；daily 源不计）
+    assert count_floor_cut(conn, EP, GRACE, SFLOOR, DAILY) == 1
 
     # ---- needs_summary：keep/review + 无 summary + 窗口超集 ------------------
-    ns = {r["item_key"] for r in needs_summary(conn, EP, wfrom, wto, GRACE)}
-    assert ns == {key(i_ns)}, {k[:6] for k in ns}
+    ns = {r["item_key"] for r in
+          needs_summary(conn, EP, wfrom, wto, GRACE, SFLOOR)}
+    assert ns == {key(i_ns)}, {k[:6] for k in ns}   # i_anc 被 floor 截断
     write_summaries(conn, by_key, [srow(key(i_ns))], episode=PREV)
     assert key(i_ns) not in {r["item_key"] for r in
-                             needs_summary(conn, EP, wfrom, wto, GRACE)}
+                             needs_summary(conn, EP, wfrom, wto, GRACE, SFLOOR)}
 
     # ---- write_dedup 自压制护栏 --------------------------------------------
     write_dedup(conn, [drow(key(i_gd), "suppressed", 301)])   # 同 cluster → 跳过

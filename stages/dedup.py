@@ -66,6 +66,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from datetime import date, timedelta
@@ -75,10 +76,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 import numpy as np
 
-from lib import meta, normalize, pool, prompts, simhash, store
+from lib import meta, normalize, pool, prog, prompts, simhash, store
 from lib import embed as embedlib
 from adapters import llm_swe2max as llm
 from contracts import models as cm
+from concurrent.futures import ThreadPoolExecutor
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -89,6 +91,9 @@ JUDGE_COS_KNN = 0.62         # 仅 kNN 召回（无 token 重叠）的对：更�
 JUDGE_COS_ANY = 0.80         # 任何召回路径：cos≥此必问 judge
 JUDGE_MIN_CONF = 0.6         # judge 置信下限，低于 → 不并/gray_pending
 MAX_PAIR_JUDGE = 60          # 同日 judge 调用上限（按 cos 降序截断）
+JUDGE_WORKERS = int(os.environ.get("DEDUP_JUDGE_WORKERS", "16"))
+                             # judge.pair 并发在飞数（IO-bound LLM 调用；网关 bg 爬坡
+                             # 放行 ~15-50/min，16 在飞足以吃满且不过度排队）
 
 _TOK_EN = re.compile(r"[a-z0-9]+")
 _TOK_ZH = re.compile(r"[一-鿿]+")
@@ -159,6 +164,26 @@ def _norm_judge_out(out) -> dict:
             "reason": str(out.get("reason") or "")[:80]}
 
 
+def _hist_for_ctx(conn, ctx: dict) -> dict:
+    """把命中 cluster 的成员拼成判词的"已报道"侧（cross_day / 批量共用）。"""
+    members = conn.execute(
+        "SELECT title, summary, source, day FROM items"
+        " WHERE cluster_id=? ORDER BY day, item_id LIMIT 6",
+        (ctx["cluster_id"],)).fetchall()
+    seen, sums = set(), []
+    for m in members:
+        s = (m["summary"] or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            sums.append(s[:160])
+    return {
+        "title": ctx["canonical_title"],
+        "summary": " ／ ".join(sums)[:400],
+        "date_published": members[-1]["day"] if members else "",
+        "_source": {"name": members[0]["source"] or ""} if members else {},
+    }
+
+
 class Judge:
     """JUDGE_PROMPT + llm.chat_json 封装；cfg 缺失时 .ok=False → 全部走人工。"""
 
@@ -184,25 +209,41 @@ class Judge:
             return {"label": "ERR", "confidence": 0.0,
                     "reason": f"{type(e).__name__}: {e}"[:120]}
 
+    def batch(self, pairs: list) -> list:
+        """JUDGE_BATCH_PROMPT 一次判 K 对 → 每条 _norm_judge_out（缺对补 ERR）。"""
+        err = {"label": "ERR", "confidence": 0.0, "reason": "judge disabled"}
+        if not self.ok:
+            return [dict(err) for _ in pairs]
+        sys_p, user = prompts.JUDGE_BATCH_PROMPT(pairs)
+        try:
+            out = llm.chat_json(prompts.messages(sys_p, user),
+                                tag="judge_batch", cfg=self.cfg,
+                                prov_out=self.provs)
+            self.calls += 1
+        except llm.LLMError as e:
+            err["reason"] = f"{type(e).__name__}: {e}"[:120]
+            return [dict(err) for _ in pairs]
+        arr = out if isinstance(out, list) else (
+            out.get("pairs") or out.get("results") or out.get("verdicts")
+            if isinstance(out, dict) else []) or []
+        by_idx = {}
+        for o in arr:
+            if isinstance(o, dict):
+                try:
+                    by_idx[int(o.get("pair"))] = o
+                except (TypeError, ValueError):
+                    pass
+        res = []
+        for i in range(len(pairs)):
+            r = _norm_judge_out(by_idx.get(i))
+            r["via"] = "judge_batch"
+            res.append(r)
+        return res
+
     def cross_day(self, conn, item: dict, ctx: dict) -> dict:
         """store.check 的 judge_fn(item, match_ctx)。ctx={cluster_id,
         canonical_title, cos, published}；把命中 cluster 的成员拼成"已报道"侧。"""
-        members = conn.execute(
-            "SELECT title, summary, source, day FROM items"
-            " WHERE cluster_id=? ORDER BY day, item_id LIMIT 6",
-            (ctx["cluster_id"],)).fetchall()
-        seen, sums = set(), []
-        for m in members:
-            s = (m["summary"] or "").strip()
-            if s and s not in seen:
-                seen.add(s)
-                sums.append(s[:160])
-        hist = {
-            "title": ctx["canonical_title"],
-            "summary": " ／ ".join(sums)[:400],
-            "date_published": members[-1]["day"] if members else "",
-            "_source": {"name": members[0]["source"] or ""} if members else {},
-        }
+        hist = _hist_for_ctx(conn, ctx)
         r = self.pair(item, hist)
         r["match"] = ctx["canonical_title"]
         return r
@@ -301,17 +342,22 @@ def load_items(run_dir: Path) -> list[dict]:
 
 
 def prepare_features(items: list[dict], emb: embedlib.Embedder,
-                     day: str) -> None:
-    """就地补 simhash(fp_day) / doc+query 向量 / url_hash / day。
+                     day: str, p: prog.Prog | None = None) -> None:
+    """就地补 simhash(fp_day) / doc 向量 / url_hash / day。
 
     注意：store 侧 simhash 用 store.simhash64（与历史库存值同一实现），
     同日对判用 lib/simhash.fingerprint_parts（同侧自比，实现自洽）。
     item 不传 "simhash"/"embed" 键给 store —— store 自动用自家实现补算，
-    存库键走 "embed_doc"/"embed_q" 自定义键，check 时再显式喂。
+    存库键走 "embed_doc" 自定义键，check 时再显式喂。
+    query 向量只有跨天 check 的 rep 用得上 → run_pipeline 聚类后按 rep 补算
+    （embed_q），全量 N→rep 数，省掉大头的 query 批。
     """
     texts = [store.feature_text(it) for it in items]
+    if p:
+        p.say(f"prepare_features: embedding {len(texts)} texts (doc)")
     E_doc = emb.embed(texts, mode="doc") if items else np.zeros((0, 1024), np.float32)
-    E_q = emb.embed(texts, mode="query") if items else np.zeros((0, 1024), np.float32)
+    if p:
+        p.say("prepare_features: embed done")
     for i, it in enumerate(items):
         it["day"] = it.get("day") or day
         it["episode"] = it.get("episode") or it["day"]
@@ -319,7 +365,6 @@ def prepare_features(items: list[dict], emb: embedlib.Embedder,
             normalize.title_norm(it["title_zh"], lower=True), it["summary"])
         it["url_hash"] = store.url_hash(it["url_canon"]) if it["url_canon"] else ""
         it["embed_doc"] = E_doc[i]
-        it["embed_q"] = E_q[i]
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +424,8 @@ def _worth_judge(rec: dict) -> bool:
     return bool(rec["knn"]) and c >= JUDGE_COS_KNN
 
 
-def same_day_cluster(items: list[dict], judge: Judge) -> tuple[list[list[int]], dict]:
+def same_day_cluster(items: list[dict], judge: Judge,
+                     p: prog.Prog | None = None) -> tuple[list[list[int]], dict]:
     """返回 (组内下标列表的列表, pair_decisions{(i,j):record})。"""
     n = len(items)
     uf = _UF(n)
@@ -399,27 +445,60 @@ def same_day_cluster(items: list[dict], judge: Judge) -> tuple[list[list[int]], 
 
     E = np.stack([it["embed_doc"] for it in items]) if n else np.zeros((0, 1024))
     pairs = _candidate_pairs(items, E)
+    # judge 相位进度：每对一次 LLM 调用（分钟级）。分母 = 预计判定数
+    # （worth-judge 对数封顶 MAX_PAIR_JUDGE），step=1 保证每次判定都出一行。
+    n_judge = min(sum(1 for r in pairs.values() if _worth_judge(r)),
+                  MAX_PAIR_JUDGE)
+    if p:
+        p.retune(n_judge, step=1)
+        p.say(f"same-day: {len(pairs)} candidate pairs, judge ≤{n_judge}"
+              f" ×{JUDGE_WORKERS}并发")
+
+    # judge.pair 并发：IO-bound LLM 调用按 cos 降序懒提交（在飞 ≤JUDGE_WORKERS），
+    # 结果仍按提交序应用 uf.union —— 语义与串行版同构：apply 前 uf.find 剪枝
+    # 继续生效，只是"在飞的对"等不到彼此的合并结果（最多浪费 workers-1 次
+    # 调用，判重只会多查不会错并）。judge.pair 无共享状态（calls/provs 仅计数）。
     judged = 0
-    for (i, j), rec in sorted(pairs.items(), key=lambda kv: -kv[1]["cos"]):
-        if uf.find(i) == uf.find(j):
-            continue
-        cos = rec["cos"]
-        ham = simhash.hamming(items[i]["fp_day"], items[j]["fp_day"])
-        rec["ham"] = ham
-        if ham <= simhash.NEAR_DUP_HAMMING:
-            rec["via"] = "same_day_ham"
+    applied = 0
+    pending: list[tuple[int, int, dict, object]] = []  # (i,j,rec,Future)
+
+    def _apply(i: int, j: int, rec: dict, r: dict) -> None:
+        rec.update({"via": "same_day_judge", "label": r.get("label"),
+                    "conf": r.get("confidence"), "reason": r.get("reason")})
+        if r.get("label") in ("A", "B"):
             uf.union(i, j)
-        elif judged < MAX_PAIR_JUDGE and _worth_judge(rec):
-            judged += 1
-            r = judge.pair(items[i], items[j])
-            rec.update({"via": "same_day_judge", "label": r.get("label"),
-                        "conf": r.get("confidence"), "reason": r.get("reason")})
-            if r.get("label") in ("A", "B"):
+        rec["merged"] = uf.find(i) == uf.find(j)
+
+    def _drain(block: bool = False) -> None:
+        nonlocal applied
+        while pending and (block or pending[0][3].done()):
+            i, j, rec, fu = pending.pop(0)
+            _apply(i, j, rec, fu.result())
+            applied += 1
+            if p:
+                p.tick(applied, f"cos={rec['cos']:.3f} {rec.get('label')}")
+
+    with ThreadPoolExecutor(max_workers=JUDGE_WORKERS,
+                            thread_name_prefix="judge") as ex:
+        for (i, j), rec in sorted(pairs.items(), key=lambda kv: -kv[1]["cos"]):
+            _drain()                    # 先落已完成的判定，uf 保持最新再剪枝
+            if uf.find(i) == uf.find(j):
+                continue
+            cos = rec["cos"]
+            ham = simhash.hamming(items[i]["fp_day"], items[j]["fp_day"])
+            rec["ham"] = ham
+            if ham <= simhash.NEAR_DUP_HAMMING:
+                rec["via"] = "same_day_ham"
                 uf.union(i, j)
-            rec["merged"] = uf.find(i) == uf.find(j)
-        else:
-            rec["via"] = "skip_cap" if judged >= MAX_PAIR_JUDGE else "skip_lo_cos"
-        decisions[(i, j)] = rec
+            elif judged < MAX_PAIR_JUDGE and _worth_judge(rec):
+                judged += 1
+                pending.append((i, j, rec,
+                                ex.submit(judge.pair, items[i], items[j])))
+            else:
+                rec["via"] = ("skip_cap" if judged >= MAX_PAIR_JUDGE
+                              else "skip_lo_cos")
+            decisions[(i, j)] = rec
+        _drain(block=True)
 
     groups: dict[int, list[int]] = {}
     for i in range(n):
@@ -440,12 +519,13 @@ def same_day_cluster(items: list[dict], judge: Judge) -> tuple[list[list[int]], 
 # 2)+3) 跨天级联 + sibling 并入 + 35 写出
 # ---------------------------------------------------------------------------
 
-def _fix_stored_embed(conn, item_id: int, cluster_id: int, doc_vec) -> None:
+def _fix_stored_embed(conn, item_id: int, cluster_id: int, doc_vec,
+                      cmpset: "store.CmpSet | None" = None) -> None:
     """check() 吃的是 instruct query 向量；落库改成 doc 并重算 centroid。"""
     conn.execute("UPDATE items SET embed=? WHERE item_id=?",
                  (store._v2b(np.asarray(doc_vec, dtype=np.float32).tolist()), item_id))
     conn.commit()
-    store._recompute_cluster(conn, cluster_id)
+    store._recompute_cluster(conn, cluster_id, cmpset=cmpset)
 
 
 def _row(item_key: str, verdict: str, cluster_id, cos, judge) -> dict:
@@ -456,24 +536,139 @@ def _row(item_key: str, verdict: str, cluster_id, cos, judge) -> dict:
     return row
 
 
+def _batch_prejudge(conn, items: list[dict], groups: list, judge: Judge,
+                    day: str, cmpset: "store.CmpSet", chunk: int,
+                    log=print) -> dict:
+    """相位A 只读扫描收灰区候选 -> 相位B JUDGE_BATCH 批量判（chunk 对/call，
+    JUDGE_WORKERS 并发）。返回 {rep_i: {cluster_id, jraw, used}}。
+
+    快照只决定"这对要不要批量判"：apply 相位仍逐 rep 走 check() 权威重扫，
+    命中 cluster 与快照一致才用缓存判词，漂移/漏报回落单条 cross_day——
+    写序与串行完全一致，judge 只是换了个供货渠道。
+    """
+    pend = []    # (rep_i, item, ctx)
+    for g in groups:
+        rep_i = g[0]
+        rep = items[rep_i]
+        chk = dict(rep)
+        eq = rep.get("embed_q")        # ndarray：`or` 会触发真值歧义
+        chk["embed"] = eq if eq is not None else rep["embed_doc"]
+        uh = chk.get("url_hash") or (store.url_hash(chk["url_canon"])
+                                     if chk.get("url_canon") else "")
+        shv = chk.get("simhash")
+        if shv is None:
+            shv = store.simhash64(store.feature_text(chk))
+        vec = store._unit(store._as_vec(chk["embed"]))
+        s = store._scan(conn, uh, int(shv) & 0xFFFFFFFFFFFFFFFF, vec, day, cmpset)
+        if s["kind"] != "best" or s["cos"] < store.T_GRAY:
+            continue
+        if (s["cos"] >= store.T_AUTO and s["ham"] is not None
+                and s["ham"] <= store.SIMHASH_HI):
+            continue                      # dup_same 双保险：check 不问 judge
+        pend.append((rep_i, rep, {"cluster_id": s["cl"]["cluster_id"],
+                                  "canonical_title": s["cl"]["canonical_title"],
+                                  "cos": s["cos"],
+                                  "published": s["cl"]["published"]}))
+    if not pend:
+        log("[dedup] 批量预判: 灰区 0 对，跳过")
+        return {}
+    log(f"[dedup] 批量预判: {len(pend)} 对灰区快照，{chunk} 对/call"
+        f" ×{JUDGE_WORKERS}并发")
+
+    # hist 成员查询在主线程做完（sqlite conn 不可跨线程）；worker 只跑 LLM。
+    prepared = [(rep_i, it, ctx, _hist_for_ctx(conn, ctx))
+                for rep_i, it, ctx in pend]
+    chunks = [prepared[i:i + chunk] for i in range(0, len(prepared), chunk)]
+
+    def work(ch):
+        return judge.batch([(it, hist) for _, it, _, hist in ch])
+
+    snaps = {}
+    with ThreadPoolExecutor(max_workers=JUDGE_WORKERS) as ex:
+        for ch, res in zip(chunks, ex.map(work, chunks)):
+            for (rep_i, _it, ctx, _h), r in zip(ch, res):
+                r["match"] = ctx["canonical_title"]
+                snaps[rep_i] = {"cluster_id": ctx["cluster_id"],
+                                "jraw": r, "used": False}
+    return snaps
+
+
 def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
-                 log=print) -> list[dict]:
+                 emb: embedlib.Embedder,
+                 log=print, p: prog.Prog | None = None,
+                 judge_batch: int = 0) -> list[dict]:
     """同日聚类 → 跨天级联 → 35 行（输入序）。返回 rows。"""
-    groups, decisions = same_day_cluster(items, judge)
+    # url_hash 前置：url 已在库的条目走 check() 的 dup_exact 短路（向量根本
+    # 不会被读），query embed 只给未见过 url 的条目算。跨天 rep 大多来自
+    # 昨日 carryover，~46% 直接省掉。
+    uh_hist = {r[0] for r in conn.execute(
+        "SELECT url_hash FROM items WHERE url_hash != ''")}
+    q_idx = [i for i, it in enumerate(items)
+             if not it.get("url_hash") or it["url_hash"] not in uh_hist]
+    log(f"[dedup] url 前置: {len(items) - len(q_idx)}/{len(items)} 条 url 已在库"
+        f"（query embed {len(q_idx)} 条）")
+
+    # query(instruct) 向量只给跨天 check 用 —— 后台单线程与同日聚类的
+    # judge 调用重叠（embed 是 CPU/ONNX，judge 是网络 IO，互不抢）。
+    q_fut = None
+    ex = ThreadPoolExecutor(max_workers=1)
+    if q_idx:
+        q_fut = ex.submit(emb.embed,
+                          [store.feature_text(items[i]) for i in q_idx],
+                          mode="query")
+    try:
+        groups, decisions = same_day_cluster(items, judge, p=p)
+    finally:
+        ex.shutdown(wait=False)
     n_multi = sum(1 for g in groups if len(g) > 1)
     log(f"[dedup] 同日聚类: {len(items)} 条 → {len(groups)} 组"
         f"（{n_multi} 组含合并，judge 调用 {judge.calls} 次）")
 
+    if q_fut is not None:
+        for i, q in zip(q_idx, q_fut.result()):
+            items[i]["embed_q"] = q
+    if p:
+        # 跨天相位：分母换成 rep 组数，step 按总量节流（10..100，见 prog 约定）
+        p.retune(len(groups), step=max(10, min(100, max(1, len(groups) // 40))))
+        p.say(f"cross-day cascade: {len(groups)} reps")
+
+    # 开放 cluster 比对集一次性载入内存（numpy 扫描 ~2ms/rep，替代原来
+    # 每 rep 全表 + 逐簇 SELECT 的 0.15-1.5s）。写路径同步增量维护镜像。
+    cmpset = store.CmpSet.load(conn, day)
+    log(f"[dedup] 比对集: {cmpset.n} open clusters / {cmpset.mem_n} 成员")
+
+    # --judge-batch：先对全体 rep 做只读扫描快照，灰区对批量判完再进入
+    # 下面的逐 rep apply 循环（写序不变；缓存判词只对快照同一 cluster 生效）。
+    snaps = {}
+    stats = {"fb": 0}
+    if judge_batch > 0:
+        snaps = _batch_prejudge(conn, items, groups, judge, day, cmpset,
+                                judge_batch, log=log)
+
     rows: dict[int, dict] = {}
-    for g in groups:
+    for gi, g in enumerate(groups, 1):
         rep_i = g[0]
         rep = items[rep_i]
-        # 跨天：query(instruct) 向量进 check，匹配后把存库向量改回 doc
+        # 跨天：query(instruct) 向量进 check，匹配后把存库向量改回 doc。
+        # url 已在库的 rep 没算 embed_q——doc 向量占位，check 会走
+        # dup_exact 短路根本读不到它。
         chk_item = dict(rep)
-        chk_item["embed"] = rep["embed_q"]
-        r = store.check(conn, chk_item, judge_fn=lambda it, ctx: judge.cross_day(conn, it, ctx),
-                        today=day)
-        _fix_stored_embed(conn, r["item_id"], r["cluster_id"], rep["embed_doc"])
+        eq = rep.get("embed_q")
+        chk_item["embed"] = eq if eq is not None else rep["embed_doc"]
+
+        snap = snaps.get(rep_i)
+
+        def _jfn(it, ctx, snap=snap):
+            if snap is not None and ctx["cluster_id"] == snap["cluster_id"]:
+                snap["used"] = True
+                return snap["jraw"]
+            stats["fb"] += 1
+            return judge.cross_day(conn, it, ctx)   # 漂移/漏拍 -> 单条兜底
+
+        r = store.check(conn, chk_item, judge_fn=_jfn,
+                        today=day, cmpset=cmpset)
+        _fix_stored_embed(conn, r["item_id"], r["cluster_id"], rep["embed_doc"],
+                          cmpset=cmpset)
         jdict = r.get("judge")
         if not isinstance(jdict, dict):
             jdict = {"via": r["via"],
@@ -504,13 +699,19 @@ def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
                                  judge={"via": "same_day", "rep": rep["item_key"],
                                         "label": d.get("label"),
                                         "cos": cos, "ham": d.get("ham")},
-                                 match_cos=cos)
-            store._recompute_cluster(conn, r["cluster_id"])
+                                 match_cos=cos, cmpset=cmpset)
+            store._recompute_cluster(conn, r["cluster_id"], cmpset=cmpset)
             rows[si] = _row(sib["item_key"], "suppressed", r["cluster_id"], cos,
                             {"via": "same_day", "rep": rep["item_key"],
                              "label": d.get("label"), "ham": d.get("ham")})
             log(f"  sib  {sib['item_key'][:8]} suppressed via=same_day "
                 f"cos={cos} cid={r['cluster_id']} «{sib['title_zh'][:30]}»")
+        if p:
+            p.tick(gi, f"{r['verdict']} cid={r['cluster_id']}")
+    if snaps:
+        hit = sum(1 for s in snaps.values() if s["used"])
+        log(f"[dedup] 批量判词命中 {hit}/{len(snaps)}"
+            f"（漂移回落单条 judge {stats['fb']} 次）")
     return [rows[i] for i in range(len(items))]
 
 
@@ -532,6 +733,7 @@ def cmd_run(args) -> int:
 
     items = load_items(run_dir)
     with meta.run_lock(run_dir):
+        meta.stage_begin(run_dir)    # 锁内登记：RMW 串行化 + running==持锁语义
         conn = store.init_db(db)
         expired = store.expire_clusters(conn, today=episode)
         provs: list = []
@@ -544,10 +746,15 @@ def cmd_run(args) -> int:
                       file=sys.stderr)
         judge = Judge(cfg, provs)
         emb = embedlib.Embedder()
-        prepare_features(items, emb, episode)
+        p = prog.Prog(run_dir, "dedup", total=len(items),
+                      step=max(10, min(100, max(1, len(items) // 40))),
+                      interval=30.0)
+        prepare_features(items, emb, episode, p=p)
         print(f"[dedup] run_dir={run_dir} db={db} items={len(items)}"
               f" expired={expired} judge={'on' if judge.ok else 'OFF'}")
-        rows = run_pipeline(conn, items, judge, episode)
+        rows = run_pipeline(conn, items, judge, episode, emb, p=p,
+                            judge_batch=args.judge_batch)
+        p.close()
         meta.atomic_write(run_dir / "35_dedup.jsonl", _dump_jsonl(rows))
         meta.stage_done(run_dir, "dedup", "35_dedup.jsonl", status="done",
                         extra={"n_items": len(items),
@@ -638,7 +845,11 @@ def cmd_backfill(args) -> int:
     texts = [store.feature_text(it) for it in items]
     E = emb.embed(texts, mode="doc") if items else np.zeros((0, 1024))
     n_add = n_skip = 0
-    for it, vec in zip(items, E):
+    p = prog.Prog(None, "dedup", total=len(items),
+                  step=max(10, min(100, max(1, len(items) // 40))),
+                  interval=30.0)   # backfill 无 run_dir → 仅 stderr 进度
+    for idx, (it, vec) in enumerate(zip(items, E), 1):
+        p.tick(idx, (it["title"] or "")[:28])
         uh = store.url_hash(it["url_canon"]) if it["url_canon"] else ""
         if uh and conn.execute("SELECT 1 FROM items WHERE url_hash=? LIMIT 1",
                                (uh,)).fetchone():
@@ -649,6 +860,7 @@ def cmd_backfill(args) -> int:
         store.add_item(conn, it, cid, verdict="reported")
         store._recompute_cluster(conn, cid)   # → published=1 + doc centroid
         n_add += 1
+    p.close()
     conn.commit()
     print(f"[dedup] backfill {src}: +{n_add} clusters, skip {n_skip}（已存在）")
     return 0
@@ -752,7 +964,8 @@ def _selftest(args) -> int:
         mk("台积电 2nm 制程量产进度提前", "https://tsmc.com/2nm",
            "台积电宣布 2nm 制程量产提前至下季度。", ["TSMC"]),
     ]
-    prepare_features(items, emb, day1)
+    p = prog.Prog(None, "dedup")   # selftest 无 run_dir：仅 stderr，顺带演练仪表
+    prepare_features(items, emb, day1, p=p)
 
     provs: list = []
     try:
@@ -763,7 +976,9 @@ def _selftest(args) -> int:
     judge = Judge(cfg, provs)
     print(f"[selftest] items={len(items)} judge={'on' if judge.ok else 'OFF'}")
 
-    rows = run_pipeline(conn, items, judge, day1)
+    rows = run_pipeline(conn, items, judge, day1, emb, p=p,
+                        judge_batch=getattr(args, "judge_batch", 0))
+    p.close()
 
     print("\n== cascade verdicts ==")
     for it, r in zip(items, rows):
@@ -804,6 +1019,10 @@ def main(argv=None) -> int:
                     help="items.sqlite 路径（默认 config.storage.items_db 或 state/items.sqlite）")
     ap.add_argument("--no-judge", action="store_true",
                     help="禁用 LLM judge：灰区全落 gray_pending（离线/调试）")
+    ap.add_argument("--judge-batch", type=int, default=0, metavar="K",
+                    help="跨天灰区批量预判：先只读扫描出待判对，K 对/call 并发"
+                    "判完再逐 rep apply（写序不变、漂移回落单条 judge）；"
+                    "0=逐条串行（默认）")
     ap.add_argument("--split", metavar="CLUSTER_ID",
                     help="人工算子：拆出 cluster 最近挂入批为新 cluster")
     ap.add_argument("--merge", nargs=2, metavar=("A", "B"),

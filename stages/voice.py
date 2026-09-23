@@ -11,6 +11,8 @@
 产物（§4 契约）：
   60_voice_script.jsonl    voice_seg/1  {seg_id=NNN_item_si,item,si,text,role}
   61_audio/<seg_id>.mp3    逐句合成（edge-tts，残余静音已裁——见 adapters/tts_edge）
+  61_audio/<seg_id>.words.json   词边界 sidecar（断点续跑保留 words 高亮数据）
+  61_audio/<seg_id>.textsha      text_sha sidecar（manifest 缺失时裸 mp3 也能续跑）
   61_audio_manifest.json   audio_manifest/1  {engine,voice,rate,codec,sample_rate,
                            files[{seg_id,file,dur,sha256,text_sha}]}
   62_timeline.json         timeline/1  {total,lead_in,tail,gap,items,segs,overlays}
@@ -19,13 +21,20 @@
 
 流程：issue.intro.voice → items[].voice → issue.outro.voice 拍平成有序 seg
 序列（intro/body/outro 角色按位置）；ttsnorm.normalize 过 tts_dict + 连字符
-规则；逐句 tts_edge.synth（已有同 text_sha 的 mp3 直接复用——断点续跑/词典
-微调只重合成受影响的句子）；ffprobe 实测 dur 推绝对时间轴；shot_sentences
-(1-based 句区间) 编译成 overlays 绝对时间窗；最后 ffmpeg 装配 voice_full.wav。
+规则；逐句 tts_edge.synth——两级复用：manifest.files[].text_sha 校验命中 →
+裸 mp3 + <seg_id>.textsha sidecar（manifest 缺失/中途崩溃仍能续跑），断点
+续跑/词典微调只重合成受影响句子；ffprobe 实测 dur 推绝对时间轴；
+shot_sentences(1-based 句区间) 编译成 overlays 绝对时间窗；最后 ffmpeg
+装配 voice_full.wav。
+
+时间轴参数：lead_in/tail/gap.sentence/gap.item 取 CLI flag > config.timeline
+段 > 校准缺省（0.6/0.8/0.15/0.55，§7.5 校准值）。
 
 CLI：
   uv run stages/voice.py --run-dir runs/<date> [--config config.yaml]
-      [--jobs 4] [--rate "+0%"] [--force] [--dry-run]
+      [--jobs 4] [--voice zh-CN-...] [--rate "+0%"] [--tts-dict PATH]
+      [--lead-in S] [--tail S] [--gap-sentence S] [--gap-item S]
+      [--force] [--dry-run]
   uv run stages/voice.py --selftest    # 打真 edge-tts 的端到端冒烟
 """
 from __future__ import annotations
@@ -46,7 +55,7 @@ import yaml  # noqa: E402
 
 from adapters import tts_edge  # noqa: E402
 from contracts.models import AudioManifest, Timeline, VoiceSeg  # noqa: E402
-from lib import meta, ttsnorm  # noqa: E402
+from lib import meta, prog, ttsnorm  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -59,6 +68,7 @@ F_SRT = "62_episode.srt"
 F_VTT = "62_episode.vtt"
 FULL_WAV = f"{AUDIO_DIR}/voice_full.wav"
 WORDS_SUFFIX = ".words.json"          # boundaries sidecar：断点续跑保留 words
+SHA_SUFFIX = ".textsha"               # text_sha sidecar：manifest 缺失时裸 mp3 也能续跑
 TTS_DICT = REPO / "state" / "tts_dict.yaml"
 
 # §7.5 校准值；config.yaml `timeline:` 段或 CLI 可覆盖
@@ -205,7 +215,7 @@ def build_script(plan: list, pron: dict) -> list:
 # ---------------------------------------------------------------------------
 
 def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
-               jobs: int, force: bool, config_path) -> dict:
+               jobs: int, force: bool, config_path, p) -> dict:
     """→ {seg_id: {file,dur,boundaries}}；缺失/文本变了才真合成。"""
     audio_dir = run_dir / AUDIO_DIR
     audio_dir.mkdir(parents=True, exist_ok=True)
@@ -225,9 +235,22 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
         sid = r["seg_id"]
         rel = f"{AUDIO_DIR}/{sid}.mp3"
         ent = old.get(sid)
-        if (ent and ent.get("text_sha") == _sha_text(r["text"])[:16]
+        sha = _sha_text(r["text"])[:16]
+        # 两级复用：manifest 命中（text_sha 校验）→ 裸 mp3 + .textsha sidecar
+        # （manifest 缺失/中途崩溃时仍能续跑，不必手工 seed manifest）。
+        fpath = None
+        if (ent and ent.get("text_sha") == sha
                 and (run_dir / ent.get("file", "")).is_file()):
             fpath = run_dir / ent["file"]
+        else:
+            mp3, sp = audio_dir / f"{sid}.mp3", audio_dir / f"{sid}{SHA_SUFFIX}"
+            try:
+                if (mp3.is_file() and sp.is_file()
+                        and sp.read_text(encoding="utf-8").strip() == sha):
+                    fpath = mp3
+            except OSError:
+                pass
+        if fpath is not None:
             words = []
             wp = audio_dir / f"{sid}{WORDS_SUFFIX}"
             if wp.is_file():
@@ -249,17 +272,22 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
                              voice=voice, rate=rate, config_path=config_path)
         return r["seg_id"], res
 
+    p.total = len(todo)                    # 复用命中后 todo 才是真分母
     errs = []
     with ThreadPoolExecutor(max_workers=max(1, jobs)) as ex:
-        for fut in [ex.submit(one, r) for r in todo]:
+        futs = [ex.submit(one, r) for r in todo]
+        for i, fut in enumerate(futs):
             try:
                 sid, res = fut.result()
                 res["file"] = f"{AUDIO_DIR}/{sid}.mp3"
                 results[sid] = res
                 meta.atomic_write(audio_dir / f"{sid}{WORDS_SUFFIX}",
                                   res.get("boundaries") or [])
+                meta.atomic_write(audio_dir / f"{sid}{SHA_SUFFIX}",
+                                  _sha_text(todo[i]["text"])[:16] + "\n")
             except Exception as e:  # 已落盘的 seg 下轮复用
                 errs.append(str(e))
+            p.tick(i + 1, todo[i]["seg_id"], force=i + 1 == len(todo))
     if errs:
         raise _die(f"{len(errs)} 句合成失败：{errs[0]}",
                    "修复/稍后重跑 `just voice`——已合成的 seg 会复用不重打")
@@ -521,9 +549,10 @@ def run_voice(run_dir: Path, cfg: dict, args) -> dict:
         print("--dry-run：只写 60_voice_script.jsonl，不合成")
         return {"segs": len(rows), "dry_run": True}
 
+    p = prog.Prog(run_dir, "voice", step=5, interval=30.0)
     results = _synth_all(rows, run_dir, voice=voice, rate=rate,
                          jobs=args.jobs, force=args.force,
-                         config_path=args.config)
+                         config_path=args.config, p=p)
     manifest = write_manifest(rows, results, run_dir, episode, voice, rate)
     print(f"61_audio_manifest: {len(manifest['files'])} files, "
           f"engine={manifest['engine']} voice={manifest['voice']}")
@@ -536,10 +565,14 @@ def run_voice(run_dir: Path, cfg: dict, args) -> dict:
           f"gap.s={tl_cfg['gap_sentence']} gap.i={tl_cfg['gap_item']}), "
           f"{len(tl['items'])} item spans, {len(tl['overlays'])} shot overlays")
 
+    p.say(f"ffmpeg 装配 voice_full.wav：{len(tl['segs'])} segs, "
+          f"total={tl['total']:.1f}s")
     wav = build_full_wav(tl, seg_exact, run_dir)
     if wav:
+        p.say(f"voice_full.wav 完成 {wav.stat().st_size / 1024:.0f} KiB")
         print(f"voice_full.wav: {meta.sha256_file(wav)[:16]}… "
               f"{wav.stat().st_size / 1024:.0f} KiB")
+    p.close()
     return {"segs": len(rows), "total": tl["total"],
             "manifest": manifest, "timeline": tl}
 
@@ -668,6 +701,9 @@ def main() -> int:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     with meta.run_lock(run_dir):
+        # dry-run 不走 stage_done —— 只在真实运行登记，否则留假墓碑
+        if not args.dry_run:
+            meta.stage_begin(run_dir, "voice")
         out = run_voice(run_dir, _load_cfg(args.config), args)
         if not args.dry_run:
             meta.stage_done(run_dir, "voice", F_TIMELINE, status="done",

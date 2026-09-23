@@ -8,15 +8,29 @@
 时间轴，composer/fallback 共用同一份计划）。把 repro/compose.py 已验证
 的 ffmpeg 图谱语义移植到契约产物上，不做任何二次推断：
 
-  video_track[]   → -loop 1 -framerate {fps} -t {end-start} -i {src}
-                    → scale=W:H,fps,format=yuv420p,setsar=1 → concat
+  video_track[]   → -loop 1 -framerate {fps} -t {end-start}+D -i {src}
+                    → scale=W:H,fps,format=yuv420p,setsar=1
+                    → xfade=transition=fade:duration=D:offset={下段.start-D}
+                    逐段交叉淡化链：D=XFADE_D=0.30s，封顶最短段×0.9（防相邻
+                    transition 互叠）；-t 延长 D 供重叠区消耗，offset 取段
+                    边界-D → 淡化恰在切点前完成，段边界/总时长不变。
+                    单段或 D≤0.001 退回 concat=n:v=1
   overlay_track[] → -loop 1 -i {src} → overlay={xy}:enable=between(t,s,e)
                     （字幕 pill 等 PNG 叠加层；xy 由 plan 给出，
                     缺省 (main_w-overlay_w)/2:930 = 居中、y≈930）
   audio_track[]   → -i {src} → aresample=48000,aformat=stereo,
                     adelay={at_ms}|{at_ms} → amix normalize=0
+                    （无音轨 → lavfi anullsrc 静音床，mp4 恒有 audio stream）
   输出            → -c:v libx264 -preset medium -crf 19 -r {fps}
                     -c:a aac -b:a 192k -t {total}  <run>/out/final.mp4
+
+执行（大 filter graph 稳定性取舍）：
+  -filter_complex_threads 1  串行图：默认 auto 每滤镜一份 ncpu 线程池，
+                    几十路 -loop 输入起千级线程在 framesync 死锁
+  -progress pipe:1  out_time_us → stdout → Prog 节流上报（-loglevel error
+                    下 ffmpeg 零输出，进度行是唯一活信号）
+  看门狗          stdout 超 FFMPEG_STALL_S=300s 无进度行 → 判死
+                    proc.kill() + SystemExit（无人值守防静默挂夜）
 
 产物：
   out/final.mp4           正片（--out 可改路径，--max-t N 截顶测试）
@@ -37,12 +51,14 @@ import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-from lib import meta  # stages/lib/meta.py（stages/ 即 sys.path 脚本目录）
+from lib import meta, prog  # stages/lib/{meta,prog}.py（stages/ 即 sys.path 脚本目录）
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -60,9 +76,12 @@ INPUT_FILES = {
 }
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DEFAULT_SUB_XY = "(main_w-overlay_w)/2:930"
+XFADE_D = 0.30   # 视频段间交叉淡化（s）。每个 -loop PNG 输入延长 D 供重叠区消耗，
+                 # offset 取计划边界-D → 淡化恰在切点前完成，段边界/总时长均不变。
 
 VCODEC, PRESET, CRF = "libx264", "medium", 19
 ACODEC, ABITRATE, ARATE = "aac", "192k", 48000
+FFMPEG_STALL_S = 300  # ffmpeg stdout 无进度行超过该秒数 → 判死强杀
 
 
 # ---------------------------------------------------------------- helpers
@@ -141,8 +160,12 @@ def build_command(plan: dict, run_dir: Path, out_path: Path, eff_total: float):
         raise SystemExit("[compose] plan 引用文件缺失:\n  " + "\n  ".join(missing[:20]))
 
     inputs: list[str] = []
+    # 淡化时长不得吃掉最短段的一半，否则相邻 transition 互相重叠
+    xfd = XFADE_D
+    if len(vsegs) > 1:
+        xfd = min(XFADE_D, min(v["end"] - v["start"] for v in vsegs) * 0.9)
     for v in vsegs:
-        dur = max(v["end"] - v["start"], 0.001)
+        dur = max(v["end"] - v["start"], 0.001) + (xfd if len(vsegs) > 1 else 0.0)
         inputs += ["-loop", "1", "-framerate", str(fps),
                    "-t", f"{dur:.3f}", "-i", str(run_dir / v["src"])]
     sub_base = len(vsegs)
@@ -157,7 +180,16 @@ def build_command(plan: dict, run_dir: Path, out_path: Path, eff_total: float):
     for i in range(len(vsegs)):
         fc.append(f"[{i}:v]scale={W}:{H},fps={fps},format=yuv420p,setsar=1[c{i}]")
         labels.append(f"[c{i}]")
-    fc.append("".join(labels) + f"concat=n={len(vsegs)}:v=1:a=0[vbase]")
+    if len(vsegs) == 1 or xfd <= 0.001:
+        fc.append("".join(labels) + f"concat=n={len(vsegs)}:v=1:a=0[vbase]")
+    else:
+        cur = "c0"
+        for k in range(1, len(vsegs)):
+            off = vsegs[k]["start"] - xfd
+            nxt = "vbase" if k == len(vsegs) - 1 else f"vx{k}"
+            fc.append(f"[{cur}][c{k}]xfade=transition=fade"
+                      f":duration={xfd:.3f}:offset={off:.3f}[{nxt}]")
+            cur = nxt
     cur = "vbase"
     for i, o in enumerate(osegs):
         nxt = f"vs{i}"
@@ -183,7 +215,12 @@ def build_command(plan: dict, run_dir: Path, out_path: Path, eff_total: float):
 
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
+        "-nostats", "-progress", "pipe:1",   # 全局选项：进度行送 stdout 供 Prog 消费
         *inputs,
+        # 默认 filter_complex_threads=auto：每滤镜一份 ncpu 线程池，~76 路
+        # 输入起千级线程并在 framesync 上死锁（实测两次 9/10 卡死、零 CPU）；
+        # 串行图反而 ~8× 更快（overlay/amix 本就是串行依赖，并行只剩调度开销）。
+        "-filter_complex_threads", "1",
         "-filter_complex", ";".join(fc),
         "-map", "[vout]", "-map", "[aout]",
         "-c:v", VCODEC, "-preset", PRESET, "-crf", str(CRF), "-r", str(fps),
@@ -214,8 +251,60 @@ def cmd_render(run_dir: Path, max_t: float | None, out_arg: str | None) -> int:
     meta.atomic_write(run_dir / GRAPH_NAME, graph + "\n")
     print(f"[compose] v={len(plan['video_track'])} o={len(plan.get('overlay_track', []))} "
           f"a={len(plan.get('audio_track', []))} total={eff_total:.3f}s -> {out_path}")
+    # ffmpeg 跑分钟级且 -loglevel error 下零输出：-progress pipe:1 把
+    # out_time_us/out_time_ms（微秒）送到 stdout，喂给 Prog 节流上报；
+    # -nostats 抑制 stderr 的 stats 行（错误仍走 stderr 直通终端）。
+    total_s = max(int(round(eff_total)), 1)
+    p = prog.Prog(run_dir, "compose", total=total_s,
+                  step=min(100, max(10, total_s // 40)), interval=30.0)
     t0 = datetime.now()
-    subprocess.run(cmd, cwd=run_dir, check=True)
+    rc = 0
+    try:
+        p.say(f"ffmpeg render {eff_total:.3f}s -> {out_path.name}")
+        with subprocess.Popen(
+                cmd, cwd=run_dir, stdout=subprocess.PIPE,
+                text=True, errors="replace") as proc:
+            out_secs = 0
+            # 看门狗：大 filter graph（几十路 -loop PNG + amix）偶发
+            # framesync 死锁——ffmpeg 千线程卡 futex、零 CPU、零输出，且
+            # -t 截断路径下 partial mp4 无 moov。无 stdout 行 N 秒即判死，
+            # 否则无人值守 pipeline 会被静默挂死一整夜。
+            stall = {"last": time.monotonic(), "hit": False}
+
+            def _watchdog() -> None:
+                while proc.poll() is None:
+                    if time.monotonic() - stall["last"] > FFMPEG_STALL_S:
+                        stall["hit"] = True
+                        proc.kill()
+                        return
+                    threading.Event().wait(10)
+
+            threading.Thread(target=_watchdog, daemon=True).start()
+            try:
+                for line in proc.stdout or ():
+                    stall["last"] = time.monotonic()
+                    k, _, v = line.partition("=")
+                    if k.strip() in ("out_time_us", "out_time_ms"):
+                        try:
+                            out_secs = int(int(v.strip()) / 1_000_000)
+                        except ValueError:
+                            continue
+                        p.tick(out_secs, "ffmpeg")
+                rc = proc.wait()
+            except BaseException:
+                proc.kill()          # 与 subprocess.run 的异常路径一致：杀子进程
+                proc.wait()
+                raise
+        if stall["hit"]:
+            raise SystemExit(
+                f"[compose] ffmpeg {FFMPEG_STALL_S}s 无输出——判死已杀"
+                "（filter graph 死锁；重跑通常可恢复，若复现请查 "
+                f"{GRAPH_NAME} 的 overlay/amix 输入）")
+        if rc != 0:
+            raise subprocess.CalledProcessError(rc, cmd)
+        p.tick(out_secs, "ffmpeg done", force=True)
+    finally:
+        p.close()
     elapsed = (datetime.now() - t0).total_seconds()
 
     probe = ffprobe_out(out_path)
@@ -318,6 +407,7 @@ def main(argv=None) -> int:
         ap.error("--run-dir 必填（--selftest 除外）")
     run_dir = resolve_run_dir(args.run_dir)
     with meta.run_lock(run_dir):
+        meta.stage_begin(run_dir, "compose")   # 登记 00_running.json；stage_done 自动清除
         return cmd_render(run_dir, args.max_t, args.out)
 
 

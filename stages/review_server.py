@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> con
 if str(Path(__file__).resolve().parent) not in sys.path:
     sys.path.append(str(Path(__file__).resolve().parent))     # stages/ -> gate_select
 
-from lib import meta
+from lib import meta, prog
 import gate_select as gs  # slugify_id/unique_slug/section_slug/lint_selected/now_iso
 
 MAX_BODY = 256 * 1024
@@ -646,6 +646,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
               + (f" unknown={unknown}" if unknown else "")
               + (f" truncated={len(truncated_keys)}" if truncated_keys else "")
               + (f" warnings={errs}" if errs else ""), file=sys.stderr)
+        pp = getattr(self.server, "prog", None)
+        if pp:
+            pp.say(f"decided: kept={len(kept)} dropped={len(dropped)}"
+                   f"{' no_items' if not kept else ''} — 已落盘，关服")
         try:
             self._send_json(200, resp)
         finally:
@@ -682,6 +686,9 @@ def main(argv=None) -> int:
                          "config.storage.items_db > state/items.sqlite）")
     args = ap.parse_args(argv)
     run_dir = gs.resolve_run_dir(args.run_dir)
+    # 运行态登记放在 serve_forever 前一刻：serve 期间存活条目即"等人工勾选"
+    # 信号；端口绑定失败/前置校验退出不该登记（走不到 stage_done 会留假墓碑）。
+    p = prog.Prog(run_dir, "review_server")   # 事件流 -> logs/review_server.prog.jsonl
 
     cand_path = run_dir / gs.CAND_NAME
     env, cand_mtime = None, None
@@ -724,13 +731,20 @@ def main(argv=None) -> int:
         srv.decided = None
         srv.cand_mtime = cand_mtime
         srv.items_db = args.items_db
+        srv.prog = p
+        n_cand = len(env.get("candidates")) if env else 0
         print(f"[review_server] http://127.0.0.1:{args.port}/?t={token} "
               f"(局域网 http://<本机IP>:{args.port}/?t={token}) — {run_dir}",
               file=sys.stderr)
+        p.say(f"serving :{args.port} — {n_cand} candidates，等人工勾选")
+        meta.stage_begin(run_dir, "review_server")
         try:
             srv.serve_forever()
         except KeyboardInterrupt:
             pass
+    meta.stage_clear(run_dir, "review_server")   # 正常关停清墓碑（崩溃路径不走这）
+    p.say("server stopped")
+    p.close()
     print("[review_server] bye", file=sys.stderr)
     return 0
 

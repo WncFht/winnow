@@ -50,7 +50,7 @@ INSTRUCT = (
 )
 MAX_LEN = 512  # tokens; news titles+summaries fit comfortably
 DIM = 1024
-_BATCH = 16
+_BATCH = 32
 _MODEL_NAME = "model_int8.onnx"
 _TOK_NAME = "tokenizer.json"
 
@@ -97,11 +97,23 @@ class Embedder:
         n = threads or int(os.environ.get("EMBED_THREADS", "4"))
         opts.intra_op_num_threads = max(1, n)
         opts.inter_op_num_threads = 1
+        prov = os.environ.get("EMBED_PROVIDER", "cpu").lower()
+        if prov in ("cuda", "gpu"):
+            # 需 onnxruntime-gpu（与 onnxruntime 同包名互斥，走独立 venv 提供）。
+            # int8 量化模型在 CUDA EP 上部分算子仍回退 CPU，提速以实测为准。
+            providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        elif prov == "auto":
+            providers = [p for p in ("CUDAExecutionProvider",
+                                     "CPUExecutionProvider")
+                         if p in ort.get_available_providers()]
+        else:
+            providers = ["CPUExecutionProvider"]
         self.sess = ort.InferenceSession(
             str(self.model_dir / _MODEL_NAME),
             sess_options=opts,
-            providers=["CPUExecutionProvider"],
+            providers=providers,
         )
+        self.provider = self.sess.get_providers()[0]
         self.need_mask = any(i.name == "attention_mask" for i in self.sess.get_inputs())
 
     def _encode(self, texts: list[str]):

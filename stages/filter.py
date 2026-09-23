@@ -48,7 +48,7 @@ import yaml  # noqa: E402
 
 from adapters import llm_swe2max as llm  # noqa: E402
 from contracts.models import FilterVerdict, RawItem, Summary  # noqa: E402
-from lib import meta, normalize, pool, prompts, store  # noqa: E402
+from lib import meta, normalize, pool, prog, prompts, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 RULEBOOK_PATH = REPO / "rulebook.md"
@@ -269,19 +269,19 @@ def l0_lookup(items: list[dict], db_path: Path | None) -> dict:
     if not db_path or not Path(db_path).exists():
         return {}
     conn = store.init_db(str(db_path))
-    hits = {}
     for it in items:
-        uh = store.url_hash(it["url_canon"])
-        it["_url_hash"] = uh
-        if not uh:
-            continue
-        row = conn.execute(
-            "SELECT title FROM items WHERE url_hash=? LIMIT 1", (uh,)
-        ).fetchone()
-        if row:
-            hits[it["item_key"]] = row["title"]
+        it["_url_hash"] = store.url_hash(it["url_canon"])
+    hashes = sorted({it["_url_hash"] for it in items if it["_url_hash"]})
+    found: dict[str, str] = {}
+    for i in range(0, len(hashes), 500):       # SQLite 变量上限 999，留余量
+        chunk = hashes[i:i + 500]
+        q = ("SELECT url_hash, title FROM items WHERE url_hash IN ("
+             + ",".join("?" * len(chunk)) + ")")
+        for r in conn.execute(q, chunk):
+            found.setdefault(r["url_hash"], r["title"])
     conn.close()
-    return hits
+    return {it["item_key"]: found[it["_url_hash"]]
+            for it in items if it["_url_hash"] in found}
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +326,8 @@ def verdict_row(item_key: str, verdict: str, ai, nv, reasons: list,
 
 def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
                batch_size: int, no_llm: bool,
-               pool_rows: dict | None = None, jobs: int = 1) -> tuple[dict, dict]:
+               pool_rows: dict | None = None, jobs: int = 1,
+               p: prog.Prog | None = None) -> tuple[dict, dict]:
     """-> ({item_key: filter_verdict row} 按输入序, aux)。
 
     aux 键：
@@ -376,6 +377,9 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
         pending = rest
     batches = [pending[i:i + batch_size]
                for i in range(0, len(pending), batch_size)]
+    p = p or prog.Prog(None, "filter")
+    p.total = len(batches)
+    p.say(f"verdicts: {len(pending)} 条待判定 — {len(batches)} 批×{batch_size}")
     def _judge(b):                               # 批与批相互独立，可并行打网关
         return b, filter_batch(b, cfg, rulebook)
     with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(batches)))) as ex:
@@ -402,8 +406,8 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
                     [f"coverage-miss: 重批2轮仍缺，转人工"
                      + (f"；网关错误 {type(err).__name__}" if err else "")],
                     model=model, prompt_tag=ptag, ts=ts)
-            print(f"[filter] verdict batch {bi + 1}/{len(batches)} "
-                  f"out={len(outs)} miss={len(missing)}", file=sys.stderr)
+            p.tick(bi + 1, f"verdict batch out={len(outs)} miss={len(missing)}",
+                   force=True)
     rows, aux["guarded_keys"] = _apply_injection_guard(rows, items)
     return rows, aux
 
@@ -491,15 +495,52 @@ def _summary_llm_row(it: dict, cfg: dict, aliases: dict) -> tuple[dict, bool]:
             isinstance(out, dict))
 
 
+_SUM_BATCH = 10     # 概要批量条数：输出 token（max_tokens≈24k，单条概要
+                    # ~300-600 tok）与单批故障爆炸半径之间的折中
+
+
+def summary_batch(batch: list[dict], cfg: dict,
+                  aliases: dict) -> list[tuple[dict, dict, bool]]:
+    """一批 → 一次 chat_json 批量概要 → [(item, row, real)] 与输入同序。
+
+    网关层失败（LLMError，内部已重试）或批量覆盖缺失 → 缺失条目逐条回退
+    _summary_llm_row：批量路径不放大失败半径。"""
+    sm, um = prompts.SUMMARY_BATCH_PROMPT(batch)
+    provs: list = []
+    out = None
+    try:
+        out = llm.chat_json(prompts.messages(sm, um), prov_out=provs,
+                            cfg=cfg, tag="summary")
+    except llm.LLMError:
+        pass
+    by_key: dict[str, tuple[dict, bool]] = {}
+    rest = batch
+    if out is not None:
+        rec = llm.coverage_reconcile(batch, _as_verdict_list(out), key=_out_id)
+        in_by_id = {_out_id(it): it for it in batch}
+        for o in rec["outputs"]:
+            it = in_by_id.get(_out_id(o))
+            if it is not None:
+                by_key[it["item_key"]] = (
+                    summary_row(it, o, provs, cfg, aliases, l0_hit=False), True)
+        rest = rec["missing"]
+    for it in rest:
+        by_key[it["item_key"]] = _summary_llm_row(it, cfg, aliases)
+    return [(it, *by_key[it["item_key"]]) for it in batch]
+
+
 def run_summaries(items: list[dict], verdicts: dict, l0: dict, cfg: dict,
                   aliases: dict, jobs: int, no_llm: bool,
-                  pool_rows: dict | None = None) -> tuple[list, list, dict]:
+                  pool_rows: dict | None = None,
+                  sum_batch: int = _SUM_BATCH,
+                  p: prog.Prog | None = None) -> tuple[list, list, dict]:
     """-> (summary rows 按输入序, 未命中别名实体 [(entity,item_key)], aux)。
 
     aux: summary_hits = 池概要缓存命中数（summary_sha==content_sha 且
     prompt/model 未变，命中行重跑别名归一后原样放出）；
     fresh_rows = 本轮真 LLM 概要行（调用方回写 items.sqlite 用——本地
     兜底/no-llm 行不在其列）。
+    sum_batch=1 退回逐条路径（调试用）。
     """
     todo = [it for it in items
             if verdicts[it["item_key"]]["verdict"] in ("keep", "review")
@@ -525,20 +566,37 @@ def run_summaries(items: list[dict], verdicts: dict, l0: dict, cfg: dict,
         else:
             llm_todo.append(it)
 
-    def work(it):
+    # l0/no-llm 条目本地兜底先行——它们绝不能进批量 prompt（占位行也不回池）
+    llm_items: list[dict] = []
+    for it in llm_todo:
         if it["item_key"] in l0 or no_llm:
-            return (it["item_key"],
-                    summary_row(it, None, [], cfg, aliases,
-                                l0_hit=it["item_key"] in l0), False)
-        row, real = _summary_llm_row(it, cfg, aliases)
-        return it["item_key"], row, real
+            rows[it["item_key"]] = summary_row(
+                it, None, [], cfg, aliases, l0_hit=it["item_key"] in l0)
+        else:
+            llm_items.append(it)
 
-    if llm_todo:
-        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(llm_todo)))) as ex:
-            for key, row, real in ex.map(work, llm_todo):
-                rows[key] = row
-                if real:
-                    aux["fresh_rows"].append(row)
+    if llm_items:
+        sb = max(1, int(sum_batch or _SUM_BATCH))
+        sbatches = [llm_items[i:i + sb] for i in range(0, len(llm_items), sb)]
+        p = p or prog.Prog(None, "filter")
+        p.total = len(llm_items)
+        p.say(f"summaries: {len(llm_items)} 条待 LLM "
+              f"(池命中 {aux['summary_hits']}) — {len(sbatches)} 批×{sb}")
+        done = 0
+
+        def _work(b):
+            return summary_batch(b, cfg, aliases)
+
+        with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(sbatches)))) as ex:
+            results_iter = (ex.map(_work, sbatches)
+                            if jobs > 1 else map(_work, sbatches))
+            for res in results_iter:
+                for it, row, real in res:
+                    rows[it["item_key"]] = row
+                    if real:
+                        aux["fresh_rows"].append(row)
+                done += len(res)
+                p.tick(done, "summary")
     for it in todo:
         for e in rows[it["item_key"]]["entities"]:
             if e.casefold() not in known:
@@ -547,30 +605,46 @@ def run_summaries(items: list[dict], verdicts: dict, l0: dict, cfg: dict,
 
 
 def _repair_summaries(pconn, episode: str, cfg: dict, aliases: dict,
-                      jobs: int, batch_keys: set, cfg_doc: dict) -> int:
+                      jobs: int, batch_keys: set, cfg_doc: dict,
+                      p: prog.Prog | None = None,
+                      sum_batch: int = _SUM_BATCH) -> int:
     """结转条目补概要：池内 keep|review + 窗口超集 + summary 缺席的行，
     走同一条 LLM 概要路径写回 items.sqlite——pool-only，不进
     30_summaries（那些键不在当期批）。返回实际写入行数。"""
     wfrom, wto = pool.window_bounds(episode)
     grace_days = int((cfg_doc.get("pool") or {}).get("arrival_grace_days") or 2)
+    _sd = (cfg_doc.get("pool") or {}).get("carry_stale_max_days")
+    stale_days = 14 if _sd is None else int(_sd)   # 显式 0 = 关闭子句 C
     try:
         ep = datetime.strptime(episode, "%Y-%m-%d").date()
     except ValueError:
         ep = datetime.now(pool.TZ).date()
     grace_from = (ep - timedelta(days=grace_days)).isoformat()
+    sfloor = pool.stale_floor(wfrom, stale_days)
     due = [r for r in pool.needs_summary(pconn, episode, wfrom, wto,
-                                         grace_from, limit=48)
+                                         grace_from, sfloor, limit=48)
            if r["item_key"] not in batch_keys]
     if not due:
         return 0
     rep_items = [pool.to_raw_item(r) for r in due]
     by_key = {r["item_key"]: it for r, it in zip(due, rep_items)}
+    rbatches = [rep_items[i:i + sum_batch]
+                for i in range(0, len(rep_items), sum_batch)]
+    p = p or prog.Prog(None, "filter")
+    p.total = len(rep_items)
+    p.say(f"repair: {len(rep_items)} 行结转概要 — {len(rbatches)} 批")
     fresh: list[dict] = []
-    with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(rep_items)))) as ex:
-        for row, real in ex.map(
-                lambda it: _summary_llm_row(it, cfg, aliases), rep_items):
-            if real:
-                fresh.append(row)
+    done = 0
+    with ThreadPoolExecutor(max_workers=max(1, min(jobs, len(rbatches)))) as ex:
+        results_iter = (ex.map(lambda b: summary_batch(b, cfg, aliases), rbatches)
+                        if jobs > 1
+                        else map(lambda b: summary_batch(b, cfg, aliases), rbatches))
+        for res in results_iter:
+            for it, row, real in res:
+                if real:
+                    fresh.append(row)
+            done += len(res)
+            p.tick(done, "repair")
     if not fresh:
         return 0
     return pool.write_summaries(pconn, by_key, fresh, episode=episode)
@@ -593,6 +667,8 @@ def main() -> int:
                     help="items.sqlite 路径（默认 config.storage.items_db > state/）")
     ap.add_argument("--no-pool", action="store_true",
                     help="禁用条目池读写（池缓存完全断开，同 --no-llm 的池行为）")
+    ap.add_argument("--summary-batch", type=int, default=_SUM_BATCH,
+                    help="概要批量条数（默认 10；1=逐条旧路径）")
     args = ap.parse_args()
 
     run_dir = Path(args.run_dir).resolve()
@@ -601,6 +677,7 @@ def main() -> int:
     # 输入读全部移进 run_lock：collect 持锁写 10_raw_items 期间 filter 若先读
     # 会拿到旧版/缺席 artifact；锁内读保证见到的是上游完整产物。
     with meta.run_lock(run_dir):
+        meta.stage_begin(run_dir, "filter")
         items, bad = load_items(run_dir, args.limit or None)
         rulebook = RULEBOOK_PATH.read_text(encoding="utf-8")
         aliases = normalize.load_aliases()
@@ -634,8 +711,9 @@ def main() -> int:
         by_key = {it["item_key"]: it for it in items}
 
         l0 = l0_lookup(items, db_path)
+        fp = prog.Prog(run_dir, "filter")
         verdicts, faux = run_filter(items, l0, cfg, rulebook, batch_size,
-                                    args.no_llm, pool_rows, args.jobs)
+                                    args.no_llm, pool_rows, args.jobs, p=fp)
         ordered = [verdicts[it["item_key"]] for it in items]
         for r in ordered:                        # 契约 lint（写完即调 §4）
             FilterVerdict.model_validate(r)
@@ -680,8 +758,14 @@ def main() -> int:
                                "cache_misses": faux["cache_misses"],
                                "pool_known": faux["pool_known"]})
 
+        # 第二相位（概要+结转修补）重新登记 running key——上面的 stage_done
+        # 已清掉 "filter"，而概要是最长的一段，没登记会让 TUI 显示"已完成"
+        # 且崩溃不留墓碑。相位末尾 stage_done("summaries") 自动清这个 key。
+        meta.stage_begin(run_dir, "summaries")
+        sp = prog.Prog(run_dir, "filter")
         summaries, unknown, saux = run_summaries(
-            items, verdicts, l0, cfg, aliases, args.jobs, args.no_llm, pool_rows)
+            items, verdicts, l0, cfg, aliases, args.jobs, args.no_llm, pool_rows,
+            sum_batch=args.summary_batch, p=sp)
         for r in summaries:
             Summary.model_validate(r)
         # 概要回写先于 30_summaries 落盘（同上：池是主记录）；只写真 LLM 行。
@@ -701,7 +785,7 @@ def main() -> int:
             try:
                 repair_n = _repair_summaries(
                     pconn, episode, cfg, aliases, args.jobs, set(by_key),
-                    cfg_doc)
+                    cfg_doc, p=sp, sum_batch=args.summary_batch)
                 if repair_n:
                     print(f"[filter] pool: repair {repair_n} 行结转概要")
             except Exception as e:
@@ -744,7 +828,7 @@ def main() -> int:
              f"summary_cache={saux['summary_hits']} repair={repair_n}"
              if pconn is not None else ""))
     for r in ordered:
-        it = next(i for i in items if i["item_key"] == r["item_key"])
+        it = by_key[r["item_key"]]
         print(f"  {r['verdict']:6s} ai={r['ai_relevance']:.2f} "
               f"nv={r['news_value'] if r['news_value'] is not None else '-':>4} "
               f"{r['item_key'][:8]} {it['title'][:52]} | {';'.join(r['reasons'])[:60]}")

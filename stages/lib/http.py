@@ -8,12 +8,16 @@
 # ///
 """Collect-layer HTTP helper (PLAN.md §5.2).
 
-get(url, *, etag, lastmod, proxy, timeout, headers)
+get(url, *, etag=None, lastmod=None, proxy=None, timeout=20, headers=None,
+    retries=0, follow_redirects=True)
     httpx-based conditional GET: ETag/Last-Modified validators, proxy-aware
     (explicit arg > HTTP_PROXY/HTTPS_PROXY/ALL_PROXY env > direct), redirect-
-    following, and the source-health error taxonomy.
+    following, and the source-health error taxonomy. `retries` = transport 层
+    额外尝试（timeout/dns_fail/http_0；0.4*2^n 退避封顶 2s）——已拿到 HTTP
+    响应永不重试。服务端脏 TLS 关闭（RST/无 close_notify 特征）时 httpx
+    全部尝试失败后自动换 urllib3 兜底一次（惰性 import，缺库不炸）。
 
-save_raw(run_dir, source, url, body)
+save_raw(run_dir, source, url, body, *, ext=None)
     persist a raw response body to
         <repo>/data/raw_cache/<date>/<source>/<sha8>.<ext>
     (atomic tmp+rename, ext sniffed from content) and return the
@@ -25,6 +29,9 @@ FetchResult.error taxonomy (shared with 11_raw_manifest source health):
     `http_0` = transport failure without an HTTP response (conn refused /
     TLS / protocol reset) — kept inside the http_N family so downstream
     string-matching still works; detail carries the exception text.
+    walled 判定对结构化 XML 文档豁免：根元素 ∈ rss/feed/rdf/opml/urlset/
+    sitemapindex 时跳过 WALL 匹配——feed 正文会合法转载 captcha/验证字样
+    （ifanr 内嵌 wappoc 链接误判教训）。
 
 Smoke:  uv run stages/lib/http.py          # live checks included
         uv run stages/lib/http.py --offline  # skip live fetches
@@ -190,12 +197,29 @@ def _looks_shell(body: bytes) -> bool:
     return len(visible) < 80
 
 
+def xml_root_tag(body: bytes) -> bytes:
+    """前 600B 嗅探 XML 根元素名（小写、去命名空间前缀）；非 XML → b''。"""
+    head = (body or b"")[:600].lstrip().lower()
+    if head.startswith(b"<?xml"):
+        m = re.search(rb"<\s*([a-z_][\w.:+-]*)", head[5:])
+    else:
+        m = re.match(rb"<\s*([a-z_][\w.:+-]*)", head)
+    return (m.group(1) if m else b"").split(b":")[-1]
+
+
+# 结构化 XML 文档不可能是 bot-wall 页：feed/sitemap 的条目正文会转载含
+# captcha/安全验证字样的内容（ifanr 文章内嵌 mp.weixin wappoc_appmsgcaptcha
+# 链接，2026-09-23 被误判 walled 走错 failover）。WALL 对这些根元素跳过。
+_XML_DOC_ROOTS = frozenset(
+    (b"rss", b"feed", b"rdf", b"opml", b"urlset", b"sitemapindex"))
+
+
 def _classify(status: int, body: bytes, ctype: str) -> str:
     if status == 304:
         return "ok"
     probe = body[: 1 << 18]
     text = probe.decode("utf-8", "replace") if probe else ""
-    if WALL.search(text):
+    if WALL.search(text) and xml_root_tag(body) not in _XML_DOC_ROOTS:
         return "walled"
     if status == 429:
         return "rate_limited"
@@ -441,6 +465,17 @@ if __name__ == "__main__":
     assert _classify(304, b"", "") == "ok"
     assert _classify(200, b"<rss>real content here padding padding padding "
                    b"more text</rss>", "application/rss+xml") == "ok"
+    # feed 正文转载 captcha 链接 ≠ wall（ifanr wappoc_appmsgcaptcha 误报修复）
+    feed_with_captcha_link = (
+        b"<?xml version=\"1.0\"?><rss version=\"2.0\"><channel><item>"
+        b"<content:encoded>&lt;a href=\"https://mp.weixin.qq.com/mp/"
+        b"wappoc_appmsgcaptcha?poc_token=x\"&gt;link&lt;/a&gt;"
+        b"</content:encoded></item></channel></rss>")
+    assert _classify(200, feed_with_captcha_link,
+                     "application/rss+xml") == "ok"
+    # 非 XML 根仍照抓
+    assert _classify(200, "<html>访问过于频繁</html>".encode(),
+                     "text/html") == "walled"
     print("offline classify asserts OK")
 
     # --- save_raw ----------------------------------------------------------

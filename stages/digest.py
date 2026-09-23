@@ -2,17 +2,22 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6", "jsonschema>=4.20", "httpx>=0.27"]
 # ///
-"""stages/digest.py — PLAN.md §7.4：勾选条目 → issue/v1 + 编辑闸往返 + 投影 + 合规。
+"""stages/digest.py — PLAN.md §7.4：勾选条目 → issue/1 + 编辑闸往返 + 投影 + 合规。
 
-CLI（文件即依赖边，缺输入即 fail-fast 提示先跑哪个 just 目标）：
+CLI（文件即依赖边，缺输入即 fail-fast 提示先跑哪个 just 目标。三个分支
+是独立 stage 调用——just 目标 digest/edit-import/callb 依次进，00_meta
+登记名分别 digest/digest_import/digest_callb，另侧写 digest_export/
+digest_flags）：
 
     uv run stages/digest.py --run-dir runs/<date>            # Call A + 导出 50_review.md
     uv run stages/digest.py --run-dir runs/<date> --import   # 人改后回编 → 锁 50_issue.json
     uv run stages/digest.py --run-dir runs/<date> --callb    # 投影 voice/cards/video + 合规 → 90_qa.flags
+    uv run stages/digest.py --run-dir runs/<date> --force    # Call A 且强制重导 review.md（覆盖人工编辑，破坏性）
     uv run stages/digest.py --run-dir runs/<date> --selftest # 离线自检（不打 LLM）
+    # 公共 flag：--config PATH（llm 配置，缺省 config.yaml→example）
 
 Call A（spine）：CALLA_PROMPT(merged kept + summaries + raw content + facts + rulebook)
-  → llm.chat_json（max_tokens 24000；kept>14 → 32000）→ issue/v1 骨架。
+  → llm.chat_json（max_tokens 24000；kept>14 → 32000）→ issue/1 骨架。
   id-indirection：prompt 只给 <item_data id=slug> + "链接: uN=label"，LLM 回
   sources[]={"item":slug}|{"ref":"slug#uN"}；本文件把 slug→真实 URL 回填进
   sources[]（reachable 留给 link-check，不写）。数字白名单：body 数字 ⊆
@@ -23,11 +28,16 @@ review.md 往返（experiments/issue-contract 定型格式）：
   <!-- issue DATE | ... --> 头；## item:<id> <!-- section|confidence -->；
   ### headline/tldr/body/voice/cards。--import 重跑全部校验 + 数字白名单复检；
   edited 标志 = 当前 md sha256 ≠ 导出时记录值（存 00_meta stages.digest_export）。
+  Call A 重跑时已被编辑的 review.md 默认保留不覆盖；--force 才强制重导
+  （破坏性：人工编辑丢失）。
 
-Call B（--callb，编辑后跑）：CALLB_PROMPT → intro/outro voice + 每条
+Call B（--callb，编辑闸之后的独立 stage 调用：just callb → 00_meta
+  digest_callb）：CALLB_PROMPT → intro/outro voice + 每条
   voice[]/cards{mainTitle→title_short,cards[title→label,desc→body,icon]}/
   video.shot_sentences。口播 deterministic 修："字母-数字"连字符拆开（GPT-6→GPT 6）；
   cards desc <strong>/<code> 转 markdown **/`（issue 存 md 方言）。
+  shot_sentences 按"卡定场→证据→卡收尾"收口：首句恒留给信息卡、≥3 句时
+  末句也留卡；LLM 漏条用 tldr 兜底口播并记 flag。
   合规 pass：sensitive_words.txt 确定性扫 + COMPLIANCE_PROMPT → 90_qa.flags seed。
 """
 from __future__ import annotations
@@ -45,7 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 import jsonschema
 
 from adapters import llm_swe2max as llm
-from lib import meta, prompts
+from lib import meta, prog, prompts
 
 try:
     from lib import normalize
@@ -255,7 +265,7 @@ def _input_num_pool(item: dict) -> set:
 
 
 # ---------------------------------------------------------------------------
-# issue/v1 validation: schema + cross-field + digit whitelist -> (errors, warns, flags)
+# issue/1 validation: schema + cross-field + digit whitelist -> (errors, warns, flags)
 # ---------------------------------------------------------------------------
 
 _ISSUE_SCHEMA = None
@@ -357,7 +367,7 @@ def validate_issue(doc: dict, kept_by_id: dict, *, check_digits: bool = True
 
 
 # ---------------------------------------------------------------------------
-# Call A — issue/v1 spine
+# Call A — issue/1 spine
 # ---------------------------------------------------------------------------
 
 def _strip_unknown_keys(doc: dict) -> dict:
@@ -555,8 +565,12 @@ def call_a(run_dir: Path, cfg: dict, *, force: bool = False) -> Path:
     msgs = prompts.messages(system, user)
     kept_ids = {it["id"] for it in kept}
     doc, last_err = None, None
+    p = prog.Prog(run_dir, "digest", total=n,
+                  step=min(100, max(10, n // 40)), interval=30)
 
     for attempt in range(2):
+        p.say(f"Call A → llm.chat_json attempt {attempt + 1}/2 "
+              f"(kept={n}, max_tokens={max_tokens})")
         try:
             out = llm.chat_json(msgs, retries=2, prov_out=provs, tag="calla",
                                 cfg=cfg, max_tokens=max_tokens)
@@ -578,6 +592,7 @@ def call_a(run_dir: Path, cfg: dict, *, force: bool = False) -> Path:
             last_err = f"coverage 不齐 缺{sorted(missing)} 多{sorted(extra)}"
             doc = None
         if attempt == 0:
+            p.say(f"Call A 校验失败，带反馈重试: {last_err}")
             msgs = msgs + [{"role": "assistant", "content": "(invalid)"},
                            {"role": "user", "content":
                             f"上次输出错误：{last_err}。items[] 必须恰好覆盖 {n} 条，"
@@ -618,6 +633,7 @@ def call_a(run_dir: Path, cfg: dict, *, force: bool = False) -> Path:
                     extra={"review_sha256": _sha((run_dir / F_REVIEW).read_text(encoding="utf-8"))})
     if flags:
         _append_qa_flags(run_dir, flags, episode=doc.get("date", ctx["episode"]))
+    p.close()
     return run_dir / F_ISSUE
 
 
@@ -792,7 +808,10 @@ def call_b(run_dir: Path, cfg: dict) -> Path:
     msgs = prompts.messages(system, user)
     want_ids = {it["id"] for it in items}
     out, last_err = None, None
+    p = prog.Prog(run_dir, "digest", total=n,
+                  step=min(100, max(10, n // 40)), interval=30)
     for attempt in range(2):
+        p.say(f"Call B → llm.chat_json attempt {attempt + 1}/2 (items={n})")
         try:
             out = llm.chat_json(msgs, retries=2, prov_out=provs, tag="callb",
                                 cfg=cfg, max_tokens=32000 if n > 14 else int(cfg.get("max_tokens", 24000)))
@@ -808,6 +827,7 @@ def call_b(run_dir: Path, cfg: dict) -> Path:
             last_err = f"输出非对象 {type(out)}"
         out = None
         if attempt == 0:
+            p.say(f"Call B 校验失败，带反馈重试: {last_err}")
             msgs = msgs + [{"role": "assistant", "content": "(invalid)"},
                            {"role": "user", "content":
                             f"上次输出错误：{last_err}。items[] 必须覆盖全部 {n} 条，"
@@ -817,12 +837,13 @@ def call_b(run_dir: Path, cfg: dict) -> Path:
 
     flags: list = []
     emitted = {i.get("id"): i for i in out.get("items", []) or [] if isinstance(i, dict)}
-    for it in items:
+    for i, it in enumerate(items):
+        p.tick(i, it["id"])
         iid = it["id"]
         e = emitted.get(iid)
         if e is None:
             it["voice"] = _fallback_voice(it)
-            it["video"] = {"shot_sentences": [1]}
+            it["video"] = {"shot_sentences": [2] if len(it["voice"]) >= 2 else []}
             flags.append(_flag(iid, "callb_missing", "high", "",
                                "Call B 漏条，已用 tldr 兜底口播"))
             continue
@@ -845,7 +866,12 @@ def call_b(run_dir: Path, cfg: dict) -> Path:
             else:
                 flags.append(_flag(iid, "shot_out_of_range", "low", str(x),
                                    f"shot_sentence {xi} 越界 voice {len(voice)}，已丢"))
-        it["video"] = {"shot_sentences": sorted(set(ss)) or ([1] if it.get("sources") else [])}
+        # 卡定场→证据→卡收尾（prompts._CALLB_SYS 同款规则）：首句恒留给信息卡，
+        # ≥3 句时末句也留卡；2 句条目仅可压第 2 句，1 句不压。
+        nseg = len(voice)
+        ss = sorted(x for x in set(ss) if x != 1 and not (nseg >= 3 and x == nseg))
+        it["video"] = {"shot_sentences": ss or ([2] if nseg >= 2 and it.get("sources") else [])}
+    p.tick(n, "voice/cards/video 回填完成", force=True)
     if isinstance(out.get("intro"), dict) and out["intro"].get("voice"):
         doc["intro"] = {"voice": [_tts_text_fix(s, "intro", j, flags)
                                   for j, s in enumerate(out["intro"]["voice"])]}
@@ -868,8 +894,9 @@ def call_b(run_dir: Path, cfg: dict) -> Path:
                            "input_sha": _sha(user)[:16]})
     print(f"Call B ok: voice/cards/video 回填 {len(items)} items, {len(flags)} soft-flags")
 
-    flags += compliance_pass(doc, cfg)
+    flags += compliance_pass(doc, cfg, p)
     _append_qa_flags(run_dir, flags, episode=doc.get("date", run_dir.name))
+    p.close()
     return issue_p
 
 
@@ -893,7 +920,7 @@ def _item_texts(it: dict) -> list:
     return texts
 
 
-def compliance_pass(doc: dict, cfg: dict) -> list:
+def compliance_pass(doc: dict, cfg: dict, p: prog.Prog | None = None) -> list:
     flags: list = []
     words = _sensitive_words()
     hits = 0
@@ -918,6 +945,8 @@ def compliance_pass(doc: dict, cfg: dict) -> list:
         try:
             system, user = prompts.COMPLIANCE_PROMPT(items)
             provs: list = []
+            if p is not None:
+                p.say(f"compliance → llm.chat_json ({len(items)} items)")
             out = llm.chat_json(prompts.messages(system, user), retries=2,
                                 prov_out=provs, tag="compliance", cfg=cfg)
             known = {it["id"] for it in items}
@@ -1032,6 +1061,10 @@ def main() -> None:
         return
 
     with meta.run_lock(run_dir):
+        # 运行态 key 与各分支的 stage_done 名对齐（digest_import/digest_callb/
+        # digest）——错名的 key 永远清不掉，会留"崩溃残留"假墓碑。
+        meta.stage_begin(run_dir, "digest_import" if args.do_import
+                         else "digest_callb" if args.callb else "digest")
         if args.do_import:
             do_import(run_dir)          # 确定性路径，不需要 LLM key
         elif args.callb:

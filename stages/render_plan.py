@@ -50,7 +50,7 @@ import zlib
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-from lib import meta  # stages/lib/meta.py（stages/ 即 sys.path 脚本目录）
+from lib import meta, prog  # stages/lib/{meta,prog}.py（stages/ 即 sys.path 脚本目录）
 
 REPO = Path(__file__).resolve().parents[1]
 REPRO = REPO / "repro"
@@ -279,7 +279,9 @@ class Compiler:
                                  "src": o.get("src")})
                 except (KeyError, TypeError, ValueError):
                     self.warn(f"overlay shot 窗非法跳过: {o}")
-        if issue:
+        # issue 是真回退源：timeline 已给出该 item 的 shot 窗时不得再并入，
+        # 否则两边窗口被 norm_windows 合并成并集（曾把"中段窗"吞回"首句窗"）。
+        if not wins and issue:
             for it in issue.get("items") or []:
                 if it.get("id") != item:
                     continue
@@ -609,11 +611,14 @@ def cmd_run(run_dir: Path) -> int:
     if not (run_dir / F_ISSUE).exists():
         eprint(f"[render_plan] 提示: 无 {F_ISSUE} —— shot 窗口仅取 timeline.overlays")
 
+    p = prog.Prog(run_dir, "render_plan")
     cfg = load_config()
+    p.say("编译 62_timeline + 63_cards + 64_frames → 70_render_plan")
     try:
         plan, warnings, errors = compile_plan(run_dir, cfg)
     except json.JSONDecodeError as e:
         eprint(f"[render_plan] 输入 JSON 解析失败: {e}")
+        p.close()
         return 2
     if plan is None:
         for m in warnings:
@@ -621,15 +626,20 @@ def cmd_run(run_dir: Path) -> int:
         for m in errors:
             eprint(f"[render_plan] ERR  {m}")
         meta.stage_done(run_dir, "render_plan", None, status="failed")
+        p.close()
         return 2
 
     tl = _jload(run_dir / F_TIMELINE)
     verrs = validate_plan(plan, tl, run_dir)
     all_errs = errors + verrs
+    p.say(f"编译完成 v{len(plan['video_track'])}/a{len(plan['audio_track'])}/"
+          f"o{len(plan['overlay_track'])} warn={len(warnings)} err={len(all_errs)}")
 
     meta.atomic_write(run_dir / OUT_PLAN, plan)
     meta.atomic_write(run_dir / OUT_FFCONCAT, ffconcat_text(plan))
+    p.say(f"ffprobe 解析校验 {OUT_FFCONCAT}")
     ok_ff, ff_msg = check_ffconcat(run_dir / OUT_FFCONCAT)
+    p.say(f"ffprobe[{ff_msg}]")
     if not ok_ff:
         all_errs.append(f"ffconcat 解析失败: {ff_msg}")
 
@@ -650,6 +660,8 @@ def cmd_run(run_dir: Path) -> int:
           f"o{len(plan['overlay_track'])} total={plan['total']}s "
           f"({cfg['size'][0]}x{cfg['size'][1]}@{cfg['fps']} {cfg['aspect']}) "
           f"+ {OUT_FFCONCAT} ffprobe[{ff_msg}] —— {status}")
+    p.say(f"status={status}")
+    p.close()
     return 0 if not all_errs else 1
 
 
@@ -666,7 +678,10 @@ def cmd_check(run_dir: Path) -> int:
     errs = validate_plan(plan, tl, run_dir)
     ok_ff, ff_msg = (True, "skip")
     if (run_dir / OUT_FFCONCAT).exists():
-        ok_ff, ff_msg = check_ffconcat(run_dir / OUT_FFCONCAT)
+        with prog.Prog(run_dir, "render_plan") as p:
+            p.say(f"ffprobe 解析校验 {OUT_FFCONCAT}")
+            ok_ff, ff_msg = check_ffconcat(run_dir / OUT_FFCONCAT)
+            p.say(f"ffprobe[{ff_msg}]")
         if not ok_ff:
             errs.append(f"ffconcat 解析失败: {ff_msg}")
     for m in errs:
@@ -1024,6 +1039,7 @@ def main(argv=None) -> int:
     if args.check:
         return cmd_check(run_dir)
     with meta.run_lock(run_dir):
+        meta.stage_begin(run_dir)
         return cmd_run(run_dir)
 
 

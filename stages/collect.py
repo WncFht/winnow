@@ -38,10 +38,19 @@
     塞不进 via → 记条目 tags 'via:<route>' + manifest sources[].via。
   * 普通源发全量解析条目（dedup L0 按 url_hash 压重）；signal 条目只发新 URL。
 
+feed_url 模板：sources.yaml 的 feed_url/failover 可写相对日期占位符
+  {T±Nd}（→ %Y-%m-%d）与 {T±Nd_ts}（→ epoch 秒），锚点 T = 采集窗口右沿
+  （run_date 06:30 Asia/Shanghai），故 {T-1d}≈窗口左沿。例 github_search
+  `created:>{T-2d}`、hn_algolia `created_at_i>{T-1d_ts}`。
+
 用法: uv run stages/collect.py --run-dir runs/2026-09-22
       uv run stages/collect.py --selftest          # 3 代表源冒烟
       uv run stages/collect.py --max-sources 8 [--only name1,name2]
       uv run stages/collect.py --manual URL [--title T]
+      其余 flag：--sources PATH（源注册表，缺省 repo 根 sources.yaml）、
+      --config PATH、--max-content-fetches N（正文补抓全局预算，缺省 600）、
+      --items-db PATH（跨期条目池，缺省 config.storage.items_db →
+      state/items.sqlite；仅真·日期 run-dir 才写池）
 """
 from __future__ import annotations
 
@@ -69,7 +78,7 @@ import yaml  # noqa: E402
 
 from contracts.models import RawItem, RawManifest  # noqa: E402
 from lib import http as lhttp  # noqa: E402
-from lib import meta, normalize, pool  # noqa: E402
+from lib import meta, normalize, pool, prog  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -296,13 +305,15 @@ def preflight(cfg: dict, proxy_url: str | None) -> dict:
     checks["proxy"] = "ok" if proxy_ok else ("fail" if proxy_url else "skipped")
 
     key_env = _cfg(cfg, "llm.api_key_env", "SWE2MAX_API_KEY")
+    bg_env = _cfg(cfg, "llm.api_key_env_bg", "SWE2MAX_BG_API_KEY") or "SWE2MAX_BG_API_KEY"
+    key = os.environ.get(str(bg_env)) or os.environ.get(str(key_env), "")
     base = _cfg(cfg, "llm.base_url", "")
-    if base and os.environ.get(str(key_env)):
+    if base and key:
         import httpx
         try:
             r = httpx.get(
                 base.rstrip("/") + "/models",
-                headers={"Authorization": f"Bearer {os.environ[str(key_env)]}"},
+                headers={"Authorization": f"Bearer {key}"},
                 timeout=8)
             checks["gateway"] = "ok" if r.status_code < 500 else f"http_{r.status_code}"
         except Exception as e:
@@ -526,13 +537,7 @@ def parse_feed(body: bytes, src: dict, res: lhttp.FetchResult,
 def _looks_like_feed(body: bytes) -> bool:
     """sniff 根元素：urlset/sitemapindex 不是 feed（claude.com sitemap
     就是 Content-Type 误标 rss+xml 的标准 urlset —— sources.yaml note）。"""
-    head = (body or b"")[:600].lstrip().lower()
-    if head.startswith(b"<?xml"):
-        m = re.search(rb"<\s*([a-z_][\w.:+-]*)", head[5:])
-    else:
-        m = re.match(rb"<\s*([a-z_][\w.:+-]*)", head)
-    root = (m.group(1) if m else b"").split(b":")[-1]
-    return root in (b"rss", b"feed", b"rdf", b"opml")
+    return lhttp.xml_root_tag(body) in (b"rss", b"feed", b"rdf", b"opml")
 
 
 # ======================================================== json_api 适配 =====
@@ -706,9 +711,14 @@ def api_zhihu_col(d, src, ctx):
     for it in d.get("data") or []:
         if not isinstance(it, dict):
             continue
+        tgt = it.get("target")
+        if isinstance(tgt, dict):      # topstory hot-list failover 的包装层：
+            it = tgt                   # 标题/url/created 都在 target 内
         aid = it.get("id")
         url = it.get("url") or ""
-        if "api.zhihu.com" in url and aid:
+        if "/questions/" in url and aid:
+            url = f"https://www.zhihu.com/question/{aid}"
+        elif "api.zhihu.com" in url and aid:
             url = f"https://zhuanlan.zhihu.com/p/{aid}"
         elif aid and "zhihu.com" not in url:
             url = f"https://zhuanlan.zhihu.com/p/{aid}"
@@ -1101,9 +1111,10 @@ REQUEST_SPECS = {
     "tmtpost": {"headers": {"app-version": "web1.0"}},
 }
 
-_TITLE_KEYS = {"title", "name", "headline", "article_title", "morning_paper_title"}
+_TITLE_KEYS = {"title", "name", "headline", "article_title", "morning_paper_title",
+               "post_title"}
 _URL_KEYS = {"url", "link", "share_url", "item_url", "html_url", "article_url",
-             "short_url", "permalink", "web_url", "page_url"}
+             "short_url", "permalink", "web_url", "page_url", "post_url"}
 _ID_KEYS = {"id", "guid", "article_id", "objectid", "aid", "uuid", "eid",
             "bvid", "slug", "path", "short_id"}
 _DATE_KEYS = {"published", "published_at", "publishedat", "pubdate", "date",
@@ -1113,9 +1124,10 @@ _DATE_KEYS = {"published", "published_at", "publishedat", "pubdate", "date",
               "publication_date", "publish_time", "time_published", "post_time"}
 _SUM_KEYS = {"summary", "description", "desc", "brief_content", "excerpt",
              "article_summary", "subtitle", "feed_description", "introduction",
-             "content", "abstract"}
+             "content", "abstract", "post_excerpt"}
 _IMG_KEYS = {"image", "cover", "coverimageurl", "cover_url", "thumbnail",
-             "thumb", "pic", "image_url", "share_pic", "article_cover", "banner"}
+             "thumb", "pic", "image_url", "share_pic", "article_cover", "banner",
+             "post_cover_image"}
 
 
 def _walk_lists(node, depth=0):
@@ -1636,7 +1648,12 @@ def content_pass(item: dict, src: dict, ctx) -> None:
             item["title"] == _slug_title(item["url"])):
         item["title"] = normalize.title_norm(meta_d["title"])
     if not item.get("date_published") and meta_d.get("date"):
-        item["date_published"] = _parse_date(meta_d["date"])
+        # trafilatura 在 JS 壳页会拿版权年/构建戳编日期——只信提取到
+        # 达标正文的页，且拒未来日期（date-only 精度给 +2d 宽限）
+        d = _parse_date(meta_d["date"])
+        if d and len(ext_text) >= 500 and datetime.fromisoformat(d) \
+                <= datetime.now(timezone.utc) + timedelta(days=2):
+            item["date_published"] = d
     if not item.get("image") and meta_d.get("image"):
         item["image"] = meta_d["image"]
     if not item.get("language") and meta_d.get("language"):
@@ -1712,10 +1729,26 @@ def _finish_items(partials: list[dict], src: dict, ctx,
     return out
 
 
+_URL_TPL = re.compile(r"\{T(?:([+-]\d+)d)?(_ts)?\}")
+
+
+def _render_url(url, win) -> str:
+    """feed_url/failover 的相对日期占位符：{T±Nd}→%Y-%m-%d、
+    {T±Nd_ts}→epoch 秒。锚点 T=win[1]（窗口右沿），故 {T-1d}≈窗口左沿。
+    例 github_search `created:>{T-2d}`、hn_algolia `created_at_i>{T-1d_ts}`。"""
+    if not isinstance(url, str) or "{" not in url:
+        return url
+    def _sub(m):
+        t = win[1] + timedelta(days=int(m.group(1) or 0))
+        return str(int(t.timestamp())) if m.group(2) else t.strftime("%Y-%m-%d")
+    return _URL_TPL.sub(_sub, url)
+
+
 def fetch_with_failover(src: dict, ctx, spec: dict | None):
     """feed_url + failover 链 → (res, url_used)。validators 按 URL 记；
     POST spec 只作用于主 URL，failover 一律 GET。"""
-    urls = [src["feed_url"]] + [u for u in (src.get("failover") or []) if u]
+    urls = [_render_url(u, ctx.win) for u in
+            [src["feed_url"], *(x for x in (src.get("failover") or []) if x)]]
     validators = ctx.seen.get(src["name"], {}).get("validators") or {}
     last = lhttp.FetchResult(error="no_url")
     for i, u in enumerate(urls):
@@ -1848,6 +1881,8 @@ def collect_source(src: dict, ctx) -> dict:
         if method in ("rss", "atom", "youtube_rss") or is_feed_body:
             items = parse_feed(body, src, res, raw_ref)
             if not items and not is_feed_body:
+                items = _json_rescue(body, src, ctx, res, raw_ref, stat)
+            if not items and not is_feed_body:
                 stat["status"] = "parse_error"
         elif method == "json_api":
             items = _json_items(src, ctx, body, res, raw_ref, stat)
@@ -1862,6 +1897,28 @@ def collect_source(src: dict, ctx) -> dict:
         stat["last_error"] = f"{type(e).__name__}: {e}"[:200]
 
     return _stat_items(stat, src, ctx, items)
+
+
+def _json_rescue(body, src, ctx, res, raw_ref, stat=None) -> list[dict]:
+    """feed 路径拿到非 XML 时的兜底：JSON → 通用 walker。
+    覆盖 failover 指到 JSON API 的源（ifanr sso web-feed objects[]，
+    2026-09-23 实测主 feed 被 wall 误判后 failover 必然 parse_error）。"""
+    try:
+        data = json.loads(body.decode("utf-8", "replace"))
+    except Exception:
+        if stat is not None:
+            stat["last_error"] = "rescue: body not JSON"
+        return []
+    try:
+        partials, _ = api_generic(data, src, ctx)
+    except Exception as e:
+        if stat is not None:
+            stat["last_error"] = f"rescue generic: {e}"[:200]
+        return []
+    items = _finish_items(partials, src, ctx, res, raw_ref, kind="api")
+    if not items and stat is not None:
+        stat["last_error"] = f"rescue: 0/{len(partials)} items after finish"
+    return items
 
 
 def _json_items(src, ctx, body, res, raw_ref, stat) -> list[dict]:
@@ -2112,6 +2169,10 @@ def run(args) -> int:
             print(json.dumps(v, ensure_ascii=False, indent=1)[:2000])
             return 0
 
+        # 运行态登记：manual 轻量分支已在上方 return（不走 stage_done，
+        # 登记会留假墓碑）；此处起才是完整采集流程，stage_done 自动清除。
+        meta.stage_begin(run_dir)
+
         # ---------------- preflight ----------------
         pre = preflight(cfg, ctx.proxy_url)
         ctx.proxy_ok = bool(pre.get("proxy_ok"))
@@ -2121,7 +2182,10 @@ def run(args) -> int:
         # ---------------- per-source ----------------
         all_items: list[dict] = []
         emitted_canons: dict[str, list[str]] = {}
-        for src in sources:
+        pg = prog.Prog(run_dir, "collect", total=len(sources),
+                       step=5, interval=30)
+        budget_noted = False
+        for i, src in enumerate(sources, 1):
             t0 = time.monotonic()
             try:
                 stat = collect_source(src, ctx)
@@ -2137,6 +2201,10 @@ def run(args) -> int:
                         len(it.get("content_text") or "") < CONTENT_MIN:
                     content_pass(it, src, ctx)
                 media_pass(it, src, ctx)
+            if not budget_noted and ctx.content_budget <= 0:
+                budget_noted = True
+                pg.say(f"content budget exhausted at {src['name']} "
+                       f"({i}/{len(sources)})")
             emitted_canons[src["name"]] = [it["url_canon"]
                                            for it in stat.get("items") or []]
             all_items.extend(stat.get("items") or [])
@@ -2147,6 +2215,8 @@ def run(args) -> int:
                      stat["name"], stat.get("method"), stat["status"],
                      stat.get("items_new", 0), stat.get("items_fresh", 0),
                      stat.get("latency_ms", "-"), stat.get("last_error") or "")
+            pg.tick(i, f"{stat['name']} {stat['status']}")
+        pg.close()
 
         # item_key 全局唯一（机械身份）
         deduped, seen_keys = [], set()
@@ -2271,6 +2341,15 @@ _SELFTEST_PICKS = [
 
 def selftest(args) -> int:
     """PLAN §3.6：rss/json_api/sitemap 三个代表源 cond GET + 契约校验。"""
+    # _render_url 纯函数断言：{T±Nd}→日期、{T±Nd_ts}→epoch，锚=win[1]
+    _w = (datetime(2026, 9, 22, 6, 30, tzinfo=ZoneInfo("Asia/Shanghai")),
+          datetime(2026, 9, 23, 6, 30, tzinfo=ZoneInfo("Asia/Shanghai")))
+    assert _render_url("https://x/?q=created:%3E{T-2d}", _w) == \
+        "https://x/?q=created:%3E2026-09-21"
+    assert _render_url("https://x/?f=created_at_i>{T-1d_ts}", _w) == \
+        f"https://x/?f=created_at_i>{int(_w[0].timestamp())}"  # =窗口左沿
+    assert _render_url("https://x/plain", _w) == "https://x/plain"
+    assert _render_url(None, _w) is None
     all_srcs = load_sources(Path(args.sources))
     picks = []
     for method, pref in _SELFTEST_PICKS:

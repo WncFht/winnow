@@ -9,13 +9,19 @@
 - 不支持/常无视 response_format 约束（json_schema 返回散文）→ JSON 靠 prompt 约束 +
   extract_json() 本地剥 ```json 围栏；want_json=True 时仍发 response_format
   {"type":"json_object"}（实测 HTTP 200 无害，兼容后端可受益）。
-- 429/502/超时是共享池毛刺 → adapter 内指数退避 1s/2s/4s 重试后抛 LLMError，
-  无跨模型 fallback（D1：可靠性由调用方容错层保证）。
+- 429/502/超时是共享池毛刺 → adapter 内退避重试后抛 LLMError（chat 的
+  retries=3，总尝试 retries+1 次；退避基准 1s/2s/4s 后恒定 4s，并取
+  Retry-After 头与响应体 "reset in N second" 提示的较大者、封顶
+  _WAIT_CAP=30s；4xx 立即抛 retryable=False），无跨模型 fallback
+  （D1：可靠性由调用方容错层保证）。
 
 API:
-    load_cfg()                                -> llm 配置 dict（含 api_key）
-    chat(messages, *, max_tokens, temperature, want_json, tag)
-                                              -> {"text": str, "prov": {...}}
+    load_cfg()                                -> llm 配置 dict（含 api_key；
+                                                 token 取 api_key_env_bg >
+                                                 api_key_env，key_env 回写
+                                                 实际命中的 env 名）
+    chat(messages, *, max_tokens, temperature, want_json, tag, cfg,
+         timeout, retries=3)                  -> {"text": str, "prov": {...}}
     extract_json(text)                        -> 首个 JSON obj/array
     chat_json(messages, retries=2, **kw)      -> obj（解析失败追 "只输出JSON对象" 重试）
     coverage_reconcile(inputs, outputs, key)  -> {"outputs", "missing"}（重批由调用方做）
@@ -60,18 +66,27 @@ class LLMError(RuntimeError):
 # ---------- config ----------
 
 def load_cfg(path: str | Path | None = None) -> dict:
-    """config.yaml 的 llm 段（缺省回退 config.example.yaml）+ api_key_env 指向的环境变量。"""
+    """config.yaml 的 llm 段（缺省回退 config.example.yaml）+ api_key_env 指向的环境变量。
+
+    key 解析：api_key_env_bg（默认 SWE2MAX_BG_API_KEY）优先——pipeline 是无人值守
+    批量流量，正是网关 bg 类 token 的设计场景（窗口额度自适应 + Retry-After 退避，
+    见 devin-2api docs/gate-classes.md）；未设置则回退 api_key_env（fg 类）。
+    cfg["key_env"] 回写实际命中的 env 名（调用方日志/审计用）。
+    """
     p = Path(path) if path else REPO / "config.yaml"
     if not p.exists():
         p = REPO / "config.example.yaml"
     doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     cfg = dict(doc.get("llm") or {})
     env = cfg.get("api_key_env", "SWE2MAX_API_KEY")
-    key = os.environ.get(env, "")
+    bg_env = cfg.get("api_key_env_bg") or "SWE2MAX_BG_API_KEY"
+    key = os.environ.get(bg_env) or os.environ.get(env, "")
     if not key:
-        raise LLMError(f"llm api key env ${env} 未设置（见 secrets.env.example）",
-                       retryable=False)
+        raise LLMError(
+            f"llm api key env ${bg_env}/${env} 均未设置（见 secrets.env.example）",
+            retryable=False)
     cfg["api_key"] = key
+    cfg["key_env"] = bg_env if os.environ.get(bg_env) else env
     cfg.setdefault("base_url", "http://127.0.0.1:3033/v1")
     cfg.setdefault("model", "swe-2-max")
     cfg.setdefault("temperature", 0.2)

@@ -8,12 +8,20 @@
 # ///
 """x_nitter.py — X/Twitter 采集路①：nitter 实例池（PLAN.md §5.3）。
 
-fetch_user(handle, cfg) -> list[raw_item dict]
+fetch_user(handle, cfg, *, diag=None, run_dir=None) -> list[raw_item dict]
     按持久化健康分（state/x_nitter_health.json：成功 +1 / 失败 -2）排序并
     在 top 实例间轮换，经代理抓 https://<inst>/<handle>/rss，把 nitter RSS
     解析为 raw_item/1 契约 dict；link/guid 中的 status id 重写回
     https://x.com/<user>/status/<id> —— 跨实例去重身份不依赖实例域名。
-    全部实例失败 → raise AllRoutesDead。
+    diag 传入 dict 则回填 {attempts[], via="nitter:<inst>", feed_url}；
+    run_dir 给定时命中实例的 RSS 原文经 lib.http.save_raw 落
+    data/raw_cache 并给全体 item 记 _raw_ref（落盘失败不阻塞）。
+    全部实例失败 → raise AllRoutesDead（.attempts 带每实例诊断）。
+
+fetch_search(query, cfg, *, diag=None) -> list[raw_item dict]
+    关键词搜索路：GET https://<inst>/search/rss?f=tweets&q=<query>，
+    同一实例池/健康分/轮换/解析管道；source_name 记 "x-search:<query>"，
+    全灭 → AllRoutesDead("search:<query>")。
 
 实例池 = cfg.x_collector.nitter_instances（操作员优先）+ 实验目录种子
 （experiments/hard-x.com-rsshub-or-mirror-instance/：nitter-*.rss 文件名

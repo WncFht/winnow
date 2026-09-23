@@ -5,6 +5,7 @@
 #   "playwright==1.63.*",
 #   "pyyaml>=6",
 #   "pydantic>=2",
+#   "googlenewsdecoder>=0.7",
 # ]
 # ///
 """stages/cards.py — 内容卡渲染 + chrome 叠加 + 帧合成（PLAN.md §7.6）。
@@ -39,6 +40,7 @@ lib.layout_d2 / shotlib / chrome / composite 均惰性 import：模块缺失或�
 from __future__ import annotations
 
 import argparse
+import collections
 import hashlib
 import html as htmlmod
 import importlib
@@ -49,14 +51,16 @@ import re
 import struct
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse, urlunparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 from contracts.models import Cards, FramesManifest  # noqa: E402
-from lib import meta  # noqa: E402
+from lib import meta, prog  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 UPSTREAM = REPO / "upstream" / "juya-news-card"
@@ -156,6 +160,58 @@ def _node_env(run_dir: Path) -> dict:
     env.setdefault("no_proxy", "localhost,127.0.0.1")
     env.setdefault("NO_PROXY", "localhost,127.0.0.1")
     return env
+
+
+def _host(url: str) -> str:
+    """进度行用的短域名标签。"""
+    try:
+        return urlparse(str(url)).netloc or str(url)[:48]
+    except Exception:
+        return str(url)[:48]
+
+
+def _prog(run_dir: Path, total: int = 0,
+          step: Optional[int] = None) -> "prog.Prog":
+    """统一节流参数：step≈max(1,total//40) 夹到 [10,100]、interval=30s；
+    分钟级顺序循环传 step=1 逐条出。"""
+    s = step if step else min(100, max(10, max(1, int(total or 0) // 40)))
+    return prog.Prog(run_dir, "cards", total=total, step=s, interval=30.0)
+
+
+def _run_streamed(cmd: list, *, cwd: Path, env: dict, timeout: float,
+                  tag: str) -> tuple:
+    """Popen 版 subprocess.run：子进程 stdout/stderr 合并逐行透传到本进程
+    stderr（`[cards] <tag>` 前缀），超时 kill。capture_output 会把 tsx
+    输出憋满整个 timeout（render 900s / probe 600s），长跑期间零反馈。
+    返回 (rc, tail, timed_out)；Popen 启动 OSError 直接抛给调用方。"""
+    tail: "collections.deque" = collections.deque(maxlen=60)
+    proc = subprocess.Popen(cmd, cwd=str(cwd), env=env,
+                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, errors="replace", bufsize=1)
+
+    def _pump() -> None:
+        try:
+            for ln in proc.stdout or ():
+                ln = ln.strip()
+                if not ln:
+                    continue
+                tail.append(ln)
+                sys.stderr.write(f"[cards] {tag}{ln[:160]}\n")
+            sys.stderr.flush()
+        except Exception:
+            pass                    # 透传失败绝不拖垮阶段
+
+    t = threading.Thread(target=_pump, daemon=True)
+    t.start()
+    timed_out = False
+    try:
+        rc = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        rc = proc.wait()
+        timed_out = True
+    t.join(timeout=5)
+    return rc, "\n".join(tail), timed_out
 
 
 # ---------------------------------------------------------------------------
@@ -260,16 +316,13 @@ def render_batch(items: list, cards_dir: Path, run_dir: Path,
     cmd = ["npx", "tsx", "scripts/render-batch.ts", str(inp), str(cards_dir)]
     log.info("render-batch: %d items → %s", len(items), cards_dir)
     try:
-        r = subprocess.run(cmd, cwd=str(UPSTREAM), env=_node_env(run_dir),
-                           capture_output=True, text=True, timeout=timeout)
-        for line in (r.stdout or "").splitlines():
-            if line.strip():
-                log.info("  tsx| %s", line.strip()[:160])
-        if r.returncode != 0:
-            log.error("render-batch rc=%d: %s", r.returncode,
-                      (r.stderr or "")[-400:])
-    except subprocess.TimeoutExpired:
-        log.error("render-batch 超时 %ds", timeout)
+        rc, tail, timed_out = _run_streamed(
+            cmd, cwd=UPSTREAM, env=_node_env(run_dir), timeout=timeout,
+            tag="tsx| ")
+        if timed_out:
+            log.error("render-batch 超时 %ds", timeout)
+        elif rc != 0:
+            log.error("render-batch rc=%d: %s", rc, tail[-400:])
     except OSError as e:
         log.error("render-batch 启动失败: %s", e)
     return {p.stem for p in cards_dir.glob("*.png")}
@@ -368,6 +421,8 @@ for (const item of items) {
   } catch (e) { rec.probeErr = String(e).slice(0, 120); }
   results.push(rec);
   await page.close();
+  console.log(`[probe] ${id} scale=${rec.wrapperScale ?? '-'} ` +
+    `top=${rec.minCardTop ?? '-'}${rec.renderErr || rec.probeErr ? ' ERR' : ''}`);
 }
 fs.writeFileSync(outJson, JSON.stringify(results, null, 1));
 await context.close();
@@ -390,12 +445,13 @@ def _probe_tsx(items: list, run_dir: Path) -> dict:
     env["CARDS_UPSTREAM"] = str(UPSTREAM)
     timeout = min(600, 60 + 20 * max(1, len(items)))
     try:
-        r = subprocess.run(["npx", "tsx", str(script), str(inp), str(out)],
-                           cwd=str(UPSTREAM), env=env, capture_output=True,
-                           text=True, timeout=timeout)
-        if r.returncode != 0:
-            log.warning("probe rc=%d: %s", r.returncode,
-                        (r.stderr or "")[-300:])
+        rc, tail, timed_out = _run_streamed(
+            ["npx", "tsx", str(script), str(inp), str(out)],
+            cwd=UPSTREAM, env=env, timeout=timeout, tag="probe| ")
+        if timed_out:
+            log.warning("probe 超时 %ds", timeout)
+        elif rc != 0:
+            log.warning("probe rc=%d: %s", rc, tail[-300:])
     except Exception as e:
         log.warning("probe 执行失败: %s", e)
         return {}
@@ -534,25 +590,31 @@ def render_with_gate(items: list, cards_dir: Path, run_dir: Path,
                         it["id"], m.get("wrapperScale"),
                         m.get("minCardTop"), m.get("clipped"))
 
-    for it in pending:
+    pending_p = _prog(run_dir, total=len(pending), step=1)  # 单次重渲分钟级
+    for i, it in enumerate(pending, 1):
         cur, last_m = it, metrics.get(it["id"]) or {}
         ok = False
         for attempt in range(1, MAX_ADJUST + 1):
             adj = adjust_spec(cur, last_m, attempt)
             if adj is None:
                 break
+            pending_p.say(f"{it['id']} 降级 spec 第{attempt}次重渲"
+                          f"（cards {len(cur['cards'])}→{len(adj['cards'])}）")
             log.info("%s: 降级 spec 第%d次重渲（cards %d→%d）",
                      it["id"], attempt, len(cur["cards"]), len(adj["cards"]))
             render_batch([adj], cards_dir, run_dir, tag=f"_retry_{it['id']}")
             last_m = (probe_items([adj], run_dir) or {}).get(it["id"]) or {}
             if last_m.get("ok"):
+                pending_p.say(f"{it['id']} 第{attempt}次重渲过 gate")
                 # 调整后的 spec 写回 63_cards items（manifest 记录重排事实）
                 cur = adj
                 ok = True
                 break
+        pending_p.tick(i, f"{it['id']} {'ok' if ok else '仍不过'}",
+                       force=True)
         if ok:
             good[it["id"]] = cards_dir / f"{it['id']}.png"
-            idx = next(i for i, x in enumerate(items) if x["id"] == it["id"])
+            idx = next(j for j, x in enumerate(items) if x["id"] == it["id"])
             items[idx] = cur             # 写回调整后的 spec → 63_cards.json
             flags.append({"item": it["id"], "kind": "layout_adjusted",
                           "metrics": last_m})
@@ -561,6 +623,7 @@ def render_with_gate(items: list, cards_dir: Path, run_dir: Path,
             missing.append(f"{it['id']}.card")
             flags.append({"item": it["id"], "kind": "layout_failed",
                           "metrics": last_m})
+    pending_p.close()
     return good
 
 
@@ -569,16 +632,33 @@ def render_with_gate(items: list, cards_dir: Path, run_dir: Path,
 # ---------------------------------------------------------------------------
 
 
+def _reddit_alt(u: str) -> Optional[str]:
+    """www.reddit.com → old.reddit.com 镜像：新 UI 对 headless 恒 403。"""
+    try:
+        pr = urlparse(u)
+    except Exception:
+        return None
+    if (pr.hostname or "").lower() in ("www.reddit.com", "reddit.com"):
+        return urlunparse(pr._replace(netloc="old.reddit.com"))
+    return None
+
+
 def _shot_candidates(it: dict) -> list:
-    """截图目标 URL：primary 优先，其余按序，去重，封顶。"""
+    """截图目标 URL：primary 优先，其余按序，去重，封顶。
+    reddit 源以 old.reddit.com 镜像打头（www 对 headless 恒 403，先试纯浪费）。"""
     srcs = sorted(it.get("sources") or [],
                   key=lambda s: 0 if s.get("primary") else 1)
     urls, seen = [], set()
     for s in srcs:
         u = s.get("url")
-        if u and u not in seen:
-            seen.add(u)
-            urls.append(u)
+        if u:
+            alt = _reddit_alt(u)
+            if alt and alt not in seen:
+                seen.add(alt)
+                urls.append(alt)
+            if u not in seen:
+                seen.add(u)
+                urls.append(u)
     return urls[:SHOT_SOURCES_MAX]
 
 
@@ -628,8 +708,12 @@ def fetch_shots(run_dir: Path, issue_items: list, good_cards: dict,
             log.warning("ShotSession 启动失败: %s", str(e)[:140])
             session = None
 
-    for it in wants:
+    progress = _prog(run_dir, total=len(wants))
+    progress.say(f"shots 开始 {len(wants)} 条"
+                 f"（session={'on' if session is not None else 'off'}）")
+    for i, it in enumerate(wants, 1):
         iid = it["id"]
+        progress.tick(i, iid)
         dst = shots_dir / f"{iid}.png"
         reuse = _existing_shot(run_dir, it)
         if reuse is not None:
@@ -639,6 +723,7 @@ def fetch_shots(run_dir: Path, issue_items: list, good_cards: dict,
         rec = None
         if session is not None:
             for url in _shot_candidates(it):
+                progress.tick(i, f"{iid} ← {_host(url)}")
                 try:
                     r = session.shot(url, dst)
                 except Exception as e:
@@ -666,6 +751,8 @@ def fetch_shots(run_dir: Path, issue_items: list, good_cards: dict,
             flags.append({"item": iid, "kind": "shot_placeholder",
                           "reason": rec.get("reason") or
                                     rec.get("rule") or "policy"})
+    progress.tick(len(wants), f"done {len(out)}/{len(wants)}", force=True)
+    progress.close()
 
     if session is not None:
         try:
@@ -725,16 +812,17 @@ img.layer { position: absolute; inset: 0; width: 1920px; height: 1080px; }
 </style></head><body>%s</body></html>"""
 
 
-def _fallback_stack_all(jobs: dict, out_dir: Path) -> dict:
+def _fallback_stack_all(jobs: dict, out_dir: Path, run_dir: Path) -> dict:
     """composite 缺席时的 img.layer 栈（repro/composite_frames.py 直译）。"""
     out_dir.mkdir(parents=True, exist_ok=True)
     from playwright.sync_api import sync_playwright
     rendered = {}
+    progress = _prog(run_dir, total=len(jobs))
     with sync_playwright() as p:
         browser = p.chromium.launch()
         pg = browser.new_page(viewport={"width": W, "height": H},
                               device_scale_factor=1)
-        for name, layers in jobs.items():
+        for i, (name, layers) in enumerate(jobs.items(), 1):
             imgs = "".join(
                 f'<img class="layer" src="{Path(x).resolve().as_uri()}">'
                 for x in layers)
@@ -745,7 +833,10 @@ def _fallback_stack_all(jobs: dict, out_dir: Path) -> dict:
             png = out_dir / f"{name}.png"
             pg.screenshot(path=str(png))
             rendered[name] = png
+            progress.tick(i, name)
         browser.close()
+    progress.tick(len(jobs), "stack done", force=True)
+    progress.close()
     return rendered
 
 
@@ -808,28 +899,36 @@ def composite_frames(run_dir: Path, issue: dict, good_cards: dict,
             flags.append({"item": iid, "kind": "layers_incomplete",
                           "reason": "card/nav/crumb 缺层"})
 
-    stack_all = getattr(mod, "stack_all", None) if mod is not None else None
-    if callable(stack_all):
-        try:
-            return stack_all(run_dir, jobs, out_dir=frames_dir)
-        except TypeError:
-            try:
-                return stack_all(run_dir, jobs)
-            except Exception as e:
-                log.warning("composite.stack_all 失败: %s → 内建", str(e)[:140])
-        except Exception as e:
-            log.warning("composite.stack_all 失败: %s → 内建", str(e)[:140])
+    progress = _prog(run_dir, total=len(jobs))
     try:
-        return _fallback_stack_all(jobs, frames_dir)
-    except Exception as e:
-        log.error("帧合成彻底失败: %s", str(e)[:200])
-        for name in jobs:
-            iid = name.split(".")[0]
-            kind = "shot" if name.endswith(".shot") else "card"
-            tag = f"{iid}.{kind}"
-            if tag not in missing:
-                missing.append(tag)
-        return {}
+        stack_all = getattr(mod, "stack_all", None) if mod is not None else None
+        if callable(stack_all):
+            try:
+                progress.say(f"composite.stack_all {len(jobs)} 帧（lib）")
+                return stack_all(run_dir, jobs, out_dir=frames_dir)
+            except TypeError:
+                try:
+                    return stack_all(run_dir, jobs)
+                except Exception as e:
+                    log.warning("composite.stack_all 失败: %s → 内建",
+                                str(e)[:140])
+            except Exception as e:
+                log.warning("composite.stack_all 失败: %s → 内建",
+                            str(e)[:140])
+        progress.say(f"内建 stack_all {len(jobs)} 帧")
+        try:
+            return _fallback_stack_all(jobs, frames_dir, run_dir)
+        except Exception as e:
+            log.error("帧合成彻底失败: %s", str(e)[:200])
+            for name in jobs:
+                iid = name.split(".")[0]
+                kind = "shot" if name.endswith(".shot") else "card"
+                tag = f"{iid}.{kind}"
+                if tag not in missing:
+                    missing.append(tag)
+            return {}
+    finally:
+        progress.close()
 
 
 # ---------------------------------------------------------------------------
@@ -970,11 +1069,14 @@ def _fix_meta_contract(run_dir: Path, episode: str) -> None:
 def run(args) -> int:
     run_dir = Path(args.run_dir).resolve()
     run_dir.mkdir(parents=True, exist_ok=True)
+    # 输入存在性校验先于运行态登记：_need 报错退出不该留"崩溃"假墓碑；
+    # 登记放锁内，RMW 串行化 + running==持锁语义。
     issue_p = _need(run_dir, F_ISSUE,
                     "先跑 `just digest`（Call A）+ `just digest --callb`")
     os.environ.setdefault("TMPDIR", str(run_dir / "tmp"))  # playwright/Chrome
 
-    with meta.run_lock(run_dir):
+    with meta.run_lock(run_dir), prog.Prog(run_dir, "cards") as progress:
+        meta.stage_begin(run_dir, "cards")   # 00_running.json 运行态登记
         issue = _load_json(issue_p)
         items = [item_to_card(it) for it in issue.get("items") or []]
         if args.limit:
@@ -984,15 +1086,18 @@ def run(args) -> int:
             items = items[: args.limit]
         log.info("issue %s: %d items, %d sections",
                  issue.get("date"), len(items), len(issue.get("sections") or []))
+        progress.say(f"issue {issue.get('date')}: {len(items)} items")
 
         # 2-3) render + probe gate + 降级重渲（items 会被写回最终 spec）
         missing, flags = [], []
         cards_dir = run_dir / FRAMES_DIR / "cards"
         t0 = time.time()
+        progress.say(f"render+probe 开始（{len(items)} items）")
         good_cards = render_with_gate(items, cards_dir, run_dir,
                                       missing, flags)
         log.info("render+probe: %d/%d ok in %.0fs",
                  len(good_cards), len(items), time.time() - t0)
+        progress.say(f"render+probe 完成 {len(good_cards)}/{len(items)} ok")
 
         # 1) 63_cards.json（在 gate 之后写——内容=实际渲出的 spec）
         write_cards_json(run_dir, issue, items)
@@ -1010,6 +1115,7 @@ def run(args) -> int:
         print(f"shots: {len(shots)} 条出图（"
               f"{sum(1 for s in shots.values() if s['kind'] == 'placeholder')}"
               " 占位）")
+        progress.say(f"shots 完成 {len(shots)} 条")
 
         # 5) chrome 叠加层
         rissue = _issue_for_render(issue, shots)
@@ -1018,6 +1124,7 @@ def run(args) -> int:
         if not chrome_pngs:
             log.warning("chrome 叠加层为空 → 帧退化为裸卡")
             chrome_dir.mkdir(parents=True, exist_ok=True)
+        progress.say("chrome 叠加层完成 → 帧合成")
 
         # 6) 合成
         frames = composite_frames(run_dir, rissue, good_cards,
@@ -1027,6 +1134,7 @@ def run(args) -> int:
         # 7) manifests
         fm_p = write_manifests(run_dir, issue, cards_dir, good_cards,
                                frames, missing)
+        progress.say("manifests 落盘")
         # StageEntry extra=forbid：n_frames 等计数进 stdout 报告，不进 meta
         meta.stage_done(run_dir, "cards", F_FRAMES_MANIFEST, status="done")
         meta.stage_done(run_dir, "cards_json", F_CARDS, status="done")

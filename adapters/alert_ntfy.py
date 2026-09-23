@@ -8,6 +8,8 @@
     alert.push("采集完成", "勾选闸开放，死线 08:30", config=cfg)
     alert.push("compose 崩溃", str(err), priority="urgent",
                tags=["rotating_light"], config=cfg)
+    alert.fatal("compose 崩溃", str(err), config=cfg)   # ≡ urgent + rotating_light
+    alert.notify("采集降级", "proxy 不可达", config=cfg)  # ≡ default 通道
 
 Contract:
   * POSTs `msg` (utf-8 body) to `config.alerts.ntfy_url` — an ntfy.sh or
@@ -20,6 +22,10 @@ Contract:
     config.example.yaml, from the repo root (same rule as justfile `cfg`).
   * priority: min|low|default|high|max|urgent (or 1-5). §9 告警分级:
     fatal -> "urgent"; degraded / flags -> "default".
+  * 两通道封装（§9）：fatal(title, msg, config, **kw) = push(priority
+    "urgent", tags ["rotating_light"]) —— 管道炸/阻断性事件；
+    notify(...) = push(priority "default") —— 降级/flags 类提醒。
+    kwargs 可再覆盖默认 priority/tags。
   * proxy: explicit `proxy=` kwarg > config alerts.proxy > proxy.http >
     http_proxy/https_proxy env vars (urllib default behavior).
 

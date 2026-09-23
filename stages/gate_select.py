@@ -4,29 +4,47 @@
 # ///
 """gate_select — 人工闸 1（PLAN.md §7.3）。
 
-输入 20_filtered.jsonl + 30_summaries.jsonl + 35_dedup.jsonl
-（+ 10_raw_items.jsonl 取 url/源名）→ `40_candidates.json`（UI 数据源，非契约）。
+`40_candidates.json`（UI 数据源，非契约）的五类来源——前四个 run 文件
+缺一即 fail-fast（文件即依赖边，提示按 DAG 序给），第五个缺席/半空只
+WARN 退回纯文件路径：
+
+  20_filtered.jsonl   filter verdict + ai_relevance/news_value/reasons
+  30_summaries.jsonl  title_zh/summary/entities/section_guess（文案）
+  35_dedup.jsonl      dedup verdict/cluster_id/match_cos/judge
+  10_raw_items.jsonl  url/源名/date_published/url_canon
+  state/items.sqlite  条目池：结转候选源 + used/eligible/projected-dedup
+                      谓词数据（--items-db 可改路径）
+
 人工/自动勾选 → `40_selected.json`（契约 selected/1）。
 
 候选集 = filter verdict∈{keep,review} 且 dedup verdict∉{suppressed}
 （dedup 的 gray/gray_pending 自动进列表并打灰区标记）。
 
 POOL-MODE（run_dir 名为 YYYY-MM-DD 且 state/items.sqlite 已有本期 item_runs）：
-候选集 = 当期文件路径 ∪ 条目池结转（lib.pool.select_candidates），统一过
+候选集 = 当期文件路径 ∪ 条目池结转（lib.pool.select_candidates）∪ L0 丢行
+兜底（当期被 l0-url-hash 占位 drop、但池行 standing verdict∈{keep,review}
+且 eligible 者 → carried=True，feed 重发不丢候选格）。并集统一过
 used-check / eligible 窗口 / projected-dedup（叠加 history.sqlite 已出片
-cluster 投影）谓词；结转条目的 raw/summary 每次 build 都重新物化到
-38_pool_items.jsonl / 38_pool_summaries.jsonl（stale-safe）。40_selected
-落盘后 mark_used 回写池的 used_in_episode。池缺席/无本期 → 退回纯文件路径
+cluster 投影）谓词；出局按 skipped_used / skipped_window / suppressed
+（文件侧 ∪ 池投影审计列）归账，filter 判 drop 仅计 n_dropped_by_filter，
+n_stale_floor 亦仅计数（pub<下限的结转根本没进候选评估）。结转条目的
+raw/summary 每次 build 都重新物化到 38_pool_items.jsonl /
+38_pool_summaries.jsonl（stale-safe）。40_selected 落盘后 mark_used
+回写池的 used_in_episode。池缺席/无本期 → 退回纯文件路径
 （响亮 WARN，绝不静默半空）。
 
-用法：
-  gate_select.py --run-dir runs/<date>            # = --prepare：重建 40_candidates.json
-  gate_select.py --run-dir R --prepare           # 同上
-  gate_select.py --run-dir R --serve             # prepare + 启动 review_server 勾选 UI
-  gate_select.py --run-dir R --auto [--force]    # top-K by news_value → decided_by:auto
-  gate_select.py --run-dir R --deadline-check HH:MM  # 死线已过且未提交 → 自动放行（供 timer 调用）
-  gate_select.py --run-dir R --items-db P        # 条目池改走 P（> config.storage.items_db）
-  gate_select.py --selftest                      # fixture 端到端自测（含 schema 断言）
+用法（六路入口；--selftest 之外 --run-dir 必填，给日期或路径均可）：
+  gate_select.py --run-dir R                # 缺省 = --prepare：重建 40_candidates.json
+  gate_select.py --run-dir R --prepare      # 同上，显式
+  gate_select.py --run-dir R --serve        # prepare + 启动 review_server 勾选 UI
+  gate_select.py --run-dir R --auto [--force] [--topk N]
+        # top-K by news_value → decided_by:auto；K = --topk（覆盖
+        # config.schedule.topk_autopick）再被 max_items 截顶
+  gate_select.py --run-dir R --deadline-check HH:MM
+        # 死线已过且未提交 → 自动放行（供 timer 调用）
+  gate_select.py --selftest                 # fixture 端到端自测（含 schema 断言）
+  公共 flag：--items-db P = 条目池改走 P（> config.storage.items_db；
+        --serve 会转发给 review_server）
 
 不覆盖原则：40_selected.json 已存在时 --auto/--deadline-check 直接跳过（人工已拍板），
 --force 可强制重判。
@@ -48,7 +66,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-from lib import meta, pool  # stages/lib/{meta,pool}.py（stages/ 即 sys.path 脚本目录）
+from lib import meta, pool, prog  # stages/lib/{meta,pool,prog}.py（stages/ 即 sys.path 脚本目录）
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -147,6 +165,9 @@ def load_config(items_db: str | None = None) -> dict:
         "items_db": str(items_db or sto.get("items_db") or "state/items.sqlite"),
         "history_db": str(sto.get("history_db") or "state/history.sqlite"),
         "arrival_grace_days": int(pcfg.get("arrival_grace_days") or 2),
+        # None 缺省→14；显式 0 保留（=wfrom 下限，子句 C 整体关闭）
+        "carry_stale_max_days": int(pcfg["carry_stale_max_days"])
+            if pcfg.get("carry_stale_max_days") is not None else 14,
         "daily_map": _daily_map(),
     }
 
@@ -301,13 +322,14 @@ def _published_cluster_ids(cfg: dict) -> set:
 
 def _open_pool(cfg: dict, episode: str):
     """POOL-MODE 判定：run_dir 名是日期 + items.sqlite 存在 + item_runs 有本期
-    -> (conn, wfrom, wto, grace_from, published_cids)；否则全 None 五元组 +
-    响亮 WARN（配置/库就位却半空，绝不静默）。
+    -> (conn, wfrom, wto, grace_from, sfloor, published_cids)；否则全 None
+    六元组 + 响亮 WARN（配置/库就位却半空，绝不静默）。
 
     grace_from = episode - arrival_grace_days（first_seen 是期号日期：迟到的
-    无日期/陈旧条目只再宽限这么多期）。
+    无日期/陈旧条目只再宽限这么多期）；sfloor = wfrom - carry_stale_max_days
+    （子句 C 的 pub 下限，挡住归档源全量目录与池冷启动的古董洪水）。
     """
-    none = (None, "", "", "", set())
+    none = (None, "", "", "", "", set())
     if not DATE_RE.fullmatch(episode):
         return none                                   # fixture/冒烟目录：纯文件
     db = pool.resolve_path(cfg.get("items_db"))
@@ -338,7 +360,10 @@ def _open_pool(cfg: dict, episode: str):
     grace_from = (datetime.strptime(episode, "%Y-%m-%d").date()
                   - timedelta(days=int(cfg.get("arrival_grace_days") or 2))
                   ).isoformat()
-    return conn, wfrom, wto, grace_from, _published_cluster_ids(cfg)
+    sfloor_days = cfg.get("carry_stale_max_days")
+    sfloor = pool.stale_floor(wfrom, 14 if sfloor_days is None
+                              else int(sfloor_days))
+    return conn, wfrom, wto, grace_from, sfloor, _published_cluster_ids(cfg)
 
 
 def _pool_candidate(row: dict) -> dict:
@@ -415,8 +440,10 @@ def build_candidates(run_dir: Path, items_db: str | None = None) -> dict:
     daily_map = cfg.get("daily_map") or {}
     candidates, suppressed, skipped = [], [], []
     skipped_window, skipped_used = [], []
+    n_floor = 0                                  # 仅被 stale_floor 砍掉的结转条目
 
-    pconn, wfrom, wto, grace_from, published_cids = _open_pool(cfg, episode)
+    pconn, wfrom, wto, grace_from, sfloor, published_cids = \
+        _open_pool(cfg, episode)
     pool_rows_out: list[dict] = []
     try:
         served = set(raw)                       # 当期批次（10_raw_items 的键）
@@ -449,7 +476,7 @@ def build_candidates(run_dir: Path, items_db: str | None = None) -> dict:
                         and (f.get("prov") or {}).get("model") == "l0-url-hash"
                         and prow.get("filter_verdict") in ("keep", "review")):
                     ok, why = pool.eligible(prow, episode, wfrom, wto,
-                                            grace_from, daily_map)
+                                            grace_from, sfloor, daily_map)
                     if ok:
                         candidates.append(_pool_candidate(prow))
                     elif why == "used":
@@ -495,20 +522,24 @@ def build_candidates(run_dir: Path, items_db: str | None = None) -> dict:
             # 池结转候选：往期 keep/review 未出片且仍在窗/宽限内
             # （当期 item_runs 成员已被 SQL 排除，served 双保险）
             for row in pool.select_candidates(pconn, episode, wfrom, wto,
-                                              grace_from, daily_map):
+                                              grace_from, sfloor, daily_map):
                 if row["item_key"] in served:
                     continue
                 carried_rows.append(row)
                 candidates.append(_pool_candidate(row))
             # 压制审计：文件侧 suppressed ∪ 池投影 suppressed
             for row in pool.select_suppressed(pconn, episode, wfrom, wto,
-                                              grace_from, daily_map):
+                                              grace_from, sfloor, daily_map):
                 if row["item_key"] in served:
                     continue
                 suppressed.append({"item_key": row["item_key"],
                                    "cluster_id": row.get("dedup_cluster_id"),
                                    "match_cos": row.get("dedup_match_cos"),
                                    "carried": True})
+            # 下限审计：其余谓词全过、仅因 pub<sfloor 出局的条目数
+            # （这些条目不进 skipped_window——它们根本没进候选评估）
+            n_floor = pool.count_floor_cut(pconn, episode, grace_from,
+                                           sfloor, daily_map)
 
         if pconn is not None:
             # ---- 统一谓词：used -> 窗口 -> projected-dedup（覆盖整个并集）----
@@ -526,7 +557,7 @@ def build_candidates(run_dir: Path, items_db: str | None = None) -> dict:
                                          "used_in_episode": used})
                     continue
                 ok, reason = pool.eligible(row, episode, wfrom, wto,
-                                           grace_from, daily_map)
+                                           grace_from, sfloor, daily_map)
                 if not ok:
                     skipped_window.append({"item_key": c["item_key"],
                                            "reason": reason})
@@ -591,7 +622,8 @@ def build_candidates(run_dir: Path, items_db: str | None = None) -> dict:
                   "n_dropped_by_filter": len(skipped),
                   "n_carried": sum(1 for c in candidates if c.get("carried")),
                   "n_skipped_window": len(skipped_window),
-                  "n_skipped_used": len(skipped_used)},
+                  "n_skipped_used": len(skipped_used),
+                  "n_stale_floor": n_floor},
         "candidates": candidates,
         "suppressed": suppressed,
         "skipped_window": skipped_window,
@@ -600,6 +632,8 @@ def build_candidates(run_dir: Path, items_db: str | None = None) -> dict:
 
 
 def cmd_prepare(run_dir: Path, items_db: str | None = None) -> int:
+    meta.stage_begin(run_dir, "gate_prepare")   # 与下方 stage_done 同名才自动清除
+    p = prog.Prog(run_dir, "gate_select")
     env = build_candidates(run_dir, items_db=items_db)
     meta.atomic_write(run_dir / CAND_NAME, env)
     meta.stage_done(run_dir, "gate_prepare", CAND_NAME, status="done")
@@ -611,7 +645,14 @@ def cmd_prepare(run_dir: Path, items_db: str | None = None) -> int:
              f"skip-used {st['n_skipped_used']}"
              if st.get("n_carried") or st.get("n_skipped_window")
              or st.get("n_skipped_used") else "")
+          + (f", floor-cut {st['n_stale_floor']}"
+             if st.get("n_stale_floor") else "")
           + ")")
+    p.say(f"candidates={st['n_candidates']} "
+          f"suppressed={st['n_suppressed']} filter-drop={st['n_dropped_by_filter']} "
+          f"carried={st['n_carried']} skip-window={st['n_skipped_window']} "
+          f"skip-used={st['n_skipped_used']} floor-cut={st['n_stale_floor']}")
+    p.close()
     return 0
 
 
@@ -655,6 +696,8 @@ def cmd_auto(run_dir: Path, force: bool = False, topk: int | None = None,
             by = "?"
         print(f"[gate_select] {SEL_NAME} 已存在 (decided_by={by}) — 跳过 (--force 可覆盖)")
         return 0
+    meta.stage_begin(run_dir, "gate_select")  # 早退路径之后才登记——写端 stage_done 自动清除
+    p = prog.Prog(run_dir, "gate_select")
     env = build_candidates(run_dir, items_db=items_db)
     meta.atomic_write(run_dir / CAND_NAME, env)  # 同步刷新 UI 数据源
     cfg = env["config"]
@@ -663,8 +706,13 @@ def cmd_auto(run_dir: Path, force: bool = False, topk: int | None = None,
                    key=lambda c: (-(c["news_value"] if isinstance(c.get("news_value"), (int, float)) else -1),
                                   -(c.get("ai_relevance") or 0), c["item_key"]))
     kept, dropped = order[:k], order[k:]
-    return write_selected(run_dir, kept, dropped, "auto", "below_topk",
-                          items_db=items_db)
+    p.say(f"auto-pick top-{k} of {len(order)} candidates "
+          f"(kept={len(kept)} dropped={len(dropped)})")
+    rc = write_selected(run_dir, kept, dropped, "auto", "below_topk",
+                        items_db=items_db)
+    p.say(f"{SEL_NAME} written: kept={len(kept)} decided_by=auto")
+    p.close()
+    return rc
 
 
 def cmd_deadline_check(run_dir: Path, hhmm: str,

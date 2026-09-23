@@ -8,17 +8,25 @@
 """tts.synth 的 edge-tts 占位实现（PLAN §7.5 / 决策 D2）。
 
 接口：
-    synth(text, seg_id, out_dir, *, voice=None) -> {"file", "dur", "boundaries"}
+    synth(text, seg_id, out_dir, *, voice=None, rate="+0%",
+          config_path=None) -> {"file", "dur", "boundaries"}
 
 行为：
-- voice 默认取 config.tts.voice（repo 根 config.yaml → config.example.yaml →
-  内置 zh-CN-YunyangNeural；YunxiNeural 备选），显式传参可覆盖。
-- 每个产出文件必经 ffmpeg atrim 裁残余静音：头 config.tts.trim.head（缺省 0.20s）、
-  尾 config.tts.trim.tail（缺省 0.78s）——gap-ab 实测值。
+- voice 默认取 config.tts.voice（config_path 指定文件 → repo 根
+  config.yaml → config.example.yaml → 内置 zh-CN-YunyangNeural；
+  YunxiNeural 备选），显式传参可覆盖。rate 只经参数传入（缺省 "+0%"；
+  config.tts.rate 由调用方 stages/voice.py 解析，本层不读）。
+- 代理解析序：config.tts.proxy > config.proxy.http > 环境变量
+  https_proxy/HTTPS_PROXY/all_proxy/ALL_PROXY；皆无则直连。
+- 每种 boundary 模式重试 RETRY_TRIES=3 次（退避 1.5s×attempt）；每模式的
+  最后一次尝试改走已解析代理——bing 端点间歇掐直连时的兜底路由。
+- 每个产出文件必经 ffmpeg atrim 裁残余静音：头 config.tts.trim.head（缺省
+  0.20s）、尾 config.tts.trim.tail（缺省 0.78s）——gap-ab 实测值；短到
+  裁不动则原样改名不破坏音频。
 - dur 由 ffprobe 在裁剪后实测（format=duration）。
-- edge-tts boundary="WordBoundary" 原生边界事件 → boundaries[{text,start,end}]，
-  时间轴已换算到裁剪后（offset-head，clamp 到 [0,dur]）；服务不吐边界时
-  降级 SentenceBoundary，仍不行则 boundaries=[]。
+- edge-tts 边界事件 → boundaries[{text,start,end}]，时间轴换算到裁剪后
+  （offset-head，clamp 到 [0,dur]）：先 WordBoundary，耗尽降级
+  SentenceBoundary，仍不行 boundaries=[]；合成全失败抛 TTSError。
 - 换引擎只换本文件，接口不变。
 
 自检：uv run adapters/tts_edge.py --selftest
@@ -26,8 +34,10 @@
 import argparse
 import asyncio
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -47,20 +57,36 @@ class TTSError(RuntimeError):
     """合成/裁剪失败，交给调用方容错层（D1 同款语义）。"""
 
 
-def _load_tts_config(config_path: str | Path | None = None) -> dict:
-    """读 config.tts；config.yaml 优先，config.example.yaml 兜底，全缺返回 {}。"""
+def _load_doc(config_path: str | Path | None = None) -> dict:
+    """读整份 config；config.yaml 优先，config.example.yaml 兜底，全缺返回 {}。"""
     candidates = [Path(config_path)] if config_path else []
     candidates += [REPO_ROOT / "config.yaml", REPO_ROOT / "config.example.yaml"]
     for p in candidates:
         try:
             if p.is_file():
-                data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-                tts = data.get("tts")
-                if isinstance(tts, dict):
-                    return tts
+                return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
         except Exception:
             continue
     return {}
+
+
+def _load_tts_config(config_path: str | Path | None = None) -> dict:
+    tts = _load_doc(config_path).get("tts")
+    return tts if isinstance(tts, dict) else {}
+
+
+def _resolve_proxy(doc: dict) -> str | None:
+    """tts.proxy > proxy.http > *_proxy env；皆无则 None（直连）。"""
+    tts = doc.get("tts")
+    if isinstance(tts, dict) and tts.get("proxy"):
+        return str(tts["proxy"])
+    px = doc.get("proxy")
+    if isinstance(px, dict) and px.get("http"):
+        return str(px["http"])
+    for k in ("https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
+        if os.environ.get(k):
+            return os.environ[k]
+    return None
 
 
 def _ffprobe_dur(path: Path) -> float:
@@ -75,10 +101,11 @@ def _ffprobe_dur(path: Path) -> float:
 
 
 async def _stream_edge(text: str, voice: str, rate: str, raw_path: Path,
-                       boundary: str) -> list[dict]:
+                       boundary: str, proxy: str | None = None) -> list[dict]:
     """跑一次 edge-tts 流式合成，audio 落盘，boundary 事件收集为秒。"""
     bounds: list[dict] = []
-    comm = edge_tts.Communicate(text, voice=voice, rate=rate, boundary=boundary)
+    comm = edge_tts.Communicate(text, voice=voice, rate=rate, boundary=boundary,
+                                proxy=proxy)
     with open(raw_path, "wb") as f:
         async for chunk in comm.stream():
             if chunk["type"] == "audio":
@@ -90,20 +117,26 @@ async def _stream_edge(text: str, voice: str, rate: str, raw_path: Path,
     return bounds
 
 
-def _synth_to_raw(text: str, voice: str, rate: str, raw_path: Path) -> list[dict]:
-    """WordBoundary 优先；流中途失败则降级 SentenceBoundary 重试一次。"""
-    try:
-        return asyncio.run(_stream_edge(text, voice, rate, raw_path, "WordBoundary"))
-    except Exception:
-        if raw_path.exists():
-            raw_path.unlink()
-        try:
-            return asyncio.run(
-                _stream_edge(text, voice, rate, raw_path, "SentenceBoundary"))
-        except Exception as e:
-            if raw_path.exists():
-                raw_path.unlink()
-            raise TTSError(f"edge-tts synth failed (voice={voice}): {e}") from e
+RETRY_TRIES = 3  # 每种 boundary 模式的重试次数；bing 端点间歇性拒连是常态
+
+def _synth_to_raw(text: str, voice: str, rate: str, raw_path: Path,
+                  proxy: str | None = None) -> list[dict]:
+    """WordBoundary 优先（带退避重试）；耗尽后降级 SentenceBoundary 再试。
+    每种模式的最后一次尝试改走 proxy（若配置）——直连被掐时的兜底路由。"""
+    last: Exception | None = None
+    for boundary in ("WordBoundary", "SentenceBoundary"):
+        for attempt in range(RETRY_TRIES):
+            px = proxy if (proxy and attempt == RETRY_TRIES - 1) else None
+            try:
+                return asyncio.run(
+                    _stream_edge(text, voice, rate, raw_path, boundary, px))
+            except Exception as e:
+                last = e
+                if raw_path.exists():
+                    raw_path.unlink()
+                if attempt < RETRY_TRIES - 1:
+                    time.sleep(1.5 * (attempt + 1))
+    raise TTSError(f"edge-tts synth failed (voice={voice}): {last}") from last
 
 
 def _trim_silence(raw: Path, final: Path, head: float, tail: float) -> tuple[float, float, bool]:
@@ -139,8 +172,10 @@ def synth(text: str, seg_id: str, out_dir: str | Path, *,
     if "/" in seg_id or "\\" in seg_id:
         raise TTSError(f"seg_id must be a bare slug, got {seg_id!r}")
 
-    cfg = _load_tts_config(config_path)
+    doc = _load_doc(config_path)
+    cfg = doc.get("tts") if isinstance(doc.get("tts"), dict) else {}
     voice = voice or cfg.get("voice") or DEFAULT_VOICE
+    proxy = _resolve_proxy(doc)
     trim = cfg.get("trim") if isinstance(cfg.get("trim"), dict) else {}
     head = float(trim.get("head", DEFAULT_HEAD_S))
     tail = float(trim.get("tail", DEFAULT_TAIL_S))
@@ -150,7 +185,7 @@ def synth(text: str, seg_id: str, out_dir: str | Path, *,
     raw = out_dir / f"{seg_id}.raw.mp3"
     final = out_dir / f"{seg_id}.mp3"
 
-    bounds = _synth_to_raw(text, voice, rate, raw)
+    bounds = _synth_to_raw(text, voice, rate, raw, proxy)
     dur, _raw_dur, trimmed = _trim_silence(raw, final, head, tail)
 
     # 边界时间轴换算到裁剪后：整体左移 head，clamp 进 [0, dur]

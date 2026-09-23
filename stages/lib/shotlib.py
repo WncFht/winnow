@@ -14,13 +14,17 @@
     load_policy(path=None)        -> dict                # state/shot_policy.yaml
 
 策略链（域名策略表 state/shot_policy.yaml 先行）：
+  0. news.google.* 中转 URL 先经 googlenewsdecoder 解出出版方真链
+     （可选依赖——包缺失/解码失败照原 URL 走老路；命中记 rec.resolved），
+     再对真链走下述判定；
   1. host 命中 rules/cloudflare_fronted → 直接渲染品牌占位卡，不导航；
   2. 否则 playwright chromium 截图：ctx locale="en-US" + 启动参数
      --lang=en-US + extra_http_headers Accept-Language=en-US —— 防
      Google-Translate 弹窗烤进图（硬教训，勿回退 zh-CN）；
-  3. 墙检测（HTTP≥400 / WALL_PAT 命中 title+body / 空白图 / 导航异常）
-     → 自动降级占位卡，永不阻塞；占位卡走 playwright html→png，
-     browser 整体不可用时 PIL 兜底，仍产出 1920×1080 PNG。
+  3. 墙检测（HTTP≥400 / WALL_PAT 命中 title+body / 空白图 stddev<8 /
+     PNG < min_shot_kb / 导航异常）→ 自动降级占位卡，永不阻塞；占位卡
+     走 playwright html→png，browser 整体不可用时 PIL 兜底，仍产出
+     1920×1080 PNG。
 
 占位卡 = claudeStyle 品牌卡（#fbf9f6/#fdfbf6/#cf4f24），大字 'SOURCE: <domain>'。
 截图默认 1400×900@dsf1.5 → 2100×1350 PNG（对齐 repro shotcard ≤1340×716 内嵌）。
@@ -30,7 +34,10 @@
 重写路未纳入 —— 策略表只保留 screenshot|placeholder 两种 action）。
 
 cfg(dict) 键：policy / policy_path / proxy(None=env,'direct' 直连,或 URL)
-  / viewport=(w,h) / scale / nav_timeout_ms / retries / headless。
+  / viewport=(w,h) / scale / nav_timeout_ms / retries / headless
+  / placeholder_size=(w,h)（占位卡尺寸，缺省 1920×1080）
+  / min_shot_kb（真截图 PNG 下限 KB，缺省 8；非 blank 且 <400 仍过小
+    按 undersized 判负走占位）。
 
 Smoke:  uv run stages/lib/shotlib.py            # 3 URL 实测（含 x/wechat 占位）
         uv run stages/lib/shotlib.py --offline  # 只跑离线断言
@@ -267,6 +274,7 @@ _DEFAULT_CFG = {
     "headless": True,
     "proxy": None,                # None=env; 'direct' 直连; 否则代理 URL
     "placeholder_size": (1920, 1080),
+    "min_shot_kb": 8,             # PNG 下限；非 blank + <400 下仍过小才算 undersized
 }
 
 
@@ -424,12 +432,49 @@ def _env_proxy(url: str):
             or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
 
 
-def _resolve_proxy(url: str, proxy):
-    """-> playwright proxy dict | None。'direct'/'none' 强制直连。"""
+def _cfg_proxy():
+    """config.yaml / config.example.yaml 的 proxy.http——env 缺省时的兜底。"""
+    try:
+        import yaml
+        for name in ("config.yaml", "config.example.yaml"):
+            p = REPO_ROOT / name
+            if p.is_file():
+                doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+                px = doc.get("proxy")
+                if isinstance(px, dict) and px.get("http"):
+                    return str(px["http"])
+    except Exception:
+        pass
+    return None
+
+
+def _resolve_proxy(url: str, proxy, force_cfg: bool = False):
+    """-> playwright proxy dict | None。'direct'/'none' 强制直连。
+    force_cfg=True 时 env 缺省再退到 config proxy.http（重试兜底路由）。"""
     if isinstance(proxy, str) and proxy.lower() in ("direct", "none", "off"):
         return None
     cand = proxy if isinstance(proxy, str) and proxy else _env_proxy(url)
+    if not cand and force_cfg:
+        cand = _cfg_proxy()
     return {"server": cand} if cand else None
+
+
+def _gn_resolve(url: str, timeout: int = 10):
+    """news.google.com/rss/articles/<id> 中转页 → 真实出版方 URL。
+
+    batchexecute 签名参数会随 Google 轮换，手写 RPC 易腐——直接用
+    googlenewsdecoder（cards.py PEP723 已声明）。包装缺失/解码失败
+    返回 None——照原 URL 走老路（中转页兜底）。"""
+    if "news.google." not in _host(url):
+        return None
+    try:
+        from googlenewsdecoder import gnewsdecoder
+        r = gnewsdecoder(url)
+        real = (r or {}).get("decoded_url") if r.get("status") else None
+        return real if isinstance(real, str) and "google." not in _host(real) \
+            else None
+    except Exception:
+        return None
 
 
 def _block(route):
@@ -490,6 +535,17 @@ def _attempt(ctx, url, shot_path: Path, nav_timeout: int) -> dict:
             page.wait_for_load_state("load", timeout=9000)
         except Exception:
             pass
+        # news.google/rss/articles 是 JS 中转页（"Loading <real url>"）——
+        # 不等它跳完就会截到中转页（undersized）。轮询最多 12s 等真站跳转。
+        for _ in range(12):
+            if "news.google." not in (_host(page.url) or ""):
+                break
+            page.wait_for_timeout(1000)
+        if "news.google." not in (_host(page.url) or ""):
+            try:
+                page.wait_for_load_state("load", timeout=9000)
+            except Exception:
+                pass
         page.wait_for_timeout(700)
         # CF/Turnstile：最多 ~18s 等挑战页自解，顺手点 checkbox
         for _ in range(6):
@@ -574,6 +630,12 @@ class ShotSession:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         rec = {"url": url, "host": _host(url)}
         t0 = time.time()
+        if "news.google." in rec["host"]:
+            real = _gn_resolve(url)          # 中转页解出真文，直接截出版方
+            if real:
+                rec["resolved"] = real
+                url = real
+                rec["host"] = _host(url)
         action, rule = policy_action(self.policy, url)
         rec["action"] = action
         rec["rule"] = rule
@@ -629,7 +691,8 @@ class ShotSession:
                     extra_http_headers=dict(EXTRA_HEADERS),
                     reduced_motion="reduce", color_scheme="light",
                     ignore_https_errors=True, service_workers="block",
-                    proxy=_resolve_proxy(url, self.cfg["proxy"]))
+                    proxy=_resolve_proxy(url, self.cfg["proxy"],
+                                         force_cfg=attempt > 0))
                 ctx.add_init_script(STEALTH_JS)
                 try:
                     bare = ".".join((_host(url) or "").split(".")[-2:])
@@ -647,7 +710,7 @@ class ShotSession:
                     if out_path.exists() else 0
                 if (not rec["wall"]) and (not blank) \
                         and (rec.get("status") or 0) < 400 \
-                        and rec["shot_kb"] > 15:
+                        and rec["shot_kb"] > int(self.cfg["min_shot_kb"]):
                     rec.update(path=str(out_path), kind="shot", ok=True,
                                attempts=attempt + 1)
                     return

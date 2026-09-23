@@ -12,6 +12,12 @@ overlay 只能贴 PNG——本 stage 把 62_timeline.json 每个 seg 渲染成
 样式对齐 composer/src/FullDaily.tsx SubtitlePill：
   bg rgba(0,0,0,0.75) / 白字 44px / lineHeight 1.35 / padding 16×42 /
   radius 44 / 盒宽上限 1600（文字区 1516）/ overlay 落点 y=930 ≈ bottom:60。
+
+CLI：
+    uv run stages/subs.py --run-dir runs/<date> [--force]
+      输入 62_timeline.json（缺 → exit 1，先跑 voice）；65_subs/*.png 已存在
+      且未 --force 时幂等跳过（exit 0）。字体从 FONT_CANDIDATES 按序挑首个
+      真含 CJK 字形的（htmlFont.ttf → NotoSansCJK），全缺 → RuntimeError。
 """
 from __future__ import annotations
 
@@ -22,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
-from lib import meta  # noqa: E402
+from lib import meta, prog  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 F_TIMELINE = "62_timeline.json"
@@ -141,11 +147,16 @@ def main(argv=None) -> int:
         return 0
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    meta.stage_begin(run_dir)
+    p = prog.Prog(run_dir, "subs", total=len(segs),
+                  step=min(100, max(10, len(segs) // 40)), interval=30)
+
     font = load_font(repo, FONT_SIZE)
     probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
 
     made = skipped = 0
-    for s in segs:
+    for i, s in enumerate(segs, 1):
+        p.tick(i, "pill")
         n, text = s.get("n"), (s.get("text") or "").strip()
         if not isinstance(n, int) or not text:
             skipped += 1
@@ -153,6 +164,9 @@ def main(argv=None) -> int:
             continue
         render_pill(text, font, probe).save(out_dir / f"{n:03d}.png")
         made += 1
+
+    p.say(f"{made}/{len(segs)} pill 完成（skipped {skipped}）")
+    p.close()
 
     meta.stage_done(run_dir, "subs", SUBS_DIR, status="done",
                     producer="stages/subs.py",

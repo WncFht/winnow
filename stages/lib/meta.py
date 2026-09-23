@@ -9,11 +9,29 @@ Implements the PLAN.md contract:
   crash never leaves a half-written file.
 - Every stage takes an exclusive flock on runs/<date>/.lock at start.
 
+Two sidecar subsystems live beside 00_meta.json（stages{} extra=forbid
+放不下的东西都落在这两个非契约文件）:
+
+- 00_running.json 运行态登记：stage_begin() 写 {stage: {pid, started_at,
+  argv[, extra]}}；stage_done 自动弹出该 stage 条目，不走 stage_done 的
+  出口（dry-run、review_server 正常关停、early-return）须调 stage_clear()
+  ——不清会留墓碑。running_stages() 读方按 /proc 存活 + cmdline 含登记
+  脚本名判活（防 pid 复用误报）；alive=False 即崩溃/异常退出的残留现场。
+  started_at 同时是 stage_done 实测耗时 elapsed_s 的起点。
+- 00_stage_stats.json 簿记侧车：stage_done(extra=) 的簿记键分流到
+  {stage: {…, recorded_at}}（含 elapsed_s = produced_at - running
+  .started_at 实测耗时，替代下游"相邻 produced_at 差分"——后者在
+  artifact 重写/乱序登记时会产生负值）。_load_meta 的读视图把侧车键
+  并回 entry 供 meta_status 消费（digest 的 review_sha256、meta_qa 的
+  prov token 统计），写盘归一时剔除——侧车键永不回流 00_meta，
+  schema lint 也不覆盖该文件；写失败只告警不阻塞主流程。
+
 Stages use it like:
 
     from lib import meta
     run_dir = meta.ensure_run(args.date)
     with meta.run_lock(run_dir):
+        meta.stage_begin(run_dir)            # 登记 00_running.json
         ...
         meta.atomic_write(run_dir / "10_raw_items.jsonl", payload)
         meta.stage_done(run_dir, "collect", "10_raw_items.jsonl")
@@ -453,9 +471,113 @@ def stage_done(
     meta["stages"][stage] = entry
     # _load_meta 的读视图含并回的簿记键——写盘前必须再归一，否则侧车键回流
     atomic_write(_meta_path(run_dir), _normalize_meta(meta, run_dir))
-    if extra:
-        _record_stats(run_dir, stage, extra)
+    stats_extra = dict(extra) if extra else {}
+    # 真实耗时簿记：00_running 的 started_at → produced_at，替代下游
+    # "相邻 produced_at 差分"（后者在 artifact 重写/乱序登记时会产生负值）。
+    run_ent = _stage_pop_running(run_dir, stage)
+    try:
+        t0 = datetime.fromisoformat(
+            str(run_ent.get("started_at")).replace("Z", "+00:00")).timestamp()
+        t1 = datetime.fromisoformat(
+            entry["produced_at"].replace("Z", "+00:00")).timestamp()
+        if t1 >= t0:
+            stats_extra["elapsed_s"] = round(t1 - t0, 1)
+    except (AttributeError, ValueError, TypeError):
+        pass
+    if stats_extra:
+        _record_stats(run_dir, stage, stats_extra)
     return entry
+
+
+# ---------------------------------------------------------------------------
+# 运行态登记（00_running.json —— stages{} 契约 extra=forbid 放不下运行中条目，
+# 独立文件、读方按 /proc 判活；崩溃残留即"疑似挂掉"的现场）
+# ---------------------------------------------------------------------------
+
+RUNNING_NAME = "00_running.json"
+
+
+def stage_begin(run_dir: Union[str, Path], stage: Union[str, None] = None,
+                extra: Union[dict, None] = None) -> dict:
+    """登记阶段进入运行态并返回条目。stage 缺省时按 argv0 推断
+    （stages/x.py → "x"）。stage_done 自动清除；写失败只告警不阻塞。"""
+    run_dir = Path(run_dir)
+    if not stage:
+        stage = Path(_infer_producer() or "unknown").stem
+    p = run_dir / RUNNING_NAME
+    cur: dict = {}
+    try:
+        if p.exists():
+            m = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(m, dict):
+                cur = m
+    except (OSError, json.JSONDecodeError):
+        cur = {}
+    entry = {"pid": os.getpid(), "started_at": _utcnow(),
+             "argv": " ".join(sys.argv)[:240]}
+    if extra:
+        entry.update(extra)
+    cur[stage] = entry
+    try:
+        atomic_write(p, cur)
+    except OSError as e:
+        print(f"[meta] warn: {RUNNING_NAME} 写入失败: {e}", file=sys.stderr)
+    return entry
+
+
+def _stage_pop_running(run_dir: Path, stage: str) -> dict | None:
+    """弹出 00_running.json 里该 stage 的条目并返回（无则 None）。"""
+    p = run_dir / RUNNING_NAME
+    try:
+        cur = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+        if isinstance(cur, dict):
+            ent = cur.pop(stage, None)
+            if ent is not None:
+                atomic_write(p, cur)
+            return ent if isinstance(ent, dict) else None
+    except (OSError, json.JSONDecodeError):
+        pass
+
+
+def stage_clear(run_dir: Union[str, Path], stage: str) -> None:
+    """清掉某阶段的运行态登记——给不走 stage_done 的出口用
+    （dry-run、review_server 正常关停、early-return 分支）。
+    不清会留 alive=False 墓碑，TUI 误报"崩溃残留"。"""
+    _stage_pop_running(Path(run_dir), stage)
+
+
+def _pid_matches(pid: int, argv: str) -> bool:
+    """pid 存活且 cmdline 与登记 argv 同脚本——防 pid 复用把死阶段显示成 running。"""
+    try:
+        cmd = Path(f"/proc/{pid}/cmdline").read_bytes() \
+            .replace(b"\0", b" ").decode(errors="replace")
+    except OSError:
+        return False
+    script = (argv.split() or [""])[0]           # argv[0] = stages/x.py（或 uv run 前缀）
+    stem = Path(script).stem
+    return bool(stem) and stem in cmd
+
+
+def running_stages(run_dir: Union[str, Path]) -> dict:
+    """读 00_running.json 并附存活判定 → {stage: {pid, started_at, argv, alive}}。
+    alive=False 即崩溃/异常退出留下的墓碑。存活判定 = /proc 存在 + cmdline
+    含登记脚本名（pid 复用不误报）。"""
+    p = Path(run_dir) / RUNNING_NAME
+    try:
+        cur = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(cur, dict):
+        return {}
+    out = {}
+    for st, e in cur.items():
+        if not isinstance(e, dict):
+            continue
+        pid = e.get("pid")
+        alive = isinstance(pid, int) and pid > 0 \
+            and _pid_matches(pid, str(e.get("argv") or ""))
+        out[st] = {**e, "alive": alive}
+    return out
 
 
 def meta_status(run_dir: Union[str, Path], verify: bool = False) -> dict:
@@ -464,6 +586,8 @@ def meta_status(run_dir: Union[str, Path], verify: bool = False) -> dict:
     verify=True annotates each stages{} entry with "_verify":
     "ok" | "missing" | "sha_mismatch" | "no_artifact" — so resume logic can
     skip only stages whose declared artifact is still intact.
+    目录型 artifact（subs 的 65_subs/ 等，sha256 本就为 null）按存在即 ok——
+    否则下游（resume/watch）各自打 isdir 补丁，口径越补越散。
     """
     meta = _load_meta(run_dir)
     if not verify:
@@ -475,7 +599,9 @@ def meta_status(run_dir: Union[str, Path], verify: bool = False) -> dict:
             entry["_verify"] = "no_artifact"
             continue
         apath = run_dir / art
-        if not apath.is_file():
+        if apath.is_dir():
+            entry["_verify"] = "ok"
+        elif not apath.is_file():
             entry["_verify"] = "missing"
         elif entry.get("sha256") and sha256_file(apath) != entry["sha256"]:
             entry["_verify"] = "sha_mismatch"

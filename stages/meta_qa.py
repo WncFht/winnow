@@ -20,8 +20,9 @@
   90_qa.json                 qa/1    {flags[], checks{}}——合并 digest 期合规
                                flags（stage=="digest" 原样保留，本阶段 flags
                                幂等替换 stage=="meta_qa" 的旧值）
-  metrics.json               各阶段耗时（00_meta produced_at 差分）/条数/
-                               LLM token 汇总
+  metrics.json               各阶段耗时（00_stage_stats 并回的 elapsed_s
+                               实测值优先；produced_at 相邻差分仅兜底，
+                               负值记 null）/条数/LLM token 汇总
 
 审计（种子 experiments/qa-loop/）：
   link-check   adapters/bin/lychee -vv --format json 扫全部 50.sources[].url，
@@ -70,7 +71,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 from adapters import alert_ntfy, deadman  # noqa: E402
 from adapters import llm_swe2max as llm  # noqa: E402
-from lib import meta, pool, prompts, store  # noqa: E402
+from lib import meta, pool, prog, prompts, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -507,7 +508,8 @@ def _sniff_botwall200(url: str, cfg: dict) -> str:
         return "ok"      # 嗅探失败不降级 lychee 的 ok 结论
 
 
-def link_audit(run_dir: Path, issue: dict, cfg: dict, flags: list) -> dict:
+def link_audit(run_dir: Path, issue: dict, cfg: dict, flags: list,
+               p: "prog.Prog | None" = None) -> dict:
     """扫全部 sources[].url，回填 reachable。返回 checks['links']。"""
     urls, seen = [], set()
     for it in issue.get("items", []) or []:
@@ -522,6 +524,8 @@ def link_audit(run_dir: Path, issue: dict, cfg: dict, flags: list) -> dict:
         check["skipped"] = True
         return check
 
+    if p:
+        p.say(f"links: lychee 扫 {len(urls)} urls（子进程 ≤600s）")
     res = _lychee_run(urls, cfg)
     if res is None:
         flags.append(_flag("_links", "lychee_unavailable", "medium",
@@ -548,9 +552,21 @@ def link_audit(run_dir: Path, issue: dict, cfg: dict, flags: list) -> dict:
     # botwall_200 嗅探：仅 ok 类（lychee 只看了状态码，挑战页 200 它看不见）
     ok_urls = [u for u, c in cls.items() if c == "ok"]
     if ok_urls:
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            for u, c in zip(ok_urls, ex.map(lambda x: _sniff_botwall200(x, cfg), ok_urls)):
-                cls[u] = c
+        if p:
+            p.say(f"links: {len(ok_urls)} ok urls 进 botwall_200 嗅探（8 workers）")
+        sp = prog.Prog(run_dir, "meta_qa", total=len(ok_urls),
+                       step=max(10, min(100, len(ok_urls) // 40)),
+                       interval=30.0)
+        try:
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                for i, (u, c) in enumerate(zip(
+                        ok_urls,
+                        ex.map(lambda x: _sniff_botwall200(x, cfg), ok_urls)), 1):
+                    cls[u] = c
+                    sp.tick(i, "botwall sniff")
+            sp.tick(len(ok_urls), "botwall sniff done", force=True)
+        finally:
+            sp.close()
 
     for u, c in cls.items():
         if c in ("ok",):
@@ -759,13 +775,22 @@ def build_metrics(run_dir: Path, qa: dict, title_provs: list,
         except Exception:
             return None
 
-    stage_secs = {}
+    # 先算相邻 produced_at 差分作兜底（负值=重写/乱序 → None），
+    # 再用 00_stage_stats 并回 entry 的 elapsed_s 实测值覆盖——双保险。
+    diffs = {}
     prev_name, prev_ts = None, None
     for name, e in order:
         ts = _ts(e.get("produced_at"))
         if prev_name and ts is not None and prev_ts is not None:
-            stage_secs[prev_name] = round(ts - prev_ts, 1)
+            d = round(ts - prev_ts, 1)
+            diffs[prev_name] = d if d >= 0 else None
         prev_name, prev_ts = name, ts
+    stage_secs = {}
+    for name, e in order:
+        if isinstance(e.get("elapsed_s"), (int, float)):
+            stage_secs[name] = round(float(e["elapsed_s"]), 1)
+        elif name in diffs:
+            stage_secs[name] = diffs[name]
     stage_secs["meta_qa"] = round(sum(sub_seconds.values()), 1)
 
     counts = {}
@@ -823,7 +848,7 @@ def build_metrics(run_dir: Path, qa: dict, title_provs: list,
     doc = {"schema": "metrics/1", "episode": qa.get("episode"),
            "generated_at": _utcnow(),
            "stage_seconds": stage_secs,
-           "stage_seconds_note": "相邻 00_meta.produced_at 差分（人工闸等待计入下一 stage）",
+           "stage_seconds_note": "stage_begin→done 实测 elapsed_s 优先；缺失退相邻 produced_at 差分（负值记 null）",
            "item_counts": counts,
            "llm": llm_agg,
            "meta_qa_seconds": {k: round(v, 1) for k, v in sub_seconds.items()}}
@@ -861,6 +886,7 @@ def run(run_dir: Path, config_path=None, *, skip_links=False, skip_embed=False,
     sub = {}
     flags: list = []
     cfg = _cfg(config_path)
+    p = prog.Prog(run_dir, "meta_qa", total=6, step=1, interval=30.0)
     issue_p = _need(run_dir, F_ISSUE,
                     "先跑 `just digest`（Call A）+ `just edit-import`（编辑闸锁 50_issue.json）")
     issue = _load_json(issue_p)
@@ -880,16 +906,20 @@ def run(run_dir: Path, config_path=None, *, skip_links=False, skip_embed=False,
     # ① 标题
     t = time.time()
     llm_cfg = None if no_llm else llm.load_cfg(config_path)
+    p.say("titles: 标题候选生成（" + ("LLM" if llm_cfg else "确定性兜底") + "）")
     titles_doc, title_provs = gen_titles(run_dir, issue, llm_cfg, flags)
     sub["titles"] = time.time() - t
+    p.tick(1, "titles")
 
     # ② 封面
     t = time.time()
     cover_p = None
     if not skip_cover:
+        p.say("cover: playwright 渲染 2560×1440 封面")
         cover_p = render_cover(run_dir, _cover_params(issue, titles_doc,
                                                       sums_by_key, key_by_id), flags)
     sub["cover"] = time.time() - t
+    p.tick(2, "cover" + (" skipped" if skip_cover else ""))
 
     # ③ 审计
     checks = {"title": {"candidates": len(titles_doc.get("candidates", [])),
@@ -897,17 +927,22 @@ def run(run_dir: Path, config_path=None, *, skip_links=False, skip_embed=False,
               "cover": {"rendered": bool(cover_p)}}
     t = time.time()
     checks["links"] = ({"skipped": True, "reason": "--skip-links"} if skip_links or degraded
-                       else link_audit(run_dir, issue, cfg, flags))
+                       else link_audit(run_dir, issue, cfg, flags, p=p))
     sub["links"] = time.time() - t
+    p.tick(3, "links" + (" skipped" if skip_links or degraded else ""))
     t = time.time()
     checks["validate"] = validate_audit(run_dir, flags, cfg)
     sub["validate"] = time.time() - t
+    p.tick(4, "validate")
     t = time.time()
+    if not (skip_embed or degraded):
+        p.say("embed-leak: 抽样句 embed + doc-cos 审计")
     checks["embed_leak"] = ({"skipped": True, "reason": "--skip-embed/degraded"}
                             if skip_embed or degraded
                             else embed_leak_audit(issue, content_by_key,
                                                   key_by_id, flags))
     sub["embed_leak"] = time.time() - t
+    p.tick(5, "embed_leak" + (" skipped" if skip_embed or degraded else ""))
     checks["asr"] = {"skipped": True,
                      "reason": "对齐后备未启用（PLAN §7.9 审计项，换非 edge 引擎时启用）"}
     if degraded:
@@ -941,6 +976,7 @@ def run(run_dir: Path, config_path=None, *, skip_links=False, skip_embed=False,
     t = time.time()
     build_metrics(run_dir, qa, title_provs, sub, checks)
     sub["metrics"] = time.time() - t
+    p.tick(6, "writeback+metrics", force=True)
     # 注意：StageEntry extra=forbid——extra 键会违 schema-lint，簿记走 metrics.json
     meta.stage_done(run_dir, "meta_title", F_TITLES, status="done")
     if cover_p:
@@ -950,6 +986,7 @@ def run(run_dir: Path, config_path=None, *, skip_links=False, skip_embed=False,
     _alert(qa["flags"], cfg, episode, enabled=not no_alerts)
     print(f"meta_qa done in {time.time() - t0:.1f}s: "
           f"{len(qa['flags'])} flags total ({len(flags)} from meta_qa)")
+    p.close()
     return 0
 
 
@@ -1030,6 +1067,7 @@ def main() -> None:
 
     try:
         with meta.run_lock(run_dir):
+            meta.stage_begin(run_dir)  # 锁内登记；stage_done 时自动清除
             rc = run(run_dir, args.config, skip_links=args.skip_links,
                      skip_embed=args.skip_embed, skip_cover=args.skip_cover,
                      no_llm=args.no_llm, no_alerts=args.no_alerts)

@@ -327,7 +327,8 @@ def add_cluster(conn: sqlite3.Connection, title: str, day: str,
                 centroid: Any, state: str = "open",
                 first_seen: Optional[str] = None,
                 item_count: int = 1, n_reissues: int = 0,
-                published: int = 0) -> int:
+                published: int = 0,
+                cmpset: "CmpSet | None" = None) -> int:
     """新建 cluster。centroid 自动 unit-norm；expires_at = last_seen + TTL。"""
     c = _unit(_as_vec(centroid))
     day = _check_day(day)
@@ -339,13 +340,22 @@ def add_cluster(conn: sqlite3.Connection, title: str, day: str,
         " VALUES(?,?,?,?,?,?,?,?,?)",
         (title, _v2b(c), fs, day, exp, item_count, n_reissues, state, published))
     conn.commit()
-    return int(cur.lastrowid)
+    cid = int(cur.lastrowid)
+    if cmpset is not None and state == "open":
+        cmpset._add_row(cid, {
+            "cluster_id": cid, "canonical_title": title,
+            "first_seen": fs, "last_seen": day, "expires_at": exp,
+            "item_count": item_count, "n_reissues": n_reissues,
+            "published": published},
+            _b2v(_v2b(c)))                    # f32 回环——与 DB blob 逐字节一致
+    return cid
 
 
 def add_item(conn: sqlite3.Connection, item: dict, cluster_id: int,
              verdict: str = "candidate",
              judge: Union[str, dict, None] = None,
-             match_cos: Optional[float] = None) -> int:
+             match_cos: Optional[float] = None,
+             cmpset: "CmpSet | None" = None) -> int:
     """登记一条 item。item 至少含 title/url_canon/embed；simhash/url_hash 缺省自动算。"""
     url_c = item.get("url_canon") or canon_url(item.get("url", ""))
     uh = item.get("url_hash") or (url_hash(url_c) if url_c else _EMPTY_SHA1)
@@ -364,11 +374,14 @@ def add_item(conn: sqlite3.Connection, item: dict, cluster_id: int,
          title, item.get("summary"), item.get("source"), url_c, uh, lang,
          _s64(int(sh)), _v2b(_as_vec(item["embed"])), verdict, match_cos, jtxt))
     conn.commit()
+    if cmpset is not None:
+        cmpset._append_member(cluster_id, int(sh))
     return int(cur.lastrowid)
 
 
 def _merge_into_cluster(conn: sqlite3.Connection, cid: int, vec: list,
-                        day: str, reissue: bool) -> None:
+                        day: str, reissue: bool,
+                        cmpset: "CmpSet | None" = None) -> None:
     """把成员向量并入 centroid（运行均值），刷新 last_seen/expires_at。
 
     expires_at 只延不缩（迟到回填不会缩短已延的保鲜期）。
@@ -388,25 +401,199 @@ def _merge_into_cluster(conn: sqlite3.Connection, cid: int, vec: list,
         (_v2b(m), n + 1, row["n_reissues"] + (1 if reissue else 0),
          last_seen, expires, cid))
     conn.commit()
+    if cmpset is not None:
+        cmpset._set_centroid(cid, _b2v(_v2b(m)))
+        idx = cmpset._idx.get(cid)
+        if idx is not None:
+            cmpset.meta[idx]["item_count"] = n + 1
+            cmpset.meta[idx]["n_reissues"] = row["n_reissues"] + (1 if reissue else 0)
+            cmpset.meta[idx]["last_seen"] = last_seen
+            cmpset.meta[idx]["expires_at"] = expires
 
 
 def _attach(conn: sqlite3.Connection, item: dict, cid: int, verdict: str,
             day: str, judge: Union[str, dict, None] = None,
-            match_cos: Optional[float] = None) -> int:
+            match_cos: Optional[float] = None,
+            cmpset: "CmpSet | None" = None) -> int:
     """挂成员 + centroid 并入 + 保鲜期刷新（reissue 时 n_reissues++）。"""
-    iid = add_item(conn, item, cid, verdict=verdict, judge=judge, match_cos=match_cos)
+    iid = add_item(conn, item, cid, verdict=verdict, judge=judge,
+                   match_cos=match_cos, cmpset=cmpset)
     _merge_into_cluster(conn, cid, _unit(_as_vec(item["embed"])), day,
-                        reissue=(verdict == "reissue"))
+                        reissue=(verdict == "reissue"), cmpset=cmpset)
     return iid
+
+
+# ---------------------------------------------------------------------------
+# 比对集内存镜像（可选加速路径）
+# ---------------------------------------------------------------------------
+
+class CmpSet:
+    """开放 cluster 比对集的内存镜像：centroid 矩阵 + 成员 simhash 段。
+
+    原 check() 每 rep 全表线性扫（open_clusters + 逐簇 _cluster_members SELECT
+    + 纯 Python cos/hamming），~1300 open clusters 下单 rep 0.15-1.5s。
+    check(cmpset=...) 改走 numpy 快路（~2ms/rep）；写入路径
+    （add_cluster/add_item/_merge_into_cluster/_recompute_cluster）传 cmpset
+    同步增量维护，镜像与 DB 逐字节一致（f32 回环），语义与原逐簇扫描等价：
+    同行序、同阈值、同"首个海明距命中即短路"顺序。
+
+    numpy 惰性导入（__init__），模块本体仍是 stdlib-only。
+    """
+
+    _POP = None    # uint8 popcount 表（lazy 共享）
+
+    def __init__(self, cap: int = 8192, mcap: int = 1 << 17):
+        import numpy as np
+        self._np = np
+        self.ids: list[int] = []        # row idx -> cluster_id（open_clusters 同序）
+        self.meta: list[dict] = []      # row idx -> cluster dict（同 open_clusters 键）
+        self.cent = np.zeros((cap, 1024), np.float64)
+        self.n = 0
+        self.mem_cid = np.empty(mcap, np.int32)   # 成员行 -> cluster row idx
+        self.mem_sim = np.empty(mcap, np.uint64)
+        self.mem_n = 0
+        self._idx: dict[int, int] = {}            # cluster_id -> row idx
+
+    @classmethod
+    def load(cls, conn: sqlite3.Connection, today: Optional[str] = None) -> "CmpSet":
+        """与 open_clusters() 同一 SELECT 建镜像；成员只取 simhash
+        （原路径 SELECT embed 但比对只用 simhash——省掉全部 blob 解码）。"""
+        cs = cls()
+        np = cs._np
+        today = _check_day(today or _today())
+        rows = conn.execute(
+            "SELECT cluster_id, canonical_title, centroid, first_seen, last_seen,"
+            "       expires_at, item_count, n_reissues, published"
+            " FROM clusters WHERE state='open' AND expires_at>=?", (today,)).fetchall()
+        for r in rows:
+            cl = dict(r)
+            cid = cl["cluster_id"]
+            if cs.n >= cs.cent.shape[0]:
+                cs.cent = np.vstack([cs.cent, np.zeros_like(cs.cent)])
+            cs._idx[cid] = cs.n
+            cs.ids.append(cid)
+            cs.meta.append(cl)
+            cs.cent[cs.n] = np.asarray(_b2v(cl["centroid"]), dtype=np.float64)
+            cs.n += 1
+        if cs.n:
+            qm = ",".join("?" * cs.n)
+            for cid, sim in conn.execute(
+                    f"SELECT cluster_id, simhash FROM items"
+                    f" WHERE cluster_id IN ({qm})", tuple(cs.ids)):
+                cs._append_member(cid, int(sim))
+        return cs
+
+    # -- 镜像维护（写路径调用；cluster 不在比对集内则跳过，属正常） --
+
+    def _append_member(self, cid: int, sim: int) -> None:
+        np = self._np
+        ridx = self._idx.get(cid)
+        if ridx is None:
+            return                       # 闭/过期 cluster 成员不参与比对
+        if self.mem_n >= self.mem_sim.shape[0]:
+            self.mem_cid = np.concatenate([self.mem_cid, np.empty_like(self.mem_cid)])
+            self.mem_sim = np.concatenate([self.mem_sim, np.empty_like(self.mem_sim)])
+        self.mem_cid[self.mem_n] = ridx
+        self.mem_sim[self.mem_n] = np.uint64(int(sim) & 0xFFFFFFFFFFFFFFFF)
+        self.mem_n += 1
+
+    def _add_row(self, cid: int, cl: dict, cent) -> None:
+        np = self._np
+        if self.n >= self.cent.shape[0]:
+            self.cent = np.vstack([self.cent, np.zeros_like(self.cent)])
+        self._idx[cid] = self.n
+        self.ids.append(cid)
+        self.meta.append(cl)
+        self.cent[self.n] = np.asarray(cent, dtype=np.float64)
+        self.n += 1
+
+    def _set_centroid(self, cid: int, cent_f32_blob_vec: list) -> None:
+        ridx = self._idx.get(cid)
+        if ridx is not None:
+            self.cent[ridx] = self._np.asarray(cent_f32_blob_vec, dtype=self._np.float64)
+
+    # -- 比对 --
+
+    def match(self, vec: list, sh: int):
+        """(near_ridx|None, near_ham, best_ridx|None, best_cos, best_ham)。
+        near = 行序上首个 min_ham<=SIMHASH_H 的 cluster（与旧逐簇顺序短路等价）。"""
+        np = self._np
+        if self.n == 0:
+            return None, None, None, None, None
+        if CmpSet._POP is None:
+            CmpSet._POP = np.array([bin(i).count("1") for i in range(256)], np.uint8)
+        minham = np.full(self.n, 64, np.int16)
+        if self.mem_n:
+            x = self.mem_sim[:self.mem_n] ^ np.uint64(sh & 0xFFFFFFFFFFFFFFFF)
+            ham = CmpSet._POP[x.view(np.uint8).reshape(-1, 8)].sum(1).astype(np.int16)
+            np.minimum.at(minham, self.mem_cid[:self.mem_n], ham)
+        hits = np.nonzero(minham <= SIMHASH_H)[0]
+        near = int(hits[0]) if len(hits) else None
+        near_ham = int(minham[near]) if near is not None else None
+        v = np.asarray(vec, dtype=np.float64)
+        C = self.cent[:self.n]
+        denom = np.linalg.norm(C, axis=1) * np.linalg.norm(v)
+        cos = (C @ v) / np.where(denom == 0, 1.0, denom)
+        best = int(np.argmax(cos))
+        return near, near_ham, best, float(cos[best]), int(minham[best])
 
 
 # ---------------------------------------------------------------------------
 # 判定级联
 # ---------------------------------------------------------------------------
 
+def _scan(conn: sqlite3.Connection, uh: str, sh: int, vec: list,
+          day: str, cmpset: "CmpSet | None" = None) -> dict:
+    """check() 的只读判定扫描（不落库）。返回 {"kind", ...}：
+
+      dup_exact  url_hash 命中任意历史 item —— row 含 cluster_id/title/published
+      dup_near   首个成员海明距<=SIMHASH_H 的开放 cluster —— cl + ham
+      best       无近命中时的 cos 最优开放 cluster —— cl + cos + ham（成员最小海明距）
+      empty      比对集为空
+
+    批量预判（dedup --judge-batch）用它生成待判对快照；apply 相位仍走
+    check() 的权威重扫（快照仅决定要不要批量 judge，不写库）。
+    """
+    # 1) url_hash 精确命中任意历史 item -> dup_exact（不限开放 cluster：
+    #    同一 URL 以前见过即压，哪怕故事已过期）
+    if uh and uh != _EMPTY_SHA1:
+        row = conn.execute(
+            "SELECT i.cluster_id, i.title, c.published FROM items i"
+            " JOIN clusters c ON c.cluster_id=i.cluster_id"
+            " WHERE i.url_hash=? LIMIT 1", (uh,)).fetchone()
+        if row:
+            return {"kind": "dup_exact", "row": row}
+
+    # 2)+3) 单趟扫开放 cluster：成员海明距（dup_near + dup_same 双保险）+ centroid cos
+    if cmpset is not None:
+        near_i, near_ham, best_i, best_cos, bh = cmpset.match(vec, sh)
+        if near_i is not None:
+            return {"kind": "dup_near", "cl": cmpset.meta[near_i],
+                    "ham": near_ham}
+        if best_i is not None:
+            return {"kind": "best", "cl": cmpset.meta[best_i],
+                    "cos": best_cos, "ham": bh}
+        return {"kind": "empty"}
+
+    best = None          # (cos, cluster dict)
+    best_ham = None      # best cluster 成员最小海明距
+    for cl in open_clusters(conn, day):
+        members = _cluster_members(conn, cl["cluster_id"])
+        min_ham = min((hamming(sh, m["simhash"]) for m in members), default=64)
+        if min_ham <= SIMHASH_H:
+            return {"kind": "dup_near", "cl": cl, "ham": min_ham}
+        c = _cos(vec, cl["centroid"])
+        if best is None or c > best[0]:
+            best, best_ham = (c, cl), min_ham
+    if best is None:
+        return {"kind": "empty"}
+    return {"kind": "best", "cl": best[1], "cos": best[0], "ham": best_ham}
+
+
 def check(conn: sqlite3.Connection, item: dict,
           judge_fn: Optional[Callable[[dict, dict], Any]] = None,
-          today: Optional[str] = None) -> dict:
+          today: Optional[str] = None,
+          cmpset: "CmpSet | None" = None) -> dict:
     """判定 + 落库。返回 dict：
 
       verdict     'fresh'|'suppressed'|'reissue'|'gray'  （35_dedup.jsonl 契约词表；
@@ -437,45 +624,35 @@ def check(conn: sqlite3.Connection, item: dict,
                 "match": match, "cos": cos, "ham": ham, "judge": judge,
                 "update_of": update_of}
 
-    # 1) url_hash 精确命中任意历史 item -> dup_exact（不限开放 cluster：
-    #    同一 URL 以前见过即压，哪怕故事已过期）
-    if uh and uh != _EMPTY_SHA1:
-        row = conn.execute(
-            "SELECT i.cluster_id, i.title, c.published FROM items i"
-            " JOIN clusters c ON c.cluster_id=i.cluster_id"
-            " WHERE i.url_hash=? LIMIT 1", (uh,)).fetchone()
-        if row:
-            cid = int(row["cluster_id"])
-            iid = _attach(conn, item, cid, "suppressed", day)
-            return ret("suppressed", "dup_exact", cid, iid, match=row["title"])
+    s = _scan(conn, uh, sh, vec, day, cmpset)
+    kind = s["kind"]
 
-    # 2)+3) 单趟扫开放 cluster：成员海明距（dup_near + dup_same 双保险）+ centroid cos
-    best = None          # (cos, cluster dict)
-    best_ham = None      # best cluster 成员最小海明距
-    for cl in open_clusters(conn, day):
-        members = _cluster_members(conn, cl["cluster_id"])
-        min_ham = min((hamming(sh, m["simhash"]) for m in members), default=64)
-        if min_ham <= SIMHASH_H:
-            cid = cl["cluster_id"]
-            iid = _attach(conn, item, cid, "suppressed", day)
-            return ret("suppressed", "dup_near", cid, iid,
-                       match=cl["canonical_title"], ham=min_ham)
-        c = _cos(vec, cl["centroid"])
-        if best is None or c > best[0]:
-            best, best_ham = (c, cl), min_ham
+    if kind == "dup_exact":
+        row = s["row"]
+        cid = int(row["cluster_id"])
+        iid = _attach(conn, item, cid, "suppressed", day, cmpset=cmpset)
+        return ret("suppressed", "dup_exact", cid, iid, match=row["title"])
 
-    if best is None:     # 无历史/比对集为空 -> 新 cluster
+    if kind == "dup_near":
+        cl = s["cl"]
+        cid = cl["cluster_id"]
+        iid = _attach(conn, item, cid, "suppressed", day, cmpset=cmpset)
+        return ret("suppressed", "dup_near", cid, iid,
+                   match=cl["canonical_title"], ham=s["ham"])
+
+    if kind == "empty":  # 无历史/比对集为空 -> 新 cluster
         cid = add_cluster(conn, item.get("title") or item.get("title_zh") or "",
-                          day, vec)
-        iid = add_item(conn, item, cid, verdict="candidate")
+                          day, vec, cmpset=cmpset)
+        iid = add_item(conn, item, cid, verdict="candidate", cmpset=cmpset)
         return ret("fresh", "no_history", cid, iid)
 
-    cos, cl = best
+    cos, cl, best_ham = s["cos"], s["cl"], s["ham"]
     cid, match, published = cl["cluster_id"], cl["canonical_title"], cl["published"]
 
     # cos>=0.85 且成员 simhash<=8 -> dup_same（双保险，几乎不单独触发）
     if cos >= T_AUTO and (best_ham is not None and best_ham <= SIMHASH_HI):
-        iid = _attach(conn, item, cid, "suppressed", day, match_cos=round(cos, 4))
+        iid = _attach(conn, item, cid, "suppressed", day, match_cos=round(cos, 4),
+                      cmpset=cmpset)
         return ret("suppressed", "dup_same", cid, iid, match=match,
                    cos=round(cos, 4), ham=best_ham)
 
@@ -493,33 +670,34 @@ def check(conn: sqlite3.Connection, item: dict,
                 jraw = {"label": "ERR", "reason": f"{type(e).__name__}: {e}"}
         if label == "A":                                 # 同事件无新信息 -> 压
             iid = _attach(conn, item, cid, "suppressed", day,
-                          judge=jraw, match_cos=round(cos, 4))
+                          judge=jraw, match_cos=round(cos, 4), cmpset=cmpset)
             return ret("suppressed", "judge_a", cid, iid, match=match,
                        cos=round(cos, 4), ham=best_ham, judge=jraw)
         if label == "B":                                 # 同故事新进展 -> 重报
             iid = _attach(conn, item, cid, "reissue", day,
-                          judge=jraw, match_cos=round(cos, 4))
+                          judge=jraw, match_cos=round(cos, 4), cmpset=cmpset)
             # update_of 只许挂 published=1 的 cluster（未曾出片的线不算"更新"）
             return ret("reissue", "judge_b", cid, iid, match=match,
                        cos=round(cos, 4), ham=best_ham, judge=jraw,
                        update_of=cid if published else None)
         if label == "C":                                 # 不同事件 -> 新 cluster
             ncid = add_cluster(conn, item.get("title") or item.get("title_zh") or "",
-                               day, vec)
+                               day, vec, cmpset=cmpset)
             iid = add_item(conn, item, ncid, verdict="candidate",
-                           judge=jraw, match_cos=round(cos, 4))
+                           judge=jraw, match_cos=round(cos, 4), cmpset=cmpset)
             return ret("fresh", "judge_c", ncid, iid, match=match,
                        cos=round(cos, 4), ham=best_ham, judge=jraw)
         # judge 缺失/非法 -> gray_pending 进人工 UI；仍挂候选 cluster（误并可 split）
         iid = _attach(conn, item, cid, "gray_pending", day,
-                      judge=jraw, match_cos=round(cos, 4))
+                      judge=jraw, match_cos=round(cos, 4), cmpset=cmpset)
         return ret("gray", "judge_na", cid, iid, match=match,
                    cos=round(cos, 4), ham=best_ham, judge=jraw)
 
     # cos < 0.58 -> 新 cluster
     ncid = add_cluster(conn, item.get("title") or item.get("title_zh") or "",
-                       day, vec)
-    iid = add_item(conn, item, ncid, verdict="candidate", match_cos=round(cos, 4))
+                       day, vec, cmpset=cmpset)
+    iid = add_item(conn, item, ncid, verdict="candidate", match_cos=round(cos, 4),
+                   cmpset=cmpset)
     return ret("fresh", "embed_lo", ncid, iid, match=match, cos=round(cos, 4))
 
 
@@ -606,7 +784,8 @@ def unexpire_clusters(conn: sqlite3.Connection, today: Optional[str] = None) -> 
     return n
 
 
-def _recompute_cluster(conn: sqlite3.Connection, cid: int) -> None:
+def _recompute_cluster(conn: sqlite3.Connection, cid: int,
+                       cmpset: "CmpSet | None" = None) -> None:
     """由成员重算 centroid/item_count/n_reissues/published/first_seen/last_seen/expires。"""
     members = _cluster_members(conn, cid)
     if not members:
@@ -616,12 +795,20 @@ def _recompute_cluster(conn: sqlite3.Connection, cid: int) -> None:
     n_re = sum(1 for m in members if m["verdict"] == "reissue")
     pub = 1 if any(m["verdict"] == "reported" for m in members) else 0
     first, last = min(days), max(days)
+    exp = _plus_ttl(last)
     conn.execute(
         "UPDATE clusters SET centroid=?, item_count=?, n_reissues=?, published=?,"
         " first_seen=?, last_seen=?, expires_at=? WHERE cluster_id=?",
         (_v2b(_mean_unit(vecs)), len(members), n_re, pub,
-         first, last, _plus_ttl(last), cid))
+         first, last, exp, cid))
     conn.commit()
+    if cmpset is not None:
+        ridx = cmpset._idx.get(cid)
+        if ridx is not None:   # 闭/过期 cluster 不在比对集；published 翻转等字段须回镜像
+            cmpset._set_centroid(cid, _b2v(_v2b(_mean_unit(vecs))))
+            cmpset.meta[ridx].update(
+                item_count=len(members), n_reissues=n_re, published=pub,
+                first_seen=first, last_seen=last, expires_at=exp)
 
 
 def split_cluster(conn: sqlite3.Connection, cluster_id: int,
