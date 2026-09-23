@@ -701,12 +701,17 @@ backup-state:
     @ls -t state/backups/history-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
     @ls -t state/backups/items-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
 
-# data/raw_cache 保留 7 天：按日期目录整删（collect/ 子树按文件 mtime）
+# data/raw_cache 保留 N 天：文件名 <sha8>.<ext> 无时间戳 → 一律按 mtime 判龄；
+# 顶层桶不全是日期名（exp 沙箱同目录写入），故按文件清再删空目录。
+# dedup 冷启动回填只读近 7 日（stages/lib/store.py），默认与其对齐。
 gc-cache days="7":
-    @find data/raw_cache -mindepth 1 -maxdepth 1 -type d -name '20*' \
-        -mtime +{{days}} -print -exec rm -rf {} + 2>/dev/null | sed 's/^/gc-cache: 删 /'
-    @find data/raw_cache -mindepth 2 -type f -mtime +{{days}} -delete 2>/dev/null; \
-        find data/raw_cache -mindepth 1 -type d -empty -delete 2>/dev/null; true
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -d data/raw_cache ] || { echo "gc-cache: no data/raw_cache"; exit 0; }
+    n=$(find data/raw_cache -type f -mtime +{{days}} | wc -l)
+    find data/raw_cache -type f -mtime +{{days}} -delete
+    find data/raw_cache -mindepth 1 -depth -type d -empty -delete
+    echo "gc-cache: deleted $n files older than {{days}}d; pruned empty dirs"
 
 # --------------------------------------------------------------------------
 # item pool (state/items.sqlite — 跨期条目池, PLAN §5.6)

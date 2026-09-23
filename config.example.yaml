@@ -26,7 +26,7 @@ schedule:
   topk_autopick: 14
   max_items: 20
 render:
-  engine: remotion        # remotion|ffmpeg
+  engine: ffmpeg          # 保留位：当前无消费者——compose.py 恒走 ffmpeg；remotion 未接线
   fps: 30
   size: [1920,1080]
   aspect: "16:9"
@@ -37,7 +37,7 @@ render:
 storage:
   history_db: state/history.sqlite
   items_db: state/items.sqlite  # 跨期条目池：verdict/summary/used 缓存 + 结转候选源
-  raw_cache_days: 30      # 保留位：当前无消费者（无 GC 实现）
+  raw_cache_days: 30      # 保留位：当前无消费者——实际 GC 是 just gc-cache（文件 mtime 7 天）
 pool:
   # undated/backlog 条目按 first_seen 给的到达宽限天数；daily 源不走此宽限（陈旧不结转）
   arrival_grace_days: 2
