@@ -23,6 +23,11 @@ composer/smoke/
 # experiment scratch / logs
 experiments/card-density/probe_vendor_selfhost/
 experiments/orchestration-sched/server.log
+experiments/orchestration-sched/prefect.db
+experiments/**/.venv*/
+
+# HF/model downloader lock 噪音（非代码）
+**/.lock/
 
 # vendored upstream build artifacts + parked gitdir
 upstream/juya-news-card/node_modules/
