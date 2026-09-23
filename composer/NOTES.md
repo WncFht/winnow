@@ -1,9 +1,12 @@
 # composer — Remotion 合成器（消费 70_render_plan.json）
 
 > 本目录由 `experiments/remotion-feas` 提升而来（下方为原始可行性实验记录）。
-> 生产用法见本节；`smoke/` 是冒烟 fixture（~91 帧小 plan）。
+> 定位：**手工/冒烟路径**——生产合成不经过本目录；justfile `compose` 配方
+> 恒走 `stages/compose.py`（ffmpeg 图谱，PLAN §7.8）出 `out/final.mp4`。
+> render.sh/Remotion 保留作手工渲染、冒烟与备选路线验证；
+> `smoke/` 是冒烟 fixture（~91 帧小 plan）。
 
-## 用法
+## 用法（手工/冒烟）
 
 ```bash
 ./render.sh <run_dir|70_render_plan.json> [out.mp4] [--frames=A-B ...]

@@ -924,14 +924,14 @@
 - name: github_search
   method: json_api
   tier: A
-  feed_url: "https://api.github.com/search/repositories?q=topic:llm&sort=updated&order=desc&per_page=50"
+  feed_url: "https://api.github.com/search/repositories?q=topic:llm+created:%3E{T-2d}&sort=updated&order=desc&per_page=50"
   enabled: true
   failover:
     - "https://github.com/trending?since=daily"
   freshness_sla_h: 24
   max_items_per_source: 50
   proxy: prefer
-  note: "新仓发现在 query 加 created:>{T-2d} 收窄(实测匿名可用);配额紧张时上本机 gh token(5000/h)"
+  note: "{T-2d} 由 collect._render_url 渲染=窗口锚日前2天,只收新仓;配额紧张时上本机 gh token(5000/h)"
 
 - name: github_releases_watch
   method: atom
