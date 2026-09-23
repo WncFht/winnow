@@ -129,7 +129,7 @@ setup-toolchain:
     echo "== notes =="
     [ -f config.yaml ] || echo "  ! config.yaml absent — copy config.example.yaml and fill alerts/proxy"
     [ -f secrets.env ] || echo "  ! secrets.env absent — copy secrets.env.example (SWE2MAX_API_KEY)"
-    [ -d ~/.cache/embed ] || echo "  ! ~/.cache/embed absent — Qwen3-Embedding-0.6B-ONNX downloads on first embed use"
+    [ -f ~/.cache/embed/model_int8.onnx ] || echo "  ! ~/.cache/embed/model_int8.onnx absent — 跑 just fetch-embed（embed.py 无自动下载）"
     echo "== setup-toolchain done: $miss missing =="
     [ "$miss" -eq 0 ]
 
@@ -700,6 +700,17 @@ backup-state:
     @[ -f state/items.sqlite ] && cp state/items.sqlite "state/backups/items-$(date +%F-%H%M).sqlite" && echo "items backed up" || echo "no items.sqlite yet"
     @ls -t state/backups/history-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
     @ls -t state/backups/items-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
+
+# 拉 Qwen3-Embedding-0.6B-ONNX int8 到 ~/.cache/embed（embed.py 只读不下载；
+# dedup-history/model 已出库，此配方是新克隆唯一获取路径）
+fetch-embed:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    d="$HOME/.cache/embed"; mkdir -p "$d"
+    base="https://hf-mirror.com/onnx-community/Qwen3-Embedding-0.6B-ONNX/resolve/main"
+    [ -f "$d/model_int8.onnx" ] || curl -fL --retry 3 -o "$d/model_int8.onnx" "$base/onnx/model_int8.onnx"
+    [ -f "$d/tokenizer.json" ] || curl -fL --retry 3 -o "$d/tokenizer.json" "$base/tokenizer.json"
+    echo "fetch-embed: $d ready ($(du -h "$d/model_int8.onnx" | cut -f1))"
 
 # data/raw_cache 保留 N 天：文件名 <sha8>.<ext> 无时间戳 → 一律按 mtime 判龄；
 # 顶层桶不全是日期名（exp 沙箱同目录写入），故按文件清再删空目录。

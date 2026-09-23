@@ -957,6 +957,8 @@ def _selftest(args) -> int:
            "Mistral 推出 Codestral 2，补全速度提升一倍。", ["Mistral"]),
         mk("联合国 AI 治理峰会在日内瓦开幕", "https://un.org/ai-summit",
            "联合国 AI 治理峰会开幕，聚焦前沿模型监管。", []),
+        # 注：上条与种子 S4（欧盟 AI 法案）落在 gray 带（cos≈0.59）——
+        # 判对开时 judge 裁 C→fresh；--no-judge 下保留 gray 属预期（见断言）
         mk("Runway 发布 Gen-5 视频生成模型", "https://runwayml.com/gen-5",
            "Runway Gen-5 发布，支持分钟级一致性视频。", ["Runway"]),
         mk("HuggingFace 推出推理集群服务", "https://huggingface.co/clusters",
@@ -998,7 +1000,13 @@ def _selftest(args) -> int:
     assert cids[2] == cids[3], f"near-dup pair 应同日合并: {cids[2]} vs {cids[3]}"
     assert v[4] in ("reissue", "gray"), f"newdev 应 reissue/gray: {v[4]}"
     fresh_v = v[5:]
-    assert all(x == "fresh" for x in fresh_v), f"fresh 组出现非 fresh: {fresh_v}"
+    if judge.ok:
+        assert all(x == "fresh" for x in fresh_v), f"fresh 组出现非 fresh: {fresh_v}"
+    else:
+        # --no-judge：gray 带条目保留 gray 属预期（判对缺席无人能裁 C→fresh），
+        # 但 suppressed/reissue 仍只能是确定性路径产出——出现即真 bug
+        bad = [x for x in fresh_v if x not in ("fresh", "gray")]
+        assert not bad, f"fresh 组出现意外 verdict: {fresh_v}"
     assert len(set(cids[5:])) == len(cids[5:]), "fresh 应各自新 cluster"
     n_clusters = conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0]
     n_items = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
