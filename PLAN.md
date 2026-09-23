@@ -19,7 +19,7 @@
 | # | 项 | 决定 |
 |---|---|---|
 | D1 | LLM | **只用本地网关 swe-2-max**（`127.0.0.1:3033/v1`，key 走 env/config）。无多模型 fallback——可靠性由用户自己的容错/retry 层保证。接口可配置供开源用户换后端 |
-| D2 | TTS | 选型后置。`tts.synth` 接口 + **edge-tts 占位实现**先解锁下游 |
+| D2 | TTS | **edge-tts 在线生产**；**Breeze TTS 2 选型胜出待接线**（克隆模板 ref_clone_tata + ref `state/tts-bakeoff/refs/g_orig.wav`，bakeoff 两轮 margin 第一 0.240/0.261；败者 IndexTTS-2.5/CosyVoice3/OmniVoice/F5/Qwen3-TTS 权重已清 ~110G）。证据 `experiments/tts-bakeoff/` |
 | D3 | 微信公众号 | 后置。`sources.yaml` 里 `enabled: false`，adapter 骨架保留 |
 | D4 | 画幅 | **只做 16:9**；`render_plan` 里 aspect 写成参数 |
 | D5 | 终审闸 | 轻量：QA 全过自动出片；有 flag 才推送人工 |
@@ -363,7 +363,7 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 - **输入**：50_issue.json（voice[]）+ `state/tts_dict.yaml` + config.tts。
 - **ttsnorm**：YAML 词典 `{词: 读法}`（GPT→"G P T"还是"GPT"按词表、API→"A P I"、数字→中文读法规则）；处理后写 60_voice_script.jsonl。
 - **tts_edge.synth**：edge-tts `zh-CN-YunyangNeural`（实测新闻播报最佳音色；YunxiNeural 备选），逐 seg 出 mp3；**裁头 0.20s/尾 0.78s 残余静音**（gap-ab 实测）；Communicate word boundary 事件若可用则写进 seg.words（字幕逐词高亮预留）。
-- **引擎抽象**：`tts.synth(text, seg_id) -> {file, dur, boundaries[]}`；换引擎只换 adapter。本地选型（IndexTTS-2.5 RTF0.36-0.41/F5/Qwen3-TTS）后置——数据在 `experiments/tts-local-eval/`、`tts-landscape-2026/`。
+- **引擎抽象**：`tts.synth(text, seg_id) -> {file, dur, boundaries[]}`；换引擎只换 adapter。**选型已定 Breeze TTS 2**（bakeoff 结论与接线清单见 `experiments/tts-bakeoff/PLAN.md`）：HF `BreezeBlue/Breeze-TTS-2` 权重（~7.2G 仓外缓存）+ `experiments/local-tts-try/.venv-breeze` 运行时（与 stage venv 依赖冲突、独立 worker 子进程）+ 克隆 ref `state/tts-bakeoff/refs/g_orig.wav`（备选 i_stepfull，同段录音句子完整）。接线要点：voice.py engine 白名单加 breeze + `_synth_all` 分派 + manifest engine/codec 参数化 + **manifest/text_sha 复用须加 engine 维度**（否则换引擎静默复用旧 mp3）+ eager bf16 ~7.7G VRAM 门槛。败者权重已全清（IndexTTS-2.5/CosyVoice3/OmniVoice/F5/Qwen3-TTS ~110G）。
 - **timeline**：`lead_in=0.6`、item 间 `gap.item=0.55`、句间 `gap.sentence`（gap-ab 校准值，初值 0.15，跑通后按实测调）；seg.start 累加出绝对时间轴 → 62_timeline.json + 投影 62_episode.srt/.vtt。
 - **对齐后备**（换非 edge 引擎时启用）：Qwen3-ForcedAligner（`experiments/zh-forced-align-2026/`，±0.03-0.09s）；whisper 系全否（159-419ms 超 ±0.15s 规格）。
 - **装配**：`61_audio/` + `61_audio_manifest.json`；`ffmpeg loudnorm=I=-14:TP=-1.5:LRA=11` 归一 → `voice_full.wav`（整片响度一致，也给 compose 备用轨）。

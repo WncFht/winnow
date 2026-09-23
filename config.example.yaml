@@ -7,7 +7,7 @@ llm:
   max_tokens: 24000
   batch_size: 24
 tts:
-  engine: edge            # edge|local_indextts|external_api（后两者留接口）
+  engine: edge            # edge 在线生产；breeze 选型已定待接线（见 experiments/tts-bakeoff/PLAN.md）
   voice: zh-CN-YunyangNeural
   trim: {head: 0.20, tail: 0.78}
   proxy: ""               # TTS 专用代理；空 → proxy.http → *_proxy env（tts_edge 消费）
