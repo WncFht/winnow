@@ -66,7 +66,7 @@ import yaml  # noqa: E402
 
 from contracts.models import RawItem, RawManifest  # noqa: E402
 from stages.lib import http as lhttp  # noqa: E402
-from stages.lib import meta, normalize, pool, prog  # noqa: E402
+from stages.lib import meta, normalize, pool, prog, rawitem  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -412,31 +412,22 @@ def mk_item(*, url: str, title: str, src: dict, kind: str,
             etag: str | None = None, content_sha: str | None = None,
             raw_ref: str | None = None, reachable: bool = True,
             fetched: str | None = None, lang: str | None = None) -> dict:
-    canon = normalize.url_canon(url)
-    key = normalize.item_key(url)
-    return {
-        "schema": "raw_item/1",
-        "item_key": key,
-        "id": key,
-        "url": url,
-        "url_canon": canon,
-        "title": normalize.title_norm(title or "") or _slug_title(url),
-        "content_text": _bounded_text(summary, CONTENT_TEXT_CAP),
-        "date_published": date,
-        "date_fetched": fetched or _utcnow(),
-        "language": lang if lang is not None else _guess_lang(title or "", summary or ""),
-        "tags": tags or [],
-        "image": image,
-        "_source": {"name": src.get("name", "?"),
-                    "feed_url": src.get("feed_url", ""),
-                    "kind": kind, "item_guid": guid},
-        "_fetch": {"status": fetch_status,
-                   "via": via if via in ("direct", "mirror", "cache", "manual")
-                   else "mirror",
-                   "reachable": reachable, "etag": etag,
-                   "content_sha256": content_sha},
-        "_raw_ref": raw_ref,
-    }
+    return rawitem.build(
+        url, source_name=src.get("name", "?"),
+        feed_url=src.get("feed_url", ""),
+        kind=kind, item_guid=guid,
+        date_fetched=fetched or _utcnow(),
+        title=normalize.title_norm(title or "") or _slug_title(url),
+        content_text=_bounded_text(summary, CONTENT_TEXT_CAP),
+        date_published=date,
+        language=(lang if lang is not None
+                  else _guess_lang(title or "", summary or "")),
+        tags=tags or [], image=image,
+        status=fetch_status,
+        via=(via if via in ("direct", "mirror", "cache", "manual")
+             else "mirror"),
+        reachable=reachable, etag=etag, content_sha256=content_sha,
+        raw_ref=raw_ref)
 
 
 def _validate_item(it: dict) -> dict | None:

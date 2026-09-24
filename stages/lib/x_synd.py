@@ -69,7 +69,7 @@ sys.path[:] = [p for p in sys.path
 
 import httpx  # noqa: E402
 
-from stages.lib import meta, normalize  # noqa: E402
+from stages.lib import meta, normalize, rawitem  # noqa: E402
 from stages.lib import http as lib_http  # noqa: E402  (save_raw 复用)
 
 REPO = Path(__file__).resolve().parents[2]
@@ -304,27 +304,15 @@ def _to_raw_item(t: dict, handle: str, *, feed_url: str, fetched: str,
                   if m.get("media_url_https")), None)
     tags = [h.get("text") for h in
             ((t.get("entities") or {}).get("hashtags") or []) if h.get("text")]
-    canon = normalize.url_canon(url)
-    return {
-        "schema": "raw_item/1",
-        "item_key": normalize.item_key(url),
-        "id": normalize.item_key(url),
-        "url": url,
-        "url_canon": canon,
-        "title": text if len(text) <= _TITLE_MAX
+    return rawitem.build(
+        url, source_name=source_name, feed_url=feed_url, kind="api",
+        item_guid=tid, date_fetched=fetched,
+        title=text if len(text) <= _TITLE_MAX
         else text[:_TITLE_MAX - 1].rstrip() + "…",
-        "content_text": text or None,
-        "date_published": parse_created_at(t.get("created_at")),
-        "date_fetched": fetched,
-        "language": t.get("lang"),
-        "tags": tags,
-        "image": image,
-        "_source": {"name": source_name, "feed_url": feed_url,
-                    "kind": "api", "item_guid": tid},
-        "_fetch": {"status": status, "via": "direct", "reachable": True,
-                   "etag": None, "content_sha256": content_sha},
-        "_raw_ref": raw_ref,
-    }
+        content_text=text or None,
+        date_published=parse_created_at(t.get("created_at")),
+        language=t.get("lang"), tags=tags, image=image,
+        status=status, content_sha256=content_sha, raw_ref=raw_ref)
 
 
 # ------------------------------------------------------------------ API -----

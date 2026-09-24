@@ -56,6 +56,7 @@ sys.path[:] = [p for p in sys.path
 
 from stages.lib import http as _http          # noqa: E402
 from stages.lib import normalize as _norm     # noqa: E402
+from stages.lib import rawitem               # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXP_DIR = REPO_ROOT / "stages" / "lib" / "seeds" / "x_nitter"
@@ -343,35 +344,17 @@ def parse_rss(body: bytes, inst: str, handle: str, *,
             continue
         author = _status_author(link, creator, handle)
         url = f"https://x.com/{author}/status/{sid}"
-        canon = _norm.url_canon(url)
         img_m = _IMG.search(desc)
-        item = {
-            "schema": "raw_item/1",
-            "item_key": _norm.item_key(url),
-            "id": _norm.item_key(url),
-            "url": url,
-            "url_canon": canon,
-            "title": _norm.title_norm(title),
-            "content_text": _content_text(desc, _norm.title_norm(title)),
-            "date_published": _rfc3339(it.findtext("pubDate") or ""),
-            "date_fetched": fetched,
-            "language": None,
-            "tags": ["x", f"@{author}"],
-            "image": _absolutize(img_m.group(1), inst) if img_m else None,
-            "_source": {
-                "name": source_name or f"x:@{handle}",
-                "feed_url": feed_url,
-                "kind": "rss",
-                "item_guid": sid,
-            },
-            "_fetch": {
-                "status": status,
-                "via": "mirror",
-                "reachable": True,
-                "etag": etag,
-                "content_sha256": sha,
-            },
-        }
+        item = rawitem.build(
+            url, source_name=source_name or f"x:@{handle}",
+            feed_url=feed_url, kind="rss", item_guid=sid,
+            date_fetched=fetched,
+            title=_norm.title_norm(title),
+            content_text=_content_text(desc, _norm.title_norm(title)),
+            date_published=_rfc3339(it.findtext("pubDate") or ""),
+            tags=["x", f"@{author}"],
+            image=_absolutize(img_m.group(1), inst) if img_m else None,
+            status=status, via="mirror", etag=etag, content_sha256=sha)
         items.append(item)
     return items
 

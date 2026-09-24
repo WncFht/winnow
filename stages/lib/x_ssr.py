@@ -55,7 +55,7 @@ from typing import Optional
 
 
 from stages.lib import http as lib_http
-from stages.lib import normalize
+from stages.lib import normalize, rawitem
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -338,35 +338,19 @@ def _tweet_to_item(tw: dict, user: dict, handle: str, *,
         title = title[:99].rstrip() + "…"
     if not title:
         title = f"@{tw.get('author') or handle} status {tw['id']}"
-    canon = normalize.url_canon(tw["url"])
     tags = _HASHTAG.findall(text)[:8]
     if (tw.get("author") or "").lower() != handle.lower():
         tags.append("retweet")  # 外站作者 status 出现在本 profile → 转发/引用
-    item = {
-        "schema": "raw_item/1",
-        "item_key": normalize.item_key(tw["url"]),
-        "id": normalize.item_key(tw["url"]),
-        "url": tw["url"],
-        "url_canon": canon,
-        "title": title,
-        "content_text": text or None,
-        "date_published": (_iso_ms(tw["created_at_ms"])
-                           if tw.get("created_at_ms") else None),
-        "date_fetched": fetched_at,
-        "language": tw.get("lang"),
-        "tags": tags,
-        "image": tw["media"][0] if tw.get("media") else None,
-        "_source": {
-            "name": src.get("name") or f"x/{handle}",
-            "feed_url": src.get("feed_url") or f"https://x.com/{handle}",
-            "kind": "scrape",
-            "item_guid": tw["id"],
-        },
-        "_fetch": fetch,
-    }
-    if raw_ref:
-        item["_raw_ref"] = raw_ref
-    return item
+    return rawitem.build(
+        tw["url"], source_name=src.get("name") or f"x/{handle}",
+        feed_url=src.get("feed_url") or f"https://x.com/{handle}",
+        kind="scrape", item_guid=tw["id"], date_fetched=fetched_at,
+        title=title, content_text=text or None,
+        date_published=(_iso_ms(tw["created_at_ms"])
+                        if tw.get("created_at_ms") else None),
+        language=tw.get("lang"), tags=tags,
+        image=tw["media"][0] if tw.get("media") else None,
+        fetch=fetch, raw_ref=raw_ref)
 
 
 # ---------------------------------------------------------------- fetch ----

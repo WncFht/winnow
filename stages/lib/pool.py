@@ -47,7 +47,7 @@ from typing import Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 
-from stages.lib import meta, normalize  # noqa: E402
+from stages.lib import meta, normalize, rawitem  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = REPO_ROOT / "state" / "items.sqlite"
@@ -692,28 +692,24 @@ def to_raw_item(row: dict) -> dict:
     content_sha256 = content_text 的重算 sha）。
     """
     body = row.get("content_text") or ""
-    return {
-        "schema": "raw_item/1",
-        "item_key": row["item_key"],
-        "id": row["item_key"],
-        "url": row.get("url") or "",
-        "url_canon": row.get("url_canon") or "",
-        "title": row.get("title") or "",
-        "content_text": row.get("content_text"),
-        "date_published": row.get("date_published"),
-        "date_fetched": row.get("date_fetched") or _utcnow(),
-        "language": row.get("language"),
-        "tags": list(_js(row.get("tags_json"), [])),
-        "image": row.get("image"),
-        "_source": {"name": row.get("source_name") or "?",
-                    "feed_url": row.get("source_feed_url") or "",
-                    "kind": row.get("source_kind") or "rss",
-                    "item_guid": row.get("item_guid")},
-        "_fetch": {"status": 200, "via": "cache", "reachable": True,
-                   "content_sha256": hashlib.sha256(
-                       body.encode("utf-8")).hexdigest()[:16] if body else None},
-        "_raw_ref": row.get("raw_ref"),
-    }
+    return rawitem.build(
+        row.get("url") or "",
+        item_key=row["item_key"], url_canon=row.get("url_canon") or "",
+        source_name=row.get("source_name") or "?",
+        feed_url=row.get("source_feed_url") or "",
+        kind=row.get("source_kind") or "rss",
+        item_guid=row.get("item_guid"),
+        date_fetched=row.get("date_fetched") or _utcnow(),
+        title=row.get("title") or "",
+        content_text=row.get("content_text"),
+        date_published=row.get("date_published"),
+        language=row.get("language"),
+        tags=list(_js(row.get("tags_json"), [])),
+        image=row.get("image"),
+        via="cache",
+        content_sha256=(hashlib.sha256(body.encode("utf-8"))
+                        .hexdigest()[:16] if body else None),
+        raw_ref=row.get("raw_ref"))
 
 
 def to_summary_row(row: dict) -> dict:

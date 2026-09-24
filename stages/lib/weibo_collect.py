@@ -72,7 +72,8 @@ sys.path[:] = [p for p in sys.path
 import httpx  # noqa: E402
 
 from stages.lib.http import get as http_get, save_raw  # noqa: E402
-from stages.lib.normalize import url_canon, item_key, title_norm  # noqa: E402
+from stages.lib.normalize import title_norm  # noqa: E402
+from stages.lib import rawitem  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -369,9 +370,6 @@ def _mblog_to_item(mb: dict, cfg, uid_fallback: str, status: int,
 
     title = title_norm(plain.split("\n", 1)[0])[:80] or f"微博 {mb.get('bid') or mb.get('id','')}"
     url = _mblog_url(mb, uid_fallback)
-    canon = url_canon(url)
-    key = item_key(url)
-
     pics = mb.get("pics") or []
     image = None
     if pics:
@@ -389,36 +387,13 @@ def _mblog_to_item(mb: dict, cfg, uid_fallback: str, status: int,
         json.dumps(mb, ensure_ascii=False, sort_keys=True).encode()
     ).hexdigest()[:16]
 
-    item = {
-        "schema": "raw_item/1",
-        "item_key": key,
-        "id": key,
-        "url": url,
-        "url_canon": canon,
-        "title": title,
-        "content_text": plain,
-        "date_published": _parse_created_at(mb.get("created_at") or ""),
-        "date_fetched": fetched_at,
-        "language": "zh",
-        "tags": ["weibo"],
-        "image": image,
-        "_source": {
-            "name": src_name,
-            "feed_url": feed_url,
-            "kind": "api",
-            "item_guid": str(mb.get("id") or mb.get("bid") or ""),
-        },
-        "_fetch": {
-            "status": status,
-            "via": "direct",
-            "reachable": True,
-            "etag": None,
-            "content_sha256": sha,
-        },
-    }
-    if cfg.get("_raw_ref"):
-        item["_raw_ref"] = cfg["_raw_ref"]
-    return item
+    return rawitem.build(
+        url, source_name=src_name, feed_url=feed_url, kind="api",
+        item_guid=str(mb.get("id") or mb.get("bid") or ""),
+        date_fetched=fetched_at, title=title, content_text=plain,
+        date_published=_parse_created_at(mb.get("created_at") or ""),
+        language="zh", tags=["weibo"], image=image,
+        status=status, content_sha256=sha, raw_ref=cfg.get("_raw_ref"))
 
 
 def _save_run_raw(cfg, source: str, url: str, body: str) -> str | None:
@@ -580,33 +555,23 @@ def _band_items(band: list[dict], cfg, status: int, fetched_at: str,
         url = (b.get("word_scheme") or "").strip()
         if not url.startswith("http"):
             url = "https://s.weibo.com/weibo?q=" + quote(f"#{word}#")
-        canon = url_canon(url)
-        key = item_key(url)
         cat = b.get("category") or ""
         num = b.get("num") or b.get("raw_hot") or 0
         desc = " ".join(x for x in (
             f"热搜:{word}", f"热度{num}" if num else "",
             f"分类:{cat}" if cat else "",
             (b.get("icon_desc") or "")) if x)
-        items.append({
-            "schema": "raw_item/1",
-            "item_key": key,
-            "id": key,
-            "url": url,
-            "url_canon": canon,
-            "title": title_norm(word)[:80],
-            "content_text": desc,
-            "date_published": None,  # signal-type source (PLAN §5.2.4)
-            "date_fetched": fetched_at,
-            "language": "zh",
-            "tags": ["weibo", "hot_band"] + ([cat] if cat else []),
-            "image": b.get("icon") or None,
-            "_source": {"name": src_name, "feed_url": feed_url,
-                        "kind": "api",
-                        "item_guid": str(b.get("word") or word)},
-            "_fetch": {"status": status, "via": "direct", "reachable": True,
-                       "etag": None, "content_sha256": None},
-        })
+        items.append(rawitem.build(
+            url, source_name=src_name, feed_url=feed_url, kind="api",
+            item_guid=str(b.get("word") or word),
+            date_fetched=fetched_at,
+            title=title_norm(word)[:80],
+            content_text=desc,
+            date_published=None,  # signal-type source (PLAN §5.2.4)
+            language="zh",
+            tags=["weibo", "hot_band"] + ([cat] if cat else []),
+            image=b.get("icon") or None,
+            status=status))
     return items
 
 

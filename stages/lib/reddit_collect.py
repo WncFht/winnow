@@ -67,7 +67,8 @@ sys.path[:] = [p for p in sys.path
 
 import httpx
 
-from stages.lib.normalize import item_key, title_norm, url_canon
+from stages.lib.normalize import title_norm
+from stages.lib import rawitem
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE_DEFAULT = REPO_ROOT / "state" / "reddit_token.json"
@@ -395,29 +396,15 @@ def _children_to_items(children: list, sub: str, cfg: dict,
             tags.append("nsfw")
         if d.get("stickied"):
             tags.append("stickied")
-        key = item_key(url)
-        out.append({
-            "schema": "raw_item/1",
-            "item_key": key,
-            "id": key,
-            "url": url,
-            "url_canon": url_canon(url),
-            "title": title,
-            "content_text": content_text,
-            "date_published": published,
-            "date_fetched": now,
-            "language": "en",
-            "tags": tags,
-            "image": _thumb(d),
-            "_source": {
-                "name": src_name,
-                "feed_url": feed_url,
-                "kind": "api",
-                "item_guid": d.get("name"),          # t3_fullname
-            },
-            "_fetch": dict(fetch_meta["fetch"]),
-            "_raw_ref": fetch_meta.get("raw_ref"),
-        })
+        out.append(rawitem.build(
+            url, source_name=src_name, feed_url=feed_url, kind="api",
+            item_guid=d.get("name"),               # t3_fullname
+            date_fetched=now,
+            title=title, content_text=content_text,
+            date_published=published, language="en",
+            tags=tags, image=_thumb(d),
+            fetch=fetch_meta["fetch"],
+            raw_ref=fetch_meta.get("raw_ref")))
     return out
 
 
@@ -526,29 +513,16 @@ def _rss_to_items(xml_body: bytes, sub: str, cfg: dict,
         rss_sub = re.sub(r"^r/", "", sub_label) or sub
         content_text = (st + "\n\n" if st else "") + _meta_footer(
             rss_sub, {"score": "?", "num_comments": "?"}, permalink)
-        key = item_key(url)
-        out.append({
-            "schema": "raw_item/1",
-            "item_key": key,
-            "id": key,
-            "url": url,
-            "url_canon": url_canon(url),
-            "title": title,
-            "content_text": content_text,
-            "date_published": published,
-            "date_fetched": now,
-            "language": "en",
-            "tags": ["reddit", f"r/{rss_sub}", "via:rss"],
-            "image": thumb,
-            "_source": {
-                "name": src_name,
-                "feed_url": fetch_meta["request_url"],
-                "kind": "rss",
-                "item_guid": guid,
-            },
-            "_fetch": dict(fetch_meta["fetch"]),
-            "_raw_ref": fetch_meta.get("raw_ref"),
-        })
+        out.append(rawitem.build(
+            url, source_name=src_name,
+            feed_url=fetch_meta["request_url"], kind="rss",
+            item_guid=guid, date_fetched=now,
+            title=title, content_text=content_text,
+            date_published=published, language="en",
+            tags=["reddit", f"r/{rss_sub}", "via:rss"],
+            image=thumb,
+            fetch=fetch_meta["fetch"],
+            raw_ref=fetch_meta.get("raw_ref")))
     return out
 
 
