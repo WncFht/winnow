@@ -23,5 +23,8 @@ jobs:
       - name: embed model fixture
         run: just fetch-embed
 
+      - name: playwright chromium
+        run: uv run playwright install --with-deps chromium
+
       - name: offline regression matrix
         run: just test
