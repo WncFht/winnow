@@ -1,54 +1,54 @@
 llm:
   base_url: http://127.0.0.1:3033/v1
   api_key_env: SWE2MAX_API_KEY
-  api_key_env_bg: SWE2MAX_BG_API_KEY  # 该 env 有值即优先走 bg 通道（窗口额度自适应）；置空此键无效——仍回退默认名，禁用 bg = 不设该 env
+  api_key_env_bg: SWE2MAX_BG_API_KEY # 该 env 有值即优先走 bg 通道（窗口额度自适应）；置空此键无效——仍回退默认名，禁用 bg = 不设该 env
   model: swe-2-max
   temperature: 0.2
   max_tokens: 24000
   batch_size: 24
 tts:
-  engine: edge            # edge=零依赖在线兜底；breeze=本地克隆引擎已接线（voice.py dispatch → adapters/tts_local worker；本机生产默认，需 just setup-breeze）
+  engine: edge # edge=零依赖在线兜底；breeze=本地克隆引擎已接线（voice.py dispatch → adapters/tts_local worker；本机生产默认，需 just setup-breeze）
   voice: zh-CN-YunyangNeural
-  trim: {head: 0.20, tail: 0.78}
-  proxy: ""               # TTS 专用代理；空 → proxy.http → *_proxy env（tts_edge 消费）
-  breeze:                 # engine=breeze 时消费（adapters/tts_local.breeze_cfg）
-    venv: venvs/breeze/bin/python        # worker 解释器（just setup-breeze 建）
-    repo: tools/tts_workers/breeze-tts   # breezeblue-ai/breeze-tts clone
-    weights: ""                          # 空 → HF cache 快照；或指 ckpt 目录
-    refs_dir: state/tts-bakeoff/refs     # ref 库：<name>.wav + transcripts.json
-    ref_audio: ""                        # 空 → refs_dir/g_orig.wav
-    ref_text: ""                         # 空 → transcripts.json:g_orig；或字面文本
+  trim: { head: 0.20, tail: 0.78 }
+  proxy: "" # TTS 专用代理；空 → proxy.http → *_proxy env（tts_edge 消费）
+  breeze: # engine=breeze 时消费（adapters/tts_local.breeze_cfg）
+    venv: venvs/breeze/bin/python # worker 解释器（just setup-breeze 建）
+    repo: tools/tts_workers/breeze-tts # breezeblue-ai/breeze-tts clone
+    weights: "" # 空 → HF cache 快照；或指 ckpt 目录
+    refs_dir: state/tts-bakeoff/refs # ref 库：<name>.wav + transcripts.json
+    ref_audio: "" # 空 → refs_dir/g_orig.wav
+    ref_text: "" # 空 → transcripts.json:g_orig；或字面文本
     template: ref_clone_tata
     guidance_scale: 1.0
     seed: 42
     max_new_tokens: 1500
-    min_free_gb: 8          # nvidia-smi 空闲显存门槛（eager 实测 ~7.7GiB）
+    min_free_gb: 8 # nvidia-smi 空闲显存门槛（eager 实测 ~7.7GiB）
 proxy:
-  http: ""                 # 例 http://127.0.0.1:7890（本机 clash）；空 = 直连
+  http: "" # 例 http://127.0.0.1:7890（本机 clash）；空 = 直连
   required_check_urls: [https://api.ipify.org]
 alerts:
-  ntfy_url: ""            # 例 https://ntfy.sh/my-topic 或自架
-  ntfy_token: ""          # ntfy 受保护 topic 的 access token → Authorization: Bearer（alert_ntfy 消费，可空）
-  deadman_ping_url: ""    # healthchecks.io uuid
-  proxy: ""               # 推送专用代理；空 → proxy.http → *_proxy env（alert_ntfy/deadman 消费）
+  ntfy_url: "" # 例 https://ntfy.sh/my-topic 或自架
+  ntfy_token: "" # ntfy 受保护 topic 的 access token → Authorization: Bearer（alert_ntfy 消费，可空）
+  deadman_ping_url: "" # healthchecks.io uuid
+  proxy: "" # 推送专用代理；空 → proxy.http → *_proxy env（alert_ntfy/deadman 消费）
 schedule:
-  collect_cron: "30 6 * * *"   # 保留位：当前无消费者——真实调度在 ops/winnow-collect.timer
+  collect_cron: "30 6 * * *" # 保留位：当前无消费者——真实调度在 ops/winnow-collect.timer
   gate1_deadline: "08:30"
-  gate2_deadline: "09:30"      # 保留位：当前无消费者——代码只读 gate1_deadline；gate2 时刻由 ops/winnow-gate2.timer 定
+  gate2_deadline: "09:30" # 保留位：当前无消费者——代码只读 gate1_deadline；gate2 时刻由 ops/winnow-gate2.timer 定
   topk_autopick: 14
   max_items: 20
 render:
-  engine: ffmpeg          # 保留位：当前无消费者——compose.py 恒走 ffmpeg；remotion 未接线
+  engine: ffmpeg # 保留位：当前无消费者——compose.py 恒走 ffmpeg；remotion 未接线
   fps: 30
-  size: [1920,1080]
+  size: [1920, 1080]
   aspect: "16:9"
   concurrency: 4
-  min_seg: 0.15           # 卡缝最小宽度(s)，更窄并入相邻 shot（render_plan MIN_SEG）
-  subtitle_xy: "(main_w-overlay_w)/2:930"   # 字幕 pill 叠加位（render_plan SUB_XY）
-  chrome_xy: "0:0"        # 全幅 chrome/sticker 叠加位（render_plan FULL_XY）
+  min_seg: 0.15 # 卡缝最小宽度 (s)，更窄并入相邻 shot（render_plan MIN_SEG）
+  subtitle_xy: "(main_w-overlay_w)/2:930" # 字幕 pill 叠加位（render_plan SUB_XY）
+  chrome_xy: "0:0" # 全幅 chrome/sticker 叠加位（render_plan FULL_XY）
 storage:
-  state_db: state/state.sqlite  # 跨期持久态单库：条目池+去重历史+源状态+kv
-  raw_cache_days: 30      # 保留位：当前无消费者——实际 GC 是 just gc-cache（文件 mtime 7 天）
+  state_db: state/state.sqlite # 跨期持久态单库：条目池 + 去重历史 + 源状态+kv
+  raw_cache_days: 30 # 保留位：当前无消费者——实际 GC 是 just gc-cache（文件 mtime 7 天）
 pool:
   # undated/backlog 条目按 first_seen 给的到达宽限天数；daily 源不走此宽限（陈旧不结转）
   arrival_grace_days: 2
@@ -56,6 +56,6 @@ pool:
   # （挡住归档源全量目录/池冷启动的古董洪水；周更源 ~7d 仍在界内）
   carry_stale_max_days: 14
 x_collector:
-  nitter_instances: []    # 池，健康分轮换
-  paid_adapter: {enabled: false, api_key_env: X_PAID_KEY}
-wechat: {enabled: false}  # 保留位：当前无消费者——collect.py 对 method=wechat 恒记 skipped(disabled)（D3）
+  nitter_instances: [] # 池，健康分轮换
+  paid_adapter: { enabled: false, api_key_env: X_PAID_KEY }
+wechat: { enabled: false } # 保留位：当前无消费者——collect.py 对 method=wechat 恒记 skipped(disabled)（D3）
