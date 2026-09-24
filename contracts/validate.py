@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["pydantic>=2"]   # 供 `uv run contracts/validate.py` 单跑；import 时无效
-# ///
 """Validate every artifact in a run dir: pydantic schema + cross-field rules.
 
 唯一活入口 = validate_run(run_dir)——PLAN §4 run 级跨字段校验器，各 stage
@@ -18,8 +14,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from models import (AudioManifest, BuildManifest, Cards, DedupVerdict,
+from contracts.models import (AudioManifest, BuildManifest, Cards, DedupVerdict,
                     FilterVerdict, FramesManifest, RawItem, RawManifest,
                     RenderPlan, RunMeta, Selected, Summary, Timeline, VoiceSeg)
 

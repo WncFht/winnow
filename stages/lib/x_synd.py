@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["httpx>=0.28", "pyyaml>=6", "pydantic>=2"]
-# ///
 """X 平台采集器 ③ syndication 路（docs/PLAN.md §5.3 四路之三，429 指数退避）。
 
 Endpoint（实测自 experiments/hard-x.com-official-api-or-native-feed/，
@@ -64,8 +60,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # stages/ → `from lib import …`
 
 # 直接运行本文件时 stages/lib 留在 sys.path[0]，本目录的 http.py 会 shadow
 # stdlib `http`（httpx 依赖它）——剔除本目录；作为 lib.x_synd 导入时这是 no-op。
@@ -75,8 +69,8 @@ sys.path[:] = [p for p in sys.path
 
 import httpx  # noqa: E402
 
-from lib import meta, normalize  # noqa: E402
-from lib import http as lib_http  # noqa: E402  (save_raw 复用)
+from stages.lib import meta, normalize  # noqa: E402
+from stages.lib import http as lib_http  # noqa: E402  (save_raw 复用)
 
 REPO = Path(__file__).resolve().parents[2]
 

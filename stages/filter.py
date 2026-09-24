@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["httpx>=0.27", "pyyaml>=6", "pydantic>=2"]
-# ///
 """stages/filter.py — L0 精确去重 + LLM 批式相关性门 + 逐条概要（docs/PLAN.md §7.1）。
 
 输入  : <run_dir>/10_raw_items.jsonl   (raw_item/1，采集层产物)
@@ -42,12 +38,11 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 
 from adapters import llm_swe2max as llm  # noqa: E402
 from contracts.models import FilterVerdict, RawItem, Summary  # noqa: E402
-from lib import meta, normalize, pool, prog, prompts, store  # noqa: E402
+from stages.lib import meta, normalize, pool, prog, prompts, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 RULEBOOK_PATH = REPO / "rulebook.md"

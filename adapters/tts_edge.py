@@ -1,10 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "edge-tts>=7.2",
-#   "pyyaml",
-# ]
-# ///
 """tts.synth 的 edge-tts 实现（PLAN §7.5 / 决策 D2，breeze 之前的主力引擎）。
 
 接口：
@@ -40,7 +33,6 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import edge_tts
 import yaml

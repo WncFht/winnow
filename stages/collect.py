@@ -1,15 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "httpx>=0.28",
-#   "urllib3>=2",
-#   "feedparser>=6.0.11",
-#   "trafilatura>=2",
-#   "pyyaml>=6",
-#   "pydantic>=2",
-# ]
-# ///
 """stages/collect.py — 采集层（docs/PLAN.md §5 + §4 契约）。
 
 输入  : sources.yaml（唯一人工维护源注册表）+ config.yaml|config.example.yaml
@@ -72,13 +61,12 @@ from urllib.parse import quote, unquote, urljoin, urlsplit
 from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 import yaml  # noqa: E402
 
 from contracts.models import RawItem, RawManifest  # noqa: E402
-from lib import http as lhttp  # noqa: E402
-from lib import meta, normalize, pool, prog  # noqa: E402
+from stages.lib import http as lhttp  # noqa: E402
+from stages.lib import meta, normalize, pool, prog  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -1466,7 +1454,7 @@ def collect_x(src: dict, ctx) -> tuple[list[dict], dict]:
 
     # ① nitter 实例池（健康分轮换）
     try:
-        from lib import x_nitter
+        from stages.lib import x_nitter
         diag: dict = {}
         got = x_nitter.fetch_user(handle, pcfg, diag=diag,
                                   run_dir=ctx.run_dir)
@@ -1480,7 +1468,7 @@ def collect_x(src: dict, ctx) -> tuple[list[dict], dict]:
 
     # ② x.com 登出态 SSR（shell-only 检测在模块内）
     try:
-        from lib import x_ssr
+        from stages.lib import x_ssr
         got = x_ssr.fetch_user(handle, pcfg)
         if got:
             return _stamp_via(list(got), "x:ssr"), \
@@ -1491,7 +1479,7 @@ def collect_x(src: dict, ctx) -> tuple[list[dict], dict]:
 
     # ③ cdn.syndication.twimg.com（429 指数退避在模块内）
     try:
-        from lib import x_synd
+        from stages.lib import x_synd
         got = x_synd.fetch_user(handle, pcfg, run_dir=ctx.run_dir,
                                 source_name=src["name"])
         if got:
@@ -1523,7 +1511,7 @@ def collect_reddit(src: dict, ctx) -> tuple[list[dict], dict]:
     if not sub:
         raise CollectorNotReady(f"no subreddit in feed_url={src['feed_url']!r}")
     try:
-        from lib import reddit_collect
+        from stages.lib import reddit_collect
     except Exception as e:
         raise CollectorNotReady(f"reddit_collect import: {type(e).__name__}")
     try:
@@ -1543,7 +1531,7 @@ def collect_weibo(src: dict, ctx) -> tuple[list[dict], dict]:
     hot_band/containerid 源由 fetch_source 按 feed_url 形状路由。
     m.weibo.cn 为 CN 直连站，proxy=direct。"""
     try:
-        from lib import weibo_collect
+        from stages.lib import weibo_collect
     except Exception as e:
         raise CollectorNotReady(f"weibo_collect import: {type(e).__name__}")
     wcfg = _platform_cfg(src, ctx)

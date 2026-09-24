@@ -1,14 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "numpy>=1.26",
-#   "onnxruntime>=1.17",
-#   "tokenizers>=0.19",
-#   "httpx>=0.27",
-#   "pyyaml>=6",
-#   "pydantic>=2",
-# ]
-# ///
 """dedup — story-line 去重（PLAN §7.2）。
 
 输入：runs/<date>/30_summaries.jsonl（必需，缺则 fail-fast 提示先跑 just filter）
@@ -72,12 +61,11 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 import numpy as np
 
-from lib import meta, normalize, pool, prog, prompts, simhash, store
-from lib import embed as embedlib
+from stages.lib import meta, normalize, pool, prog, prompts, simhash, store
+from stages.lib import embed as embedlib
 from adapters import llm_swe2max as llm
 from contracts import models as cm
 from concurrent.futures import ThreadPoolExecutor

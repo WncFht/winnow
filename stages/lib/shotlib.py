@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "playwright==1.63.*",
-#   "pyyaml>=6",
-#   "pillow>=10",
-# ]
-# ///
 """stages/lib/shotlib.py — 来源页截图 + 品牌占位卡（docs/PLAN.md §7.6）。
 
     shot(url, out_path, cfg=None) -> {"path": str|None, "kind": "shot"|"placeholder", ...}
@@ -55,7 +47,6 @@ import time
 from pathlib import Path
 from urllib.parse import urlparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
 # 直接运行本文件时 sys.path[0]=stages/lib，其中 http.py 会遮蔽 stdlib http
 # （playwright/pillow 依赖链会 import 它）—— 摘除自身目录；被 import 时无副作用。

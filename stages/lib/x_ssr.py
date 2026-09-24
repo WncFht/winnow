@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "httpx>=0.28",
-# ]
-# ///
 """X 采集四路之② — x.com/<handle> 登出态 SSR HTML → raw_item（PLAN §5.3, §4）。
 
 移植自 experiments/hard-x.com-scraper-tool-or-manual/scrape_profile.py，
@@ -59,11 +53,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root (contracts/)
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # stages/ (lib.*)
 
-from lib import http as lib_http
-from lib import normalize
+from stages.lib import http as lib_http
+from stages.lib import normalize
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

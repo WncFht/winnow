@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pillow"]
-# ///
 """subs — 逐句字幕 pill PNG（ffmpeg 合成路径用；PLAN §7.7/§7.8）。
 
 Remotion 路径用 FullDaily.tsx 的 live-text pill（CSS 实时排版），ffmpeg 的
@@ -26,9 +22,8 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
-from lib import meta, prog  # noqa: E402
+from stages.lib import meta, prog  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 F_TIMELINE = "62_timeline.json"

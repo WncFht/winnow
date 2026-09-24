@@ -64,7 +64,7 @@ just produce           # digest → callb → voice → cards → subs → rende
 ## 目录结构
 
 ```
-stages/            12 个 PEP 723 自含阶段脚本（uv run stages/xx.py --run-dir …）
+stages/            12 个阶段脚本（uv 项目；uv run stages/xx.py --run-dir …）
 stages/lib/        公共库：http / store / pool / embed / simhash / prompts /
                    shotlib / prog / meta / normalize / ttsnorm / *_collect …
                    + fixtures/ 自测样本 + seeds/（x_nitter 实例池种子）
@@ -92,8 +92,8 @@ composer/          Remotion 合成器（备选引擎，docs/composer.md）
 | --- | --- |
 | `docs/PLAN.md` | **设计/实施唯一真源**：D1–D12 已拍板决策、各阶段详设、验收口径 |
 | `rulebook.md` | filter/digest 筛选规则手册——留在根目录：stages 运行时直接读它 |
-| `docs/CONTRIBUTING.md` | 工程约定：PEP 723 stage 形态、just 驱动、测试矩阵 |
-| `docs/ops.md` | systemd user timer 部署 + prelude.sh/_jlock 公共前奏 |
+| `docs/CONTRIBUTING.md` | 工程约定：uv 项目形态、just 驱动、测试矩阵 |
+| `docs/ops.md` | systemd user timer 部署 + prelude.sh/\_jlock 公共前奏 |
 | `docs/vendored-upstream.md` | juya-news-card 定格 SHA、本地 patch 清单、重新同步上游方法 |
 | `docs/composer.md` | Remotion 合成器用法（plan 输入优先级、字幕 live-text 约定）+ 可行性实验记录 |
 

@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["pyyaml>=6"]
-# ///
 """stages/lib/ttsnorm.py — 口播文本规范化（PLAN §7.5）。
 
 确定性处理（无 LLM、无网络），顺序固定：

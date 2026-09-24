@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = []
-# ///
 """review_server — 人工闸 1 勾选 UI（PLAN §7.3；种子 experiments/manual-filter-ui/serve_review.py）。
 
 纯 http.server 零依赖。读 `40_candidates.json`（gate_select --prepare 产物），
@@ -30,15 +26,10 @@ import sys
 import threading
 from collections import Counter
 from os import environ
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-if str(Path(__file__).resolve().parent) not in sys.path:
-    sys.path.append(str(Path(__file__).resolve().parent))     # stages/ -> gate_select
-
-from lib import meta, prog
-import gate_select as gs  # slugify_id/unique_slug/section_slug/lint_selected/now_iso
+from stages.lib import meta, prog
+from stages import gate_select as gs  # slugify_id/unique_slug/section_slug/lint_selected/now_iso
 
 MAX_BODY = 256 * 1024
 # 一行缺任一字段 -> 整个 env 视为不合格（宁可 500 提示页，不要半残渲染）
@@ -279,7 +270,7 @@ upd();paint();
 
 def _vocab() -> list:
     try:
-        from lib.prompts import SECTION_VOCAB
+        from stages.lib.prompts import SECTION_VOCAB
         return SECTION_VOCAB
     except Exception:
         return []

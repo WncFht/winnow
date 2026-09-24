@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pyyaml"]
-# ///
 """Dead-man switch ping — docs/PLAN.md §7.9 / §9 (healthchecks.io style).
 
     from adapters import deadman

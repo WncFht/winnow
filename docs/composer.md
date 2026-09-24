@@ -12,7 +12,7 @@
 
 - **plan 输入优先级**（`src/plan.ts::resolvePlan`）： `--props '{"plan":{…}}'` 内嵌 > `REMOTION_PLAN` env（remotion.config.ts 经 DefinePlugin 注入 JSON）> `--props '{"planUrl":"…"}'`（经 `--public-dir` fetch）> public dir 根下 `render_plan.json`/`70_render_plan.json` 默认候选。
 - render.sh 走 env 路 + `--public-dir=<plan 所在 run dir>`，契约相对 src（`64_frames/`、`61_audio/`、`65_subs/`）由 `staticFile` 命中。
-- **字幕 live-text 约定**：`overlay_track[].src` 是 PNG pill（契约要求文件存在）；同 basename `.txt` sidecar（如 `65_subs/000.txt`）存口播文本——fetch 到即渲染 live-text pill（bottom:60 向上生长、maxWidth 1600 wrap），否则退回 `<Img>` PNG按 `xy` 表达式定位。→ `stages/render_plan.py` 产 plan 时应同时吐 `.txt` sidecar。
+- **字幕 live-text 约定**：`overlay_track[].src` 是 PNG pill（契约要求文件存在）；同 basename `.txt` sidecar（如 `65_subs/000.txt`）存口播文本——fetch 到即渲染 live-text pill（bottom:60 向上生长、maxWidth 1600 wrap），否则退回 `<Img>` PNG 按 `xy` 表达式定位。→ `stages/render_plan.py` 产 plan 时应同时吐 `.txt` sidecar。
 - TMPDIR=$PWD/.tmp（/tmp tmpfs OOM 坑）；`--concurrency=4`；**不开** hw-accel。
 - chrome-headless-shell 在 `node_modules/.remotion/`；若缺失且自动下载失败： `--browser-executable ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell`
 
@@ -38,7 +38,7 @@
 
 - **安装**：`npm i remotion@4.0.526`（=npm latest，alpha 线 4.1.0-alpha12）17s 装完。esbuild postinstall 被本机 allowScripts 拦截 → package.json 加 `"allowScripts"` 解决。
 - **浏览器**：首次渲染自动下载 chrome-headless-shell 到 `node_modules/.remotion/` —— googleapis 下载在本机直连**成功**（本实验与 remotion-probe 各下一次）。失败时退路：`browserExecutable` 指到 `~/.cache/ms-playwright/chromium_headless_shell-*/`。
-- **冒烟**（--frames=0-300）：out/smoke.mp4 抽帧验证卡片+字幕 pill 位置正确，aac 音轨在。
+- **冒烟**（--frames=0-300）：out/smoke.mp4 抽帧验证卡片 + 字幕 pill 位置正确，aac 音轨在。
 - **OOM 坑**：默认并发=min(8,cores/2)=6 个 Chrome tab → 本机（可用内存仅 ~9G，与其他 agent 共享）报 "Google Chrome ran out of memory"。`--concurrency=4` 通过。
 - **字幕自适应**：首版 `nowrap` pill 长句溢出画面两缘；改 maxWidth+wrap 后又因 `top:915` 锚点向下长而冲出底缘 → 终版 `bottom:60` 向上生长，4 行长句完整入框。（compose.py 的 PNG pill 是离线预排版好的，live text 要自己管 wrap/锚点——这是换成"活字幕"时唯一真正多出来的工程点，一次性的。）
 
@@ -54,12 +54,12 @@
 - Remotion 只慢 ~1.4×（203→282s），不是数量级差距：8085 帧 1080p 的 x264/nvenc 编码本身就是大头，Chrome 截图即便 2 tab 也没拖住编码器。两者都 ≈1× 实时、都是编码受限。
 - **NVENC 实测可用**：`--hardware-acceleration=if-possible` 让 Remotion 自带的 `@remotion/compositor-linux-x64-gnu/ffmpeg` 走 `h264_nvenc` （nvidia-smi 里看到 6 路 1080p H.264 session，40-48fps/路）。但总时长没变 → 瓶颈在 Chrome 逐帧截图侧，不在编码侧；文件大 25%。
 - **OOM 根因不是并发本身**：/tmp 是 16G tmpfs、被其他任务吃到 95%（剩 ~900M），Chrome 报 "ran out of memory or disk space" 实为 tmpfs 写爆。conc=4+nvenc 在 98s 死、conc=2+nvenc 撑过（其 temp 目录只到 ~80M）。生产环境建议 `TMPDIR` 指到真盘（/ 还剩 248G）而不是默认 tmpfs。
-- 验证：t=30s 抽帧卡片+4 行 wrap 字幕完整入框；t=200s 帧正常；音轨 mean -29dB / max -11dB 有声正常。
+- 验证：t=30s 抽帧卡片 +4 行 wrap 字幕完整入框；t=200s 帧正常；音轨 mean -29dB / max -11dB 有声正常。
 
 ## 与 juya-news-card 共用组件（上游证据：experiments/remotion-probe）
 
 - 模板是 `.tsx` React 组件：`claudeStyleTemplate.render(data, scale)` 直接返回 `<ClaudeStyle>` 元素 —— probe 的 `src/Upstream.tsx` 跨目录 import 后渲出 `out/upstream-live.mp4`（抽帧验证：真 claudeStyle 卡、暖米色主题、图标格子）。
-- 注意点：模板 `useLayoutEffect` 里做 DOM 量测+1.5s settle 字体适配，Remotion 里要用 `delayRender/continueRender` 等它稳，或接受未完全 fit 的版面（probe 帧里卡片偏上、内容略超 1080——需要外层 scale/尺寸约定）。
+- 注意点：模板 `useLayoutEffect` 里做 DOM 量测 +1.5s settle 字体适配，Remotion 里要用 `delayRender/continueRender` 等它稳，或接受未完全 fit 的版面（probe 帧里卡片偏上、内容略超 1080——需要外层 scale/尺寸约定）。
 - 模板 import 仅依赖本地 utils（layout-calculator/template/text-spacing），claudeStyle 无 MUI/emotion 依赖 —— 耦合面小。
 - 三档集成深度：A) PNG 级（FullDaily 现状，零耦合）；B) 组件级（probe 已证可 mount，能上 spring 动画、省掉 PNG 中间产物）；C) HTML 字符串级（generateTemplateHtml → dangerouslySetInnerHTML，可行但不如 B 干净）。
 

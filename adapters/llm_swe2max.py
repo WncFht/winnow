@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["httpx>=0.27", "pyyaml>=6"]
-# ///
 """llm.chat adapter — swe-2-max via local OpenAI-compatible gateway (docs/PLAN.md §6, D1).
 
 实测特性（experiments/swe2max-sufficiency-refute/，2026-09-21 复测）：
@@ -35,12 +31,10 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import httpx
 import yaml

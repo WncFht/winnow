@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pyyaml>=6", "pydantic>=2"]
-# ///
 """stages/render_plan.py — docs/PLAN.md §7.7：编译 70_render_plan.json + 70_cards.ffconcat。
 
 输入（文件即依赖边，缺则 fail-fast 提示先跑哪个 just 目标）：
@@ -49,8 +45,7 @@ import sys
 import zlib
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-from lib import meta, prog  # stages/lib/{meta,prog}.py（stages/ 即 sys.path 脚本目录）
+from stages.lib import meta, prog  # stages/lib/{meta,prog}.py（stages.lib 包）
 
 REPO = Path(__file__).resolve().parents[1]
 REPRO = REPO / "stages" / "lib" / "fixtures"  # repro_{timeline,items}.json

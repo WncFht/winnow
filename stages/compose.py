@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pydantic>=2"]
-# ///
 """stages/compose.py — docs/PLAN.md §7.8 ffmpeg 兜底合成引擎。
 
 唯一驱动输入：70_render_plan.json（render_plan/1 —— 完全解析后的绝对
@@ -56,8 +52,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-from lib import meta, prog  # stages/lib/{meta,prog}.py（stages/ 即 sys.path 脚本目录）
+from stages.lib import meta, prog  # stages/lib/{meta,prog}.py（stages.lib 包）
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")

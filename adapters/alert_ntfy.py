@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pyyaml"]
-# ///
 """ntfy alert adapter — docs/PLAN.md §7.9 / §9, decision D9.
 
     from adapters import alert_ntfy as alert

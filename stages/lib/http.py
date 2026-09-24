@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "httpx>=0.28",
-#   "urllib3>=2",
-# ]
-# ///
 """Collect-layer HTTP helper (docs/PLAN.md §5.2).
 
 get(url, *, etag=None, lastmod=None, proxy=None, timeout=20, headers=None,
@@ -49,7 +42,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
 # Running this file directly (uv run stages/lib/http.py) leaves stages/lib/ on
 # sys.path[0], where this file shadows the stdlib `http` package that httpx

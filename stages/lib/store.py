@@ -35,7 +35,7 @@ stdlib only — 与 lib/meta.py 同级约定，任何 PEP 723 stage 脚本可安
 
 用法（stages/dedup.py）::
 
-    from lib import store
+    from stages.lib import store
     conn = store.init_db(run_dir / "state/history.sqlite")   # 或 state/ 下
     for it in candidates:
         it["url_hash"]  = store.url_hash(it["url_canon"])

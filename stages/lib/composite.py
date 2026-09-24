@@ -8,7 +8,7 @@
   （pg.set_content 无法加载 file:// 图片，已踩过）。
 
 API：
-    from lib import composite
+    from stages.lib import composite
     composite.stack(run_dir, "deepseek", [card, nav, crumb]) -> Path
     composite.stack_all(run_dir, {"deepseek": [...], "deepseek_shot": [...]})
         -> {name: Path}          # 共享一个 browser，批量走这个

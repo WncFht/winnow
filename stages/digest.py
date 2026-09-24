@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pyyaml>=6", "jsonschema>=4.20", "httpx>=0.27"]
-# ///
 """stages/digest.py — docs/PLAN.md §7.4：勾选条目 → issue/1 + 编辑闸往返 + 投影 + 合规。
 
 CLI（文件即依赖边，缺输入即 fail-fast 提示先跑哪个 just 目标。三个分支
@@ -50,15 +46,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 import jsonschema
 
 from adapters import llm_swe2max as llm
-from lib import meta, prog, prompts
+from stages.lib import meta, prog, prompts
 
 try:
-    from lib import normalize
+    from stages.lib import normalize
 except Exception:  # pragma: no cover - aliases are optional polish
     normalize = None
 

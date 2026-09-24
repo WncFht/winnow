@@ -65,7 +65,7 @@ Gate-2 editing: after `pick`, run `just digest` for `50_review.md`, edit via `ju
 ## Layout
 
 ```
-stages/            12 PEP-723 self-contained stage scripts (uv run stages/xx.py)
+stages/            12 stage scripts (uv project; uv run stages/xx.py)
 stages/lib/        shared libs: http/store/pool/embed/simhash/prompts/
                    shotlib/prog/meta/normalize/ttsnorm/*_collect …
                    + fixtures/ selftest samples + seeds/ (x_nitter pool seeds)
@@ -93,7 +93,7 @@ All documentation lives under `docs/` (index: `docs/README.md`).
 | --- | --- |
 | `docs/PLAN.md` | **single source of truth**: decisions D1–D12, per-stage design, acceptance criteria |
 | `rulebook.md` | filter/digest rulebook — stays at root: `stages/` reads it as a runtime input |
-| `docs/CONTRIBUTING.md` | engineering conventions: PEP 723 stages, just driver, test matrix |
+| `docs/CONTRIBUTING.md` | engineering conventions: uv project layout, just driver, test matrix |
 | `docs/ops.md` | systemd user timers + prelude.sh/_jlock shared prelude |
 | `docs/vendored-upstream.md` | juya-news-card pinned SHA, local patches, re-sync procedure |
 | `docs/composer.md` | Remotion composer usage + feasibility notes |

@@ -1,11 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "edge-tts>=7.2",
-#   "pyyaml>=6",
-#   "pydantic>=2",
-# ]
-# ///
 """stages/voice.py — PLAN §7.5：50_issue.json → 口播音频 + 时间轴 + 字幕投影。
 
 产物（§4 契约）：
@@ -53,12 +45,11 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 
 from adapters import tts_edge  # noqa: E402
 from contracts.models import AudioManifest, Timeline, VoiceSeg  # noqa: E402
-from lib import meta, prog, ttsnorm  # noqa: E402
+from stages.lib import meta, prog, ttsnorm  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 

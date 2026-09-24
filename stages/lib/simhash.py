@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = []
-# ///
 """64-bit simhash for near-duplicate detection (docs/PLAN.md §7.2 dedup 判定级联 tier-2).
 
 Fingerprint input is ``title_norm + ' ' + summary`` — see fingerprint_parts().
@@ -34,10 +30,7 @@ Self-test:  uv run stages/lib/simhash.py   (or python3; exits nonzero on fail)
 
 import hashlib
 import re
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 MASK64 = (1 << 64) - 1
 

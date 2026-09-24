@@ -9,7 +9,7 @@
     'assets/…' 相对 chrome/ 目录实际 404、一直在静默回退，这里修正）。
 
 API：
-    from lib import chrome
+    from stages.lib import chrome
     pngs = chrome.render(run_dir, issue)
     # -> {"nav_intro": Path, "nav_s0".."nav_sN": Path,
     #     "crumb_intro": Path, "crumb_<id>": Path,

@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "httpx>=0.28",
-#   "pydantic>=2",
-# ]
-# ///
 """Reddit collector (docs/PLAN.md §5.3, Tier B platform collector).
 
 Port of experiments/hard-reddit.com-official-api-or-native-feed/fetch_reddit.sh
@@ -63,11 +56,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
 # Same guard as lib/http.py: run directly, stages/lib is sys.path[0] and this
 # file's siblings shadow stdlib `http`/`store` packages that httpx imports —
-# drop our own dir before importing httpx. `from lib import reddit_collect`
+# drop our own dir before importing httpx. `from stages.lib import reddit_collect`
 # (collect.py) never puts stages/lib on sys.path, so this is a no-op then.
 _SELF_DIR = str(Path(__file__).resolve().parent)
 sys.path[:] = [p for p in sys.path

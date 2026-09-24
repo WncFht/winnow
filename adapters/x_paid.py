@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pyyaml>=6"]
-# ///
 """X 平台采集器 ④ 付费 adapter —— D12：只留接口 + 配置开关，不买不实现。
 
 决策（docs/PLAN.md D12 / §5.3）：连续失败告警后再决策是否付费。本文件提供与
@@ -26,11 +22,9 @@ CLI:  uv run adapters/x_paid.py            # selftest（offline 闸口断言）
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 from typing import Any
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 import yaml  # noqa: E402
 

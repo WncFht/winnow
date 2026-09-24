@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["fonttools>=4.50", "playwright==1.63.0"]
-# ///
 """stages/lib/layout_d2.py — D2 卡片自适应闭式解（docs/PLAN.md §7.6）。
 
 上游 juya-news-card `claudeStyle` 的自适应是 1px 递减循环 + transform scale
@@ -13,7 +9,7 @@ D2-uniform 思路做闭式解：一次求出全局字号缩放 s 与 chrome 收�
 
 接口（stages/cards.py 用法）：
 
-    from lib import layout_d2
+    from stages.lib import layout_d2
     solved = layout_d2.solve(item_content)        # GeneratedContent dict -> dict
     html   = generateTemplateHtml(...)            # tsx 侧产物（见 render_items）
     html   = layout_d2.patch_html(html, solved)   # 注入 CSS var + verify 脚本
@@ -50,7 +46,6 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Optional
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSTREAM_DIR = REPO_ROOT / "upstream" / "juya-news-card"

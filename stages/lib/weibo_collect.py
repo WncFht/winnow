@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "httpx>=0.28",
-# ]
-# ///
 """Weibo collector — m.weibo.cn JSON + visitor-cookie flow (docs/PLAN.md §5.3 Tier B).
 
 Lifts the verified flow from experiments/weibo-monitor + weibo-stability-probe:
@@ -71,16 +65,14 @@ from urllib.parse import quote
 # Repo root for `contracts`/`adapters`; stages/ for `lib.*` sibling imports.
 # The script's own dir (stages/lib) is stripped so `import http` inside httpx
 # can't resolve to lib/http.py (same trick as lib/http.py itself).
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # stages/
 _SELF_DIR = str(Path(__file__).resolve().parent)
 sys.path[:] = [p for p in sys.path
                if str(Path(p or ".").resolve()) != _SELF_DIR]
 
 import httpx  # noqa: E402
 
-from lib.http import get as http_get, save_raw  # noqa: E402
-from lib.normalize import url_canon, item_key, title_norm  # noqa: E402
+from stages.lib.http import get as http_get, save_raw  # noqa: E402
+from stages.lib.normalize import url_canon, item_key, title_norm  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

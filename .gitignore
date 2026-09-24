@@ -53,6 +53,7 @@ adapters/bin/lychee
 
 # 本地 TTS：worker venv + 上游 clone（weights 走 HF cache，均不进 git）
 venvs/
+.venv/
 tools/tts_workers/breeze-tts/
 
 # remotion 手工路径的本机 symlink（指向 gitignored 生成目录，跨机必悬空）

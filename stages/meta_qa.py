@@ -1,15 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "httpx>=0.27",
-#   "playwright>=1.40",
-#   "pyyaml>=6",
-#   "pydantic>=2",
-#   "numpy",
-#   "onnxruntime>=1.17",
-#   "tokenizers>=0.19",
-# ]
-# ///
 """stages/meta_qa.py — docs/PLAN.md §7.9：标题候选 + 封面 + 确定性审计 + 出片回写 + 告警。
 
 产物（§4 契约）：
@@ -67,11 +55,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote, urlencode
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 from adapters import alert_ntfy, deadman  # noqa: E402
 from adapters import llm_swe2max as llm  # noqa: E402
-from lib import meta, pool, prog, prompts, store  # noqa: E402
+from stages.lib import meta, pool, prog, prompts, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -668,7 +655,7 @@ def embed_leak_audit(issue: dict, content_by_key: dict, key_by_id: dict,
         check["reason"] = "no source content_text"
         return check
     try:
-        from lib import embed
+        from stages.lib import embed
         vs = embed.embed([p[1] for p in pairs], mode="doc")
         vc = embed.embed([p[2] for p in pairs], mode="doc")
     except Exception as e:

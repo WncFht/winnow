@@ -123,7 +123,7 @@ setup-toolchain:
       echo "  ok ~/.cache/ms-playwright"
     else
       echo "  installing chromium ..."
-      uv run -q --with playwright python -m playwright install chromium \
+      uv run -q python -m playwright install chromium \
         && echo "  ok playwright install" || { echo "  FAIL playwright install"; miss=$((miss+1)); }
     fi
 
@@ -145,7 +145,7 @@ doctor:
     pass(){ P=$((P+1)); echo "  PASS $1"; }
     fail(){ F=$((F+1)); echo "  FAIL $1 :: ${2:-}"; }
     skip(){ S=$((S+1)); echo "  SKIP $1 :: ${2:-}"; }
-    cfg(){ uv run -q --with pyyaml python3 - "$1" "$2" <<'PY'
+    cfg(){ uv run -q python3 - "$1" "$2" <<'PY'
     import sys, yaml, os
     key, default = sys.argv[1], sys.argv[2]
     cfg = {}
@@ -213,7 +213,7 @@ doctor:
     [ -n "$pxy" ] || pxy="${PIPELINE_PROXY:-${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-${ALL_PROXY:-${all_proxy:-}}}}}}}"
     [ -n "$pxy" ] || pxy=$(cfg proxy.http "")
     pxenv=(); [ -n "$pxy" ] && pxenv=(https_proxy="$pxy" http_proxy="$pxy")
-    if env "${pxenv[@]}" uv run -q --with playwright python3 - "$SCRATCH/example.png" >"$SCRATCH/pw.log" 2>&1 <<'PY'
+    if env "${pxenv[@]}" uv run -q python3 - "$SCRATCH/example.png" >"$SCRATCH/pw.log" 2>&1 <<'PY'
     import sys
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -230,13 +230,13 @@ doctor:
     echo "== embed (Qwen3-0.6B-ONNX) =="
     if [ -f stages/lib/embed.py ]; then
       if (cd stages && uv run lib/embed.py --selftest >"$SCRATCH/embed.log" 2>&1); then pass "embed --selftest"
-      elif (cd stages && uv run -q --with onnxruntime --with tokenizers --with numpy python3 -c "import sys; sys.path.insert(0,'.'); import lib.embed" >>"$SCRATCH/embed.log" 2>&1); then pass "embed import"
+      elif (uv run -q python3 -c "import stages.lib.embed" >>"$SCRATCH/embed.log" 2>&1); then pass "embed import"
       else fail "embed" "$(tail -2 "$SCRATCH/embed.log" | tr '\n' ' ')"; fi
     else skip "embed" "stages/lib/embed.py absent"; fi
 
     echo "== edge-tts =="
-    if timeout 90 uv run -q --with edge-tts edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --write-media "$SCRATCH/tts.mp3" >"$SCRATCH/tts.log" 2>&1 \
-    || { [ -n "$pxy" ] && timeout 90 uv run -q --with edge-tts edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --proxy "$pxy" --write-media "$SCRATCH/tts.mp3" >>"$SCRATCH/tts.log" 2>&1; }; then
+    if timeout 90 uv run -q edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --write-media "$SCRATCH/tts.mp3" >"$SCRATCH/tts.log" 2>&1 \
+    || { [ -n "$pxy" ] && timeout 90 uv run -q edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --proxy "$pxy" --write-media "$SCRATCH/tts.mp3" >>"$SCRATCH/tts.log" 2>&1; }; then
       if [ -s "$SCRATCH/tts.mp3" ]; then pass "edge-tts -> tts.mp3"; else fail "edge-tts" "empty mp3"; fi
     else fail "edge-tts" "$(tail -2 "$SCRATCH/tts.log" | tr '\n' ' ')"; fi
 
@@ -266,7 +266,7 @@ doctor:
 lint-sources:
     #!/usr/bin/env bash
     set -u
-    uv run -q --with pyyaml python3 - <<'PY'
+    uv run -q python3 - <<'PY'
     import sys, yaml, subprocess, urllib.parse, collections, os
     fails, warns = [], []
     try:
@@ -458,7 +458,7 @@ deadline1:
     #!/usr/bin/env bash
     set -euo pipefail
     export PIPELINE_RUN={{RUN}}; source ops/prelude.sh
-    dl=$(uv run -q --with pyyaml python3 - <<'PY'
+    dl=$(uv run -q python3 - <<'PY'
     import os, yaml
     for f in ("config.yaml", "config.example.yaml"):
         if os.path.exists(f):
@@ -504,10 +504,9 @@ deadline2:
     # 否则"人工改过 50_review.md"探测恒为假、自动 edit-import 永远不触发。
     if python3 - {{RUN}} <<'PY'
     import sys, os, hashlib
-    sys.path.insert(0, "stages")
     rd = sys.argv[1]
     try:
-        from lib.meta import meta_status
+        from stages.lib.meta import meta_status
         st = meta_status(rd).get("stages") or {}
         cur = hashlib.sha256(open(os.path.join(rd, "50_review.md"), "rb").read()).hexdigest()
         base = (st.get("digest_import") or {}).get("review_sha256") \
@@ -535,7 +534,6 @@ resume date=DATE:
     mkdir -p "$RD/logs"
     todo=$(python3 - "$RD" <<'PY'
     import sys, os
-    sys.path.insert(0, "stages")
     rd = sys.argv[1]
     # stage key -> (recipe, fallback artifact)；同 recipe 去重（filter 产
     # 20+30 两个 artifact；digest 系列共享 50_issue.json）。
@@ -560,7 +558,7 @@ resume date=DATE:
         ("meta_qa",       "meta",         "90_qa.json"),
     ]
     try:
-        from lib.meta import meta_status          # authoritative verify (sha)
+        from stages.lib.meta import meta_status          # authoritative verify (sha)
         meta = meta_status(rd, verify=True)
     except Exception:
         import json
@@ -699,7 +697,7 @@ test:
       run "adapters/$s" uv run "adapters/$s.py" --selftest
     done
     # golden fixture 全量校验（schema + 交叉字段 + manifest sha256 复验）
-    run "contracts-fixture" uv run -q --with pydantic python3 contracts/validate.py contracts/fixtures/2026-09-20
+    run "contracts-fixture" uv run -q python3 contracts/validate.py contracts/fixtures/2026-09-20
     for s in lib/http lib/shotlib lib/reddit_collect lib/weibo_collect lib/x_ssr lib/x_nitter lib/x_synd; do
       run "$s" uv run "stages/$s.py" --offline
     done

@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = []
-# ///
 """Normalization helpers shared by collect/filter/dedup (docs/PLAN.md §5.2, §7.1).
 
 url_canon(u)     canonical URL: lower scheme/host, IDNA, strip www./m./amp.,
@@ -33,7 +29,6 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-import sys
 import time
 import unicodedata
 from datetime import datetime, timezone
@@ -43,7 +38,6 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ALIASES_PATH = REPO_ROOT / "aliases.json"

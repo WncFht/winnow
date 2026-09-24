@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.11"
-# dependencies = [
-#   "playwright==1.63.*",
-#   "pyyaml>=6",
-#   "pydantic>=2",
-#   "googlenewsdecoder>=0.1.7,<0.2",
-# ]
-# ///
 """stages/cards.py — 内容卡渲染 + chrome 叠加 + 帧合成（docs/PLAN.md §7.6）。
 
 输入  : 50_issue.json（items[].{id,section,nav,title_short,cards[{label,body,icon}],
@@ -57,10 +48,9 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
 from contracts.models import Cards, FramesManifest  # noqa: E402
-from lib import meta, prog  # noqa: E402
+from stages.lib import meta, prog  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 UPSTREAM = REPO / "upstream" / "juya-news-card"
@@ -131,11 +121,11 @@ def _png_size(p: Path) -> tuple:
 
 
 def _lib(name: str):
-    """惰性 import lib.<name>——并行 agent 可能还在写；任何失败都降级。"""
+    """惰性 import stages.lib.<name>——并行 agent 可能还在写；任何失败都降级。"""
     try:
-        return importlib.import_module(f"lib.{name}")
+        return importlib.import_module(f"stages.lib.{name}")
     except Exception as e:
-        log.warning("lib.%s 不可用（%s: %s）→ 内建回退", name,
+        log.warning("stages.lib.%s 不可用（%s: %s）→ 内建回退", name,
                     type(e).__name__, str(e)[:120])
         return None
 

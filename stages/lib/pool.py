@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["pydantic>=2", "pyyaml>=6"]  # 仅供 __main__（--selftest/--import）
-# ///
 """stages/lib/pool.py — 跨期条目池 state/items.sqlite（单文件 WAL，行永不删）。
 
 一行 = 一条新闻的机械身份（item_key = sha256(url_canon)[:16]），跨 episode
@@ -50,10 +46,8 @@ from pathlib import Path
 from typing import Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # stages/ —— lib.*
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root —— contracts.*
 
-from lib import meta, normalize  # noqa: E402
+from stages.lib import meta, normalize  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DB = REPO_ROOT / "state" / "items.sqlite"

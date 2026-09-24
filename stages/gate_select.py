@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.11"
-# dependencies = ["pyyaml"]
-# ///
 """gate_select — 人工闸 1（docs/PLAN.md §7.3）。
 
 `40_candidates.json`（UI 数据源，非契约）的五类来源——前四个 run 文件
@@ -65,8 +61,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> contracts/adapters
-from lib import meta, pool, prog  # stages/lib/{meta,pool,prog}.py（stages/ 即 sys.path 脚本目录）
+from stages.lib import meta, pool, prog  # stages/lib/{meta,pool,prog}.py（stages.lib 包）
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -187,9 +182,9 @@ def unique_slug(base: str, item_key: str, taken: set[str]) -> str:
 
 
 def _section_vocab() -> list:
-    """lib.prompts.SECTION_VOCAB（lazy import——本模块被 review_server 当工具箱用时也要能跑）。"""
+    """stages.lib.prompts.SECTION_VOCAB（lazy import——本模块被 review_server 当工具箱用时也要能跑）。"""
     try:
-        from lib.prompts import SECTION_VOCAB
+        from stages.lib.prompts import SECTION_VOCAB
         return SECTION_VOCAB
     except Exception:
         return []

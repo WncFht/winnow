@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "numpy",
-#   "onnxruntime>=1.17",
-#   "tokenizers>=0.19",
-# ]
-# ///
 """Qwen3-Embedding-0.6B int8 ONNX embedder (last-token pooling, L2-normalized).
 
 Backend: onnx-community/Qwen3-Embedding-0.6B-ONNX int8 on CPU
@@ -18,7 +10,7 @@ Model dir resolution (first hit wins):
 Each dir must contain model_int8.onnx + tokenizer.json.
 
 API:
-    from lib import embed
+    from stages.lib import embed
     v = embed.embed(["标题1", "标题2"], mode="doc")     # (N,1024) float32, unit norm
     q = embed.embed(["某事件有新进展吗"], mode="query") # instruct prefix applied
 
@@ -30,10 +22,8 @@ Smoke:  uv run stages/lib/embed.py
 """
 
 import os
-import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
 import numpy as np
 import onnxruntime as ort

@@ -1,11 +1,4 @@
 #!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#   "httpx>=0.28",
-#   "pydantic>=2",
-# ]
-# ///
 """x_nitter.py — X/Twitter 采集路①：nitter 实例池（docs/PLAN.md §5.3）。
 
 fetch_user(handle, cfg, *, diag=None, run_dir=None) -> list[raw_item dict]
@@ -55,16 +48,14 @@ from typing import Any, Optional
 from urllib.parse import urlsplit
 
 # stages/lib/*.py：脚本目录(stages/lib)在 sys.path[0] 会遮蔽 stdlib http
-# （httpx 依赖它）——先摘掉，再补 stages/（from lib import …）与 repo root
+# （httpx 依赖它）——先摘掉，再补 stages/（from stages.lib import …）与 repo root
 # （from contracts/adapters import …）。
 _SELF_DIR = str(Path(__file__).resolve().parent)
 sys.path[:] = [p for p in sys.path
                if str(Path(p or ".").resolve()) != _SELF_DIR]
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # stages/
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 
-from lib import http as _http          # noqa: E402
-from lib import normalize as _norm     # noqa: E402
+from stages.lib import http as _http          # noqa: E402
+from stages.lib import normalize as _norm     # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXP_DIR = REPO_ROOT / "stages" / "lib" / "seeds" / "x_nitter"

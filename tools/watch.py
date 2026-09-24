@@ -1,7 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = ["rich>=13"]
-# ///
 """just status / just watch —— run 目录只读仪表盘。
 
 数据源（全部只读，不碰 .just.lock / .lock）：
@@ -26,9 +22,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "stages"))
 
-from lib import meta, prog  # noqa: E402
+from stages.lib import meta, prog  # noqa: E402
 
 from rich import box  # noqa: E402
 from rich.console import Console, Group  # noqa: E402

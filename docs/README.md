@@ -6,7 +6,7 @@
 | --- | --- |
 | `PLAN.md` | **设计/实施唯一真源**：D1–D12 已拍板决策、各阶段详设、验收口径 |
 | `CONTRIBUTING.md` | 工程约定：PEP 723 stage 形态、just 驱动、测试矩阵 |
-| `ops.md` | systemd user units + just 配方公共前奏（prelude.sh/_jlock） |
+| `ops.md` | systemd user units + just 配方公共前奏（prelude.sh/\_jlock） |
 | `composer.md` | Remotion 合成器用法（手工/冒烟路径）+ 可行性实验记录 |
 | `vendored-upstream.md` | juya-news-card 定格 SHA、本地 patch 清单、重新同步上游方法 |
 

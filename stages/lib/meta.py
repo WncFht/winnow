@@ -28,7 +28,7 @@ Two sidecar subsystems live beside 00_meta.json（stages{} extra=forbid
 
 Stages use it like:
 
-    from lib import meta
+    from stages.lib import meta
     run_dir = meta.ensure_run(args.date)
     with meta.run_lock(run_dir):
         meta.stage_begin(run_dir)            # 登记 00_running.json
