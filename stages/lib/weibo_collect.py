@@ -65,7 +65,7 @@ import time
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from urllib.parse import quote, urlsplit, parse_qs
+from urllib.parse import quote
 
 # --- sys.path wiring -------------------------------------------------------
 # Repo root for `contracts`/`adapters`; stages/ for `lib.*` sibling imports.
@@ -94,7 +94,6 @@ GENVISITOR = "https://visitor.passport.weibo.cn/visitor/genvisitor2"
 GETINDEX = "https://m.weibo.cn/api/container/getIndex"
 EXTEND = "https://m.weibo.cn/statuses/extend"
 HOT_BAND = "https://weibo.com/ajax/statuses/hot_band"
-HOT_SEARCH = "https://weibo.com/ajax/side/hotSearch"
 
 MIN_INTERVAL = 3.0          # ≤20 rpm (PLAN §5.3)
 COOKIE_MAX_AGE = 20 * 3600  # re-mint daily anyway

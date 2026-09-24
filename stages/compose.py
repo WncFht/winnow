@@ -15,7 +15,7 @@
                     transition 互叠）；-t 延长 D 供重叠区消耗，offset 取段
                     边界-D → 淡化恰在切点前完成，段边界/总时长不变。
                     单段或 D≤0.001 退回 concat=n:v=1
-  overlay_track[] → -loop 1 -i {src} → overlay={xy}:enable=between(t,s,e)
+  overlay_track[] → -i {src}（单帧常驻）→ overlay={xy}:enable=between(t,s,e)
                     （字幕 pill 等 PNG 叠加层；xy 由 plan 给出，
                     缺省 (main_w-overlay_w)/2:930 = 居中、y≈930）
   audio_track[]   → -i {src} → aresample=48000,aformat=stereo,
@@ -46,7 +46,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import shutil
 import subprocess

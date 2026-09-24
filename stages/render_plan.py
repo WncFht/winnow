@@ -884,9 +884,6 @@ def cmd_selftest() -> int:
     check("T1 有效 shot 进 video_track",
           "64_frames/step5.shot.png" in srcs
           and "64_frames/radar.shot.png" in srcs)
-    tl1 = _jload(rd / F_TIMELINE)
-    s5 = next(i for i in tl1["items"] if i["id"] == "step5")
-    q5 = next(i for i in tl1["items"] if i["id"] == "qwen")
     check("T1 shot 三段切分正确",
           {"src": "64_frames/step5.shot.png", "start": 45.634,
            "end": 53.194} in plan["video_track"]
@@ -916,7 +913,7 @@ def cmd_selftest() -> int:
           check_ffconcat(rd / OUT_FFCONCAT)[0])
     fct = (rd / OUT_FFCONCAT).read_text()
     check("T1 ffconcat 末文件重复", fct.rstrip().endswith(
-        f"file '64_frames/kimi.png'"))
+        "file '64_frames/kimi.png'"))
     check("T1 --check 绿", cmd_check(rd) == 0)
     print("  schema:", _pydantic_check(plan))
 

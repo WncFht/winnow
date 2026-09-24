@@ -5,7 +5,7 @@
 #   "pyyaml",
 # ]
 # ///
-"""tts.synth 的 edge-tts 占位实现（PLAN §7.5 / 决策 D2）。
+"""tts.synth 的 edge-tts 实现（PLAN §7.5 / 决策 D2，breeze 之前的主力引擎）。
 
 接口：
     synth(text, seg_id, out_dir, *, voice=None, rate="+0%",

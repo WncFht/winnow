@@ -403,7 +403,7 @@ def run_filter(items: list[dict], l0: dict, cfg: dict, rulebook: str,
             for it in missing:                   # 重批 2 轮仍缺 → review
                 rows[it["item_key"]] = verdict_row(
                     it["item_key"], "review", 0.5, None,
-                    [f"coverage-miss: 重批2轮仍缺，转人工"
+                    ["coverage-miss: 重批2轮仍缺，转人工"
                      + (f"；网关错误 {type(err).__name__}" if err else "")],
                     model=model, prompt_tag=ptag, ts=ts)
             p.tick(bi + 1, f"verdict batch out={len(outs)} miss={len(missing)}",

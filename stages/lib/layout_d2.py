@@ -58,7 +58,6 @@ FONT_PATH = UPSTREAM_DIR / "public" / "assets" / "htmlFont.ttf"
 
 FRAME_W, FRAME_H = 1920, 1080
 BOTTOM_RESERVE = 100            # generateTemplateHtml 默认 bottomReservedPx
-CENTER_Y = (FRAME_H - BOTTOM_RESERVE) / 2   # 490: .main-container 内容区中心
 MAX_H = 1040 - BOTTOM_RESERVE   # 940 = upstream fitViewport maxH
 ELL = "…"
 

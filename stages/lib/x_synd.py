@@ -61,7 +61,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # repo root
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # stages/ → `from lib import …`

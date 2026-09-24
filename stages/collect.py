@@ -94,8 +94,6 @@ CONTENT_MIN = 200                    # <200 字 → 正文补抓
 SEEN_URL_CAP = 5000                  # 每源 seen urls 滚动上限
 SITEMAP_CHILD_CAP = 5                # sitemapindex 子图最多抓几个
 CHANGELOG_LINK_CAP = 120
-MAX_CONTENT_PER_SOURCE = 60          # 每源正文补抓上限
-HTML_MIN = 1 << 14                   # >16KB 才可能走 changelog 链接抽取
 CONTENT_TEXT_CAP = 8000              # content_text 上限（对齐 trafilatura 回填 8000）
 
 # 防盗链图床（浏览器热链 403）：本地化下载到 run_dir/media/
@@ -546,13 +544,6 @@ def _looks_like_feed(body: bytes) -> bool:
 # partial item 键: title/url/date/summary/image/tags/guid
 # data = 已解析 JSON（GET 拿到非 JSON → 调用方降级 html diff）
 
-def _dget(d: dict, *keys):
-    for k in keys:
-        if isinstance(d, dict) and d.get(k) not in (None, ""):
-            return d[k]
-    return None
-
-
 def _first_str(v) -> str | None:
     """取首个可用 str：list 取 [0]，dict 取 rendered/name/title。"""
     if isinstance(v, str):
@@ -603,25 +594,6 @@ def api_github_search(d, src, ctx):
                     "guid": str(it.get("id") or ""),
                     "image": (it.get("owner") or {}).get("avatar_url"),
                     "tags": [f"stars:{it.get('stargazers_count', 0)}"]})
-    return out, None
-
-
-def api_wordpress(d, src, ctx):
-    out = []
-    for it in d if isinstance(d, list) else []:
-        img = None
-        emb = it.get("_embedded") or {}
-        try:
-            img = emb["wp:featuredmedia"][0].get("source_url")
-        except (KeyError, IndexError, TypeError):
-            img = it.get("jetpack_featured_media_url")
-        out.append({"title": _strip_html((it.get("title") or {}).get("rendered")),
-                    "url": it.get("link"),
-                    "date": _parse_date(it.get("date_gmt") or it.get("date")),
-                    "summary": _strip_html(
-                        (it.get("excerpt") or {}).get("rendered")),
-                    "guid": str(it.get("id") or ""),
-                    "image": img})
     return out, None
 
 
@@ -872,8 +844,8 @@ def api_rsshub_routes(d, src, ctx):
     但全量进 seen，后续只对真正新增的路由发信号。"""
     out, all_canon = [], []
     if isinstance(d, dict):
-        def emit(path, meta):
-            cats = (meta or {}).get("categories") or []
+        def emit(path, route):
+            cats = (route or {}).get("categories") or []
             cat = cats[0] if isinstance(cats, list) and cats else "other"
             url = ("https://docs.rsshub.app/routes/" + cat +
                    "?route=" + quote(path, safe=""))
@@ -887,9 +859,9 @@ def api_rsshub_routes(d, src, ctx):
             if k.startswith("/"):
                 emit(k, v)
             else:
-                for p, meta in list((v.get("routes") or {}).items())[:8000]:
+                for p, route in list((v.get("routes") or {}).items())[:8000]:
                     if p.startswith("/"):
-                        emit(p, meta)
+                        emit(p, route)
     if all_canon:
         ctx.seen.setdefault(src["name"], {})["round_urls"] = \
             list(dict.fromkeys(all_canon))[:SEEN_URL_CAP]
@@ -2390,7 +2362,6 @@ def selftest(args) -> int:
     win = _window(_today_sh())
     # selftest 用独立 seen（不写真 state）—— clone 内存态，落盘到 run_dir
     seen = _load_json(SEEN_PATH, {})
-    health = _load_json(HEALTH_PATH, {})
     ctx = Ctx(args, cfg, run_dir, seen, win)
     pre = preflight(cfg, ctx.proxy_url)
     ctx.proxy_ok = bool(pre.get("proxy_ok"))

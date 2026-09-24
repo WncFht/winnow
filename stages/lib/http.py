@@ -45,7 +45,7 @@ import os
 import re
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -60,7 +60,6 @@ sys.path[:] = [p for p in sys.path
 
 import httpx
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 
 ERRORS = {
     "ok", "empty", "timeout", "parse_error", "walled",

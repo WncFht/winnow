@@ -35,7 +35,7 @@ import json
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 OUT = Path(__file__).resolve().parent
 SCHEMAS = OUT / "schemas"

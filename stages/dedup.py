@@ -484,7 +484,6 @@ def same_day_cluster(items: list[dict], judge: Judge,
             _drain()                    # 先落已完成的判定，uf 保持最新再剪枝
             if uf.find(i) == uf.find(j):
                 continue
-            cos = rec["cos"]
             ham = simhash.hamming(items[i]["fp_day"], items[j]["fp_day"])
             rec["ham"] = ham
             if ham <= simhash.NEAR_DUP_HAMMING:

@@ -1077,7 +1077,7 @@ def main() -> None:
         # fatal 级（§9）：ntfy urgent + 非零退出
         try:
             cfg = _cfg(args.config)
-            alert_ntfy.fatal(f"AI早报 meta_qa 崩溃", f"{run_dir.name}: {type(e).__name__}: {e}",
+            alert_ntfy.fatal("AI早报 meta_qa 崩溃", f"{run_dir.name}: {type(e).__name__}: {e}",
                              config=cfg)
         except Exception:
             pass

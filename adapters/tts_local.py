@@ -21,7 +21,6 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-import sys
 import threading
 import time
 from pathlib import Path
@@ -225,7 +224,7 @@ def _ffprobe_dur(path: Path) -> float:
 def synth(text: str, seg_id: str, out_dir, *,
           voice=None, rate=None, config_path=None) -> dict:
     """tts_edge 同合同：{out_dir}/{seg_id}.mp3 + dur 实测 + boundaries=[]。"""
-    global _cfg_used, _proc
+    global _cfg_used
     out_dir = Path(out_dir).resolve()   # worker cwd 在 breeze-tts repo，必须绝对路径
     fails = 0
     while True:

@@ -66,8 +66,6 @@ REPO = Path(__file__).resolve().parents[1]
 UPSTREAM = REPO / "upstream" / "juya-news-card"
 RENDER_BATCH = UPSTREAM / "scripts" / "render-batch.ts"
 SSR_RUNTIME = UPSTREAM / "src" / "templates" / "ssr-runtime.ts"
-FONT_CANDIDATES = [UPSTREAM / "assets" / "htmlFont.ttf",
-                   UPSTREAM / "public" / "assets" / "htmlFont.ttf"]
 
 F_ISSUE = "50_issue.json"
 F_CARDS = "63_cards.json"
@@ -82,8 +80,6 @@ TEMPLATE = "claudeStyle"
 # 模板 scale 下限 0.60，贴底后 minCardTop 转负/bottom>1080 = clipped。
 SCALE_FLOOR = 0.55          # 0.60 留 epsilon
 CLIP_MARGIN = 2.0           # px 容差
-PROBE_WAIT_MS = 1400        # 对齐 probe.mts（render-batch 1200 + font refit）
-RENDER_WAIT_S = 30          # setContent networkidle 上限（CDN 抖动容忍）
 MAX_ADJUST = 2              # §7.6: 重排重渲最多 2 次
 
 # 降级 spec：按卡数给 desc 字符预算（sweep：n=4 desc≤200 不裁切，n=8 desc≤120）
@@ -1132,8 +1128,8 @@ def run(args) -> int:
         print(f"frames: {len(frames)} 帧 -> {FRAMES_DIR}/")
 
         # 7) manifests
-        fm_p = write_manifests(run_dir, issue, cards_dir, good_cards,
-                               frames, missing)
+        write_manifests(run_dir, issue, cards_dir, good_cards,
+                        frames, missing)
         progress.say("manifests 落盘")
         # StageEntry extra=forbid：n_frames 等计数进 stdout 报告，不进 meta
         meta.stage_done(run_dir, "cards", F_FRAMES_MANIFEST, status="done")
