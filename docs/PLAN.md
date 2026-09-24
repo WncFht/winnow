@@ -67,8 +67,9 @@ winnow/
 │       ├── sources/       #   collect 源形适配器：feed.py(RSS/Atom)、api.py(22 具名 adapter+通用 walker)、diff.py(sitemap/changelog signal)、common.py
 │       ├── simhash.py     # 64-bit simhash(title+summary)
 │       ├── embed.py       # Qwen3-Embedding-0.6B-ONNX（CPU，instruct/doc 双模式；EMBED_THREADS）
-│       ├── store.py       # history.sqlite 读写（种子：experiments/dedup-history/store.py）
-│       ├── pool.py        # items.sqlite 跨期条目池（§5.6：判定/概要/used 缓存 + 结转候选）
+│       ├── state.py       # state.sqlite 单库 DDL/路径解析/迁移（四族：items+dedup_*+source_state+kv）
+│       ├── store.py       # dedup_* 去重历史读写（种子：experiments/dedup-history/store.py）
+│       ├── pool.py        # items 跨期条目池（§5.6：判定/概要/used 缓存 + 结转候选）
 │       ├── prompts.py     # 全部 LLM prompt 模板（filter/judge/summary/CallA/CallB/title）
 │       ├── ttsnorm.py     # 口播文本规范化（数字/英文/术语发音词典）
 │       ├── shotlib.py     # 来源页截图（种子：experiments/webshot-hardening/shotlib.py）
@@ -96,10 +97,10 @@ winnow/
 ├── upstream/juya-news-card/   # vendored 上游渲染器（已 npm install；CDN 自托管补丁见 §7.6）
 ├── assets/fonts/        # SmileySans-Oblique.ttf（chrome 叠加卡标题字，lib/chrome.py 读）
 ├── runs/<date>/         # 每期 artifact（§4 契约表）；runs/_exp-*/_test/_doctor 为沙箱目录（§9.1）
-├── state/               # 跨天状态（gitignore）：history.sqlite(+wal)、items.sqlite（§5.6）、
-│                        #   seen.json、source_health.json、alias_suggestions.jsonl、
-│                        #   tts_dict.yaml、shot_policy.yaml、reddit_token.json、
-│                        #   weibo_cookie.json、x_nitter_health.json、backups/、compose-tmp/
+├── state/               # 跨天状态（gitignore）：state.sqlite(+wal) 单库四族（§5.6/§7.3）、
+│                        #   alias_suggestions.jsonl、backups/、compose-tmp/、tmp/
+├── tts_dict.yaml        # 口播发音词典（ttsnorm.py DEFAULT_DICT；§7.5）
+├── shot_policy.yaml     # 截图域名策略表（shotlib.py DEFAULT_POLICY_PATH；§7.6）
 ├── data/raw_cache/      # 原始响应留档（`just gc-cache` 按 mtime 清，默认 7d；可回放修 parser）
 ├── ops/                 # systemd user units：winnow-{collect,gate1,gate2}.{timer,service}
 │                        #   + install.sh + prelude.sh（配方公共前奏：secrets 导出/EMBED_THREADS/_jlock）
@@ -127,7 +128,7 @@ winnow/
 | tsx | devDep of upstream | `cd upstream/juya-news-card && npx tsx -v` | render-batch.ts |
 | ffmpeg | 带 libx264 | `ffmpeg -encoders \| grep libx264` | compose 兜底 + loudnorm + 音频装配 |
 | just | latest | `just -V` | 驱动 |
-| sqlite3 | stdlib 即可 | — | state/history.sqlite（+items.sqlite） |
+| sqlite3 | stdlib 即可 | — | state/state.sqlite（条目池+去重历史+源状态+kv 单库） |
 | lychee | GitHub release x86_64 二进制 | `just setup-toolchain` 下载到 `adapters/bin/lychee` | link-check |
 | playwright(py) | pip + `playwright install chromium` | `python -c "import playwright"` | shotlib/chrome/composite |
 | git | — | — | raw_cache/上游版本钉 |
@@ -186,12 +187,12 @@ winnow/
 | `11_raw_manifest.json` | raw_manifest/1 | window{from,to,tz,`proxy_ok`,`degraded`,preflight}（顶字段 forbid extra，全收进 window）+ file/n_items + sources[]{name,method,tier,status,items_new/fresh/total,last_error,latency_ms,via,endpoint} + produced_at + stats |
 | `20_filtered.jsonl` | filter_verdict/1 | {item_key, verdict∈keep\|drop\|review, ai_relevance, news_value, reasons, prov} |
 | `30_summaries.jsonl` | summary/1 | {item_key, title_zh, summary, entities[], facts[], section_guess, prov} |
-| `35_dedup.jsonl` | dedup_verdict/1 | {item_key, verdict∈fresh\|suppressed\|reissue\|gray, cluster_id, match_cos, judge}；真源 `state/history.sqlite` |
-| `38_pool_items.jsonl` | raw_item/1 | 条目池结转投影（§5.6）：非当期采集成员、窗口三子句 + projected_dedup≠suppressed；真源 `state/items.sqlite` |
+| `35_dedup.jsonl` | dedup_verdict/1 | {item_key, verdict∈fresh\|suppressed\|reissue\|gray, cluster_id, match_cos, judge}；真源 `state/state.sqlite`（dedup_items/dedup_clusters） |
+| `38_pool_items.jsonl` | raw_item/1 | 条目池结转投影（§5.6）：非当期采集成员、窗口三子句 + projected_dedup≠suppressed；真源 `state/state.sqlite`（items） |
 | `38_pool_summaries.jsonl` | summary/1 | 同批结转条目的池缓存概要投影（prov 由池 summary\_\* 列重建） |
 | `40_candidates.json` | candidates/1 | 勾选 UI 数据源（非契约）：candidates[]（含 carried 结转与 gray 标记）+ suppressed[]/skipped_window[]/skipped_used[] 审计列 + stats |
 | `40_selected.json` | selected/1 | {episode, decided_at, decided_by, kept[{item_key,id,section,note}] 有序=正片序，dropped[]}——条数上限 schedule.max_items 在写入侧截断，契约无此字段 |
-| `50_issue.json` | issue/1 | sections[] + items[{id,section,nav,headline,tldr,body[],sources[{url,kind,primary,reachable}],media[],confidence,facts,voice[],cards[],video.shot_sentences}] + `degraded`；配 `50_review.md` |
+| `50_issue.json` | issue/1 | sections[] + items[{id,item_key,section,nav,headline,tldr,body[],sources[{url,kind,primary,reachable}],media[],confidence,facts,voice[],cards[],video.shot_sentences}] + `degraded`；配 `50_review.md` |
 | `60_voice_script.jsonl` | voice_seg/1 | {seg_id=NNN_item_si, item, si, text（TTS 规范化后口播文本）, text_display?（规范化前书面原文，字幕用）, role∈intro\|body\|outro} |
 | `61_audio/` + `61_audio_manifest.json` | audio_manifest/1 | {engine,voice,files[{seg_id,file,dur,sha256,text_sha}]} + `voice_full.wav` 归一整片 |
 | `62_timeline.json` | timeline/1 | {total,lead_in,tail,gap{sentence,item},items[{id,start,end,visual}],segs[],overlays[]}；投影 `62_episode.srt/.vtt` |
@@ -233,13 +234,13 @@ winnow/
 5. 正文补抓 pass：`content_text` 为空或 <200 字 → trafilatura 抓正文（proxy 按源配置）；失败不阻塞，content_text="" 继续。
 6. 媒体 pass：`image` 命中防盗链图床（mmbiz.qpic.cn 等）→ 本地化下载到 `runs/<date>/media/`，`image` 改写为 run 相对路径；失败追加 `img_download_failed` tag、留原 URL。
 7. 写 `10_raw_items.jsonl` + `11_raw_manifest.json`（`proxy_ok`/`degraded`/preflight 收进 `window{}`——RawManifest 顶字段 forbid extra；每源健康进 `sources[]`）。
-8. 错误分类：`ok|empty|http_<code>|timeout|parse_error|walled|shell_only|rate_limited|dns_fail`，连续失败计数进 `state/source_health.json`，≥3 天连败 → ntfy 告警。
+8. 错误分类：`ok|empty|http_<code>|timeout|parse_error|walled|shell_only|rate_limited|dns_fail`，连续失败计数进 `state/state.sqlite` 的 `source_state` 表，≥3 天连败 → ntfy 告警。
 
 ### 5.3 平台采集器（Tier B）
 
-- **X**：`collect.py::collect_x` 四路级联——`lib/x_nitter → lib/x_ssr → lib/x_synd → adapters/x_paid`，逐路 try/except 落路（一路抛错转下一路，全灭记源级失败）：① `lib/x_nitter.py` nitter 池（实例=config.x_collector.nitter_instances + 实验目录种子 + DEFAULT_INSTANCES 兜底；健康分持久化 `state/x_nitter_health.json` 轮换；UA 必须非浏览器——Mozilla UA 吃 Anubis PoW 挑战页；status id 重写回 x.com URL，身份不依赖实例域名）② `lib/x_ssr.py` x.com 登出态 SSR HTML 内嵌 Relay 记录解析（种子：`experiments/hard-x.com-scraper-tool-or-manual/scrape_profile.py`；HTTP 200 但数据字段全缺→抛 ShellOnly 转下一路；可选 playwright_fallback 无头兜底）③ `lib/x_synd.py` syndication `cdn.syndication.twimg.com`（实测 ~30 req/15min per-IP；429 尊重 x-rate-limit-reset 睡到 reset，累计等待 max_wait_s 封顶；无 reset 头时指数退避）④ `adapters/x_paid.py` 付费 adapter 占位（`enabled:false` 或未设 key→NotConfigured；D12）
-- **Reddit**：`lib/reddit_collect.py`——loid OAuth（种子：`experiments/hard-reddit.com-official-api-or-native-feed/fetch_reddit.sh` + `loid_token.json` 流程），token 过期自动重铸（`state/reddit_token.json`），限速 ≤30rpm。
-- **微博**：`lib/weibo_collect.py`——m.weibo.cn JSON + visitor cookie 铸造（`experiments/weibo-monitor`、`weibo-stability-probe`），≤20rpm；cookie 失效自动重铸（`state/weibo_cookie.json`）；备选自建 RSSHub `127.0.0.1:23176`。
+- **X**：`collect.py::collect_x` 四路级联——`lib/x_nitter → lib/x_ssr → lib/x_synd → adapters/x_paid`，逐路 try/except 落路（一路抛错转下一路，全灭记源级失败）：① `lib/x_nitter.py` nitter 池（实例=config.x_collector.nitter_instances + 实验目录种子 + DEFAULT_INSTANCES 兜底；健康分持久化 `state.sqlite` kv 表（`x_nitter_health` 键）轮换；UA 必须非浏览器——Mozilla UA 吃 Anubis PoW 挑战页；status id 重写回 x.com URL，身份不依赖实例域名）② `lib/x_ssr.py` x.com 登出态 SSR HTML 内嵌 Relay 记录解析（种子：`experiments/hard-x.com-scraper-tool-or-manual/scrape_profile.py`；HTTP 200 但数据字段全缺→抛 ShellOnly 转下一路；可选 playwright_fallback 无头兜底）③ `lib/x_synd.py` syndication `cdn.syndication.twimg.com`（实测 ~30 req/15min per-IP；429 尊重 x-rate-limit-reset 睡到 reset，累计等待 max_wait_s 封顶；无 reset 头时指数退避）④ `adapters/x_paid.py` 付费 adapter 占位（`enabled:false` 或未设 key→NotConfigured；D12）
+- **Reddit**：`lib/reddit_collect.py`——loid OAuth（种子：`experiments/hard-reddit.com-official-api-or-native-feed/fetch_reddit.sh` + `loid_token.json` 流程），token 过期自动重铸（`state.sqlite` kv 表 `reddit_token` 键），限速 ≤30rpm。
+- **微博**：`lib/weibo_collect.py`——m.weibo.cn JSON + visitor cookie 铸造（`experiments/weibo-monitor`、`weibo-stability-probe`），≤20rpm；cookie 失效自动重铸（`state.sqlite` kv 表 `weibo_cookie` 键）；备选自建 RSSHub `127.0.0.1:23176`。
 - **微信公众号**：`enabled:false`，adapter 骨架（D3）。
 - **YouTube**：频道 RSS（native，Tier A 即可）。
 - **xiaoyuzhoufm**：shownotes+enclosure URL（`experiments/xiaoyuzhoufm/poll.py`）；ASR 转写挂 TODO 注释，不实现。
@@ -252,13 +253,13 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
 
 `collect.py --manual "<url>" [--title "..."]`：抓正文→走同一 raw_item 管道→`_source.kind:"manual"`。
 
-### 5.6 跨期条目池（`stages/lib/pool.py` + `state/items.sqlite`）
+### 5.6 跨期条目池（`stages/lib/pool.py` + `state/state.sqlite` items 表）
 
 - **角色**：一行 = 一条新闻的机械身份（`item_key`=sha256(url_canon)[:16]），跨 episode 累积 verdict/summary/dedup/used 生命周期缓存；同时是**结转候选源**——当期未选、窗口内迟到或无日期的 keep|review 条目经 `select_candidates` 投影成 `38_pool_items.jsonl` + `38_pool_summaries.jsonl` 汇入勾选闸。**per-run 文件产物仍是唯一权威**；池只是缓存与结转面，删掉重建 = `just pool-import` 幂等回填全部 runs/。
 - **`daily:` 旗标语义**（sources.yaml）：`daily: true` ⇒ item pubDate 权威，按 date_published 入窗且**不走陈旧结转**（stale-daily 死区——每日快照页的旧条目不复活）；缺省/false ⇒ archive/signal/undated 源，无日期或迟到的条目按 first_seen 到达宽限（`pool.arrival_grace_days`，默认 2 天）入窗。采集时按源名快照进 items.daily 列。
-- **L0 保留角色**：filter 的 url_hash 精确命中仍走 `state/history.sqlite` 本地压制（不进 LLM，35 标 suppressed）；池的判定缓存只省重复 LLM 调用，不替代 L0 跨期硬去重。
+- **L0 保留角色**：filter 的 url_hash 精确命中仍走 `state.sqlite` dedup_items 本地压制（不进 LLM，35 标 suppressed）；池的判定缓存只省重复 LLM 调用，不替代 L0 跨期硬去重。
 - **写序约定**：collect 先写 10*\* 再 upsert 池（file→pool）；filter 先查池命中缓存判定再写 20/30（pool→file）；dedup/gate 先写 35/40 再回写池 dedup*\* / used_in_episode（file→pool）。文件先行保证崩溃后 run 目录自洽，池可随时整体重建。
-- **运维**：`just pool-import`（回填）、`pool-stats`（行数分布）、`pool-vacuum`（清 >90d 未判定行 + VACUUM）；`just backup-state` 随 history.sqlite 一并备份 items-\*.sqlite。
+- **运维**：`just pool-import`（回填）、`pool-stats`（行数分布）、`pool-vacuum`（清 >90d 未判定行 + VACUUM）；`just backup-state` 对 state.sqlite 整体 `.backup`（含池+去重历史+源状态+kv）。
 
 ## 6. LLM 适配层（`adapters/llm_swe2max.py`）契约
 
@@ -285,10 +286,10 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
 
 ### 7.2 dedup（`stages/dedup.py`）
 
-- **输入**：30_summaries.jsonl + state/history.sqlite。
-- **SQLite schema**（直接采用 `experiments/dedup-history/schema.sql`，已校准）：
-  - `clusters(cluster_id, canonical_title, centroid BLOB f32-1024d, first_seen, last_seen, expires_at, item_count, n_reissues, state∈open|expired|merged)` + `published` 字段**新增**（该 cluster 有 item verdict='reported' 即置 1，由 meta_qa 在出片后回写）。
-  - `items(item_id, cluster_id, day, episode, title, summary, source, url_canon, url_hash, lang, simhash, embed BLOB, verdict∈reported|suppressed|candidate|reissue|gray_pending, match_cos, judge, created_at)`。
+- **输入**：30_summaries.jsonl + `state/state.sqlite` dedup_* 表。
+- **SQLite schema**（`state/state.sqlite` 内 dedup_* 两表；原型 `experiments/dedup-history/schema.sql`，已校准）：
+  - `dedup_clusters(cluster_id, canonical_title, centroid BLOB f32-1024d, first_seen, last_seen, expires_at, item_count, n_reissues, state∈open|expired|merged)` + `published` 字段**新增**（该 cluster 有 item verdict='reported' 即置 1，由 meta_qa 在出片后回写）。
+  - `dedup_items(item_id, cluster_id, day, episode, title, summary, source, url_canon, url_hash, lang, simhash, embed BLOB, verdict∈reported|suppressed|candidate|reissue|gray_pending, via, match_cos, judge, created_at)`。
   - 比对集 = `state='open' AND expires_at>=today`；TTL=21d，行永不删（可审计回放）。
 - **判定级联**（store.py:check 逻辑，阈值已校准勿改）：
   1. url_hash 命中 → suppressed(dup_exact)
@@ -296,7 +297,7 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
   3. `cos(query_instruct_embed, centroid)`：≥0.85 且 simhash≤8 → suppressed；[0.58,0.85) → **gray → LLM judge**；<0.58 → 新 cluster
   4. judge 三值（`prompts.py::JUDGE_PROMPT`，种子 `experiments/dedup-lab/run_llm.py`）：A 同事件无新信息→suppressed；B 同故事新进展→reissue（挂同 cluster、n_reissues++、centroid 并入、`update_of` 只许挂 published=1 的 cluster）；C 不同事件→新 cluster。judge 不可用/低置信→gray_pending 进人工 UI。
 - **同日聚类**先做（跨天之前）：稀有 token 倒排+embed kNN 双路召回候选对 → 同 judge 判对 → 合并为同日 cluster。
-- **冷启动**：history.sqlite 空 → 回填近 7 日 `data/raw_cache` 或上游 RSS 存档预热比对集。
+- **冷启动**：state.sqlite dedup_* 空 → 回填近 7 日 `data/raw_cache` 或上游 RSS 存档预热比对集。
 - **人工算子**：`dedup.py --split <cluster_id>` / `--merge <a> <b>`（防误并污染 centroid）。
 - **输出**：35_dedup.jsonl；suppressed 也进文件（可审计）。
 - **验收欠款**：judge 准确率——fixtures：experiments/dedup-llm/clusters.json + 手工标 30-50 对，`just judge-eval` 出准确率报告（上线前跑，非 blocker：灰区默认进人工）。
@@ -304,7 +305,7 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
 ### 7.3 人工闸 1（`stages/gate_select.py` + `review_server.py`）
 
 - **输入**：20+30+35(+10 取 url/源名) → `runs/<date>/40_candidates.json`（candidates/1，UI 数据源，非契约）。
-- **候选集来源**：文件路径 = filter verdict∈{keep,review} 且 dedup verdict∉{suppressed}（gray/gray_pending 自动进列表并打灰区标记）；POOL-MODE 下再 ∪ 条目池结转（`pool.select_candidates`，carried=True 标记），并集统一过 used-check → eligible 窗口 → projected-dedup（叠加 history.sqlite 已出片 cluster 投影）谓词；出局者进 suppressed[]/skipped_window[]/skipped_used[] 审计列。结转条目的 raw/summary 每次 build 重新物化到 38_pool_items/38_pool_summaries（stale-safe）；池缺席/无本期 item_runs → 退回纯文件路径（响亮 WARN，绝不静默半空）。
+- **候选集来源**：文件路径 = filter verdict∈{keep,review} 且 dedup verdict∉{suppressed}（gray/gray_pending 自动进列表并打灰区标记）；POOL-MODE 下再 ∪ 条目池结转（`pool.select_candidates`，carried=True 标记），并集统一过 used-check → eligible 窗口 → projected-dedup（叠加 state.sqlite 已出片 cluster 投影）谓词；出局者进 suppressed[]/skipped_window[]/skipped_used[] 审计列。结转条目的 raw/summary 每次 build 重新物化到 38_pool_items/38_pool_summaries（stale-safe）；池缺席/无本期 item_runs → 退回纯文件路径（响亮 WARN，绝不静默半空）。
 - **gate_select 子命令**：`--prepare`（默认，只重建 40_candidates）/ `--serve` （prepare + 拉起 UI）/ `--auto [--force] [--topk N]`（top-K by news_value → decided_by:auto）/ `--deadline-check HH:MM`（过点未提交→auto，timer 专用）。40_selected.json 已存在一律不覆盖（人工已拍板；--force 除外）。
 - **UI**：`stages/review_server.py`（种子 experiments/manual-filter-ui/serve_review.py）——纯 http.server 零依赖，bind 0.0.0.0，端口 `REVIEW_PORT=8923`（justfile 变量）。启动时生成一次性 token 打进 URL（`http://<ip>:8923/?t=…`）：GET / 与 POST /decide 无 token 一律 403（防同 WiFi 设备一条 curl 改写当日决策），/healthz 公开。行内显 title_zh/summary/ai_relevance/news_value/reasons/源链接/ 灰区与结转标记；勾选 POST → 校验 + slug 化 + max_items≤20 截断 → 写 `40_selected.json`（decided_by:human）后自动关闭（just pick 前台运行，提交即释放）。
 - **死线**：config `schedule.gate1_deadline`（默认 08:30）——`just deadline1` （ops/winnow-gate1.timer 08:30 触发）跑 `--deadline-check`：到点未提交 → 自动取 news_value top-K（`schedule.topk_autopick` 默认 14，≤max_items 20）写 40， `decided_by:auto`；随后自动跑 digest 让 50_review.md 落在编辑窗内。ntfy 在采集完成时推"该勾选"+死线前催。
@@ -376,7 +377,7 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
   - ASR round-trip：61_audio 抽 2 句转写对原文术语（对齐路径已在 experiments/align-verify）——**当前恒跳过**：meta_qa 写 `checks.asr={skipped:true}`（对齐后备 Qwen3-ForcedAligner 未接线；breeze 引擎 `boundaries=[]` 亦无词级锚点），启用登记见 §13
   - schema lint 全 artifact；coverage reconcile 全 LLM 阶段
   - 合规 flags（7.4 敏感词结果）
-- **出片后回写**：history.sqlite 中 kept 条目 verdict='reported'+episode → cluster.published=1。
+- **出片后回写**：state.sqlite 中 kept 条目 dedup_items.verdict='reported'+episode → dedup_clusters.published=1。
 - **dead-man**：全部成功 → `curl healthchecks ping_url`；任何 fail/flag → ntfy 推送明细。
 - **输出**：90 三件 + `metrics.json`（各阶段耗时/条数/成本）。
 - **验收**：flags 非空时 ntfy 收到且 final.mp4 仍产出（除非 fatal）。
@@ -411,7 +412,7 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
   - `winnow-gate1.timer` 08:30 → `just deadline1`（auto top-K + digest，§7.3）
   - `winnow-gate2.timer` 09:30 → `just deadline2`（gate-1 兜底→锁 50_issue：人工改过 50_review.md 未导入则自动 edit-import 一次→callb→…→meta，§7.4）全部 Type=oneshot（TimeoutStartSec 2h/2h/4h），EnvironmentFile=secrets.env；10:00 前 compose 完 → deadman ping。
 - **日志**：`runs/<date>/logs/<stage>.log`（just tee 追加）+ `logs/<stage>.prog.jsonl` （结构化进度边车，§9.1）；`just tail [stage]` 跟随。
-- **备份**：`just backup-state`——history.sqlite + items.sqlite 每日 cp 到 `state/backups/`（各留 14 份）；raw_cache 由 `just gc-cache` 按文件 mtime 清（默认 7d——与 dedup 冷启动回填只读近 7 日对齐；config `storage.raw_cache_days` 当前无消费者）。
+- **备份**：`just backup-state`——state.sqlite 每日 `sqlite3 .backup` 到 `state/backups/state-*.sqlite`（留 14 份）；raw_cache 由 `just gc-cache` 按文件 mtime 清（默认 7d——与 dedup 冷启动回填只读近 7 日对齐；config `storage.raw_cache_days` 当前无消费者）。
 - **告警分级**：fatal（collect 全灭/gateway 死/compose 崩）→ ntfy urgent；degraded（proxy 挂/源连败/judge 不可用）→ 普通；flags（link dead/敏感词/审计不过）→ 普通 + 明细。
 
 ### 9.1 进度与并发
@@ -448,7 +449,7 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
 | --- | --- |
 | LLM judge 准确率 | `just judge-eval`（fixtures：dedup-llm/clusters.json+30-50 对带标）上线前跑 |
 | GPU 共存预算 | 若启用本地 TTS/对齐，测 VRAM 排程；edge-tts 档无需 GPU |
-| ≥7 天 soak | 观察 nitter churn/微博 cookie 寿命/网关配额 → source_health |
+| ≥7 天 soak | 观察 nitter churn/微博 cookie 寿命/网关配额 → source_state.health_json |
 | 付费兜底端到端 | X paid adapter / wechat2rss 等开关留着，启用时先字段/配额验收 |
 | 合规总表 | edge-tts 灰色端点/wechat2rss license/Remotion 付费线（≥4 人商用）/F5-TTS NC——开源前整理一张表 |
 | 零条目停刊 | kept==0 → 50_issue `degraded:true`+空 sections，跳过 P6-P8，90_qa 标 `skipped:no_items`，仍 ping deadman |
@@ -525,6 +526,6 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
 | --- | --- | --- |
 | `video.shot_sentences` 口径三分歧 | digest 按 `len(voice)` 写句区间、voice 阶段按自身 seg 计数、render_plan 按句区间编译——三者各自为政，si 出现空洞时区间会发散 | 统一为同一 seg 序来源（voice 计数为准），digest/callb 侧对齐 |
 | meta_qa ASR 校验未启用 | `checks.asr` 恒 `{skipped:true}`（§7.9）：对齐后备 ForcedAligner 未接线，breeze `boundaries=[]` 无词级锚点 | breeze 档下补 ASR round-trip（抽样转写对 text_display），或先接 zh-forced-align |
-| `validate_run` 对 50_issue 只浅校验 | issue/1 无 pydantic 模型定义，validate.py 只做 JSON 结构 lint + schema tag + id 引用，字段级校验缺位 | 补 issue 模型或加深字段校验（sources/media/voice/cards 引用闭环） |
+| ~~`validate_run` 对 50_issue 只浅校验~~ 已修 | issue/1 已补 pydantic 模型（contracts/models.py Issue/IssueItem，item_key 贯通），validate_run 走全量字段校验 | —— |
 | git 缩包 | 2.2GB 生成物出库后，历史包仍大；filter-repo 缩包需 force-push 窗口 | 暂缓，待无协作者窗口期执行 |
 | ~~shotlib 字体路径~~ 已修 | `_placeholder_pil` 候选首位已改 `noto-cjk/NotoSansCJK-Bold.ttc` + 发行版路径矩阵注释（Arch=noto-cjk / Debian=opentype / Fedora=noto-sans-cjk） | —— |

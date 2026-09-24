@@ -12,8 +12,8 @@ Winnow is a daily AI-news production line: it collects from ~160 sources, filter
 
 ```
 collect      sources.yaml ~160 sources → raw fetch (JSON Feed 1.1 + pipe fields)
-filter       L0 rules + LLM verdict/summary (state/items.sqlite pool cache)
-dedup        same-day clustering + cross-day cascade (state/history.sqlite)
+filter       L0 rules + LLM verdict/summary (state/state.sqlite pool cache)
+dedup        same-day clustering + cross-day cascade (state/state.sqlite dedup_*)
 ── gate 1: human pick ─────────────────────────────────────────────
   just pick serves review UI (0.0.0.0:8923, one-time token URL ?t=…)
   deadline 08:30 missed → pick-auto takes top-K by news_value
@@ -32,7 +32,7 @@ meta         title candidates / cover / QA → 90_qa.json
 
 ~40 `just` recipes drive it: `gather` `pick` `produce` `status` `watch` `tail` `from` `resume` `exp` `doctor` `test` … Recipes never chain across human gates; `runs/<date>/.just.lock` serializes same-day invocations. `ops/winnow-*.timer` (systemd): 06:30 collect, 08:30 gate-1 deadline, 09:30 gate-2 deadline — fully unattended when nobody shows up.
 
-Per-episode state: `state/{history,items}.sqlite` (cross-episode) + `runs/YYYY-MM-DD/` (full artifacts + logs/ + `00_meta.json` stage ledger).
+Per-episode state: `state/state.sqlite` (cross-episode: item pool + dedup history + source state + kv) + `runs/YYYY-MM-DD/` (full artifacts + logs/ + `00_meta.json` stage ledger).
 
 ## Quickstart
 
@@ -79,7 +79,7 @@ docs/              all project docs — index in docs/README.md
 sources.yaml       ~160 sources (method/tier/proxy/SLA; just lint-sources)
 config.yaml        local config (untracked; template config.example.yaml)
 secrets.env        local secrets (untracked; template secrets.env.example)
-state/             history.sqlite + items.sqlite + backups/ + runtime state
+state/             state.sqlite (pool + dedup + source_state + kv) + backups/
 runs/<date>/       full per-episode artifacts (NN_*.json*) + logs/
 upstream/          vendored juya-news-card renderer (docs/vendored-upstream.md)
 composer/          Remotion composer — alternative engine (docs/composer.md)

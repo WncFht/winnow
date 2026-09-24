@@ -766,26 +766,26 @@ gc-cache days="7":
     echo "gc-cache: deleted $n files older than {{days}}d; pruned empty dirs"
 
 # --------------------------------------------------------------------------
-# item pool (state/items.sqlite — 跨期条目池, PLAN §5.6)
+# item pool (state/state.sqlite items 表 — 跨期条目池, PLAN §5.6)
 # --------------------------------------------------------------------------
 
 # backfill pool from all runs/<date>/ dirs (idempotent; verdicts/summaries/dedup/used)
 pool-import:
-    uv run stages/lib/pool.py --db state/items.sqlite --import runs/ --sources sources.yaml
+    uv run stages/lib/pool.py --db state/state.sqlite --import runs/ --sources sources.yaml
 
 # row-count distribution (operator debug)
 pool-stats:
-    uv run stages/lib/pool.py --db state/items.sqlite --stats
+    uv run stages/lib/pool.py --db state/state.sqlite --stats
 
 # prune unjudged rows idle >90d (NULL verdict + last_seen 过期), then VACUUM
 pool-vacuum:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -f state/items.sqlite ]; then echo "no items.sqlite yet"; exit 0; fi
+    if [ ! -f state/state.sqlite ]; then echo "no state.sqlite yet"; exit 0; fi
     python3 - <<'PY'
     import sqlite3
     from datetime import date, timedelta
-    conn = sqlite3.connect("state/items.sqlite", timeout=10)
+    conn = sqlite3.connect("state/state.sqlite", timeout=10)
     cutoff = (date.today() - timedelta(days=90)).isoformat()
     with conn:
         n = conn.execute(

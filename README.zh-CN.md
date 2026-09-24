@@ -10,8 +10,8 @@
 
 ```
 collect      sources.yaml 161 源 → 原始抓取
-filter       L0 规则 + LLM verdict/summary（state/items.sqlite 条目池跨期缓存）
-dedup        同日聚类 + 跨天级联去重（state/history.sqlite）
+filter       L0 规则 + LLM verdict/summary（state/state.sqlite 条目池跨期缓存）
+dedup        同日聚类 + 跨天级联去重（state/state.sqlite dedup_* 表）
 ── gate 1 人工选稿 ──────────────────────────────────────────────
   just pick 起 review_server（0.0.0.0:8923，一次性 token URL ?t=…，手机可开）
   死线 08:30 未提交 → pick-auto 按 news_value 取 top-K
@@ -30,7 +30,7 @@ meta         标题/封面/QA → 90_qa.json
 
 驱动是 justfile（~40 配方）：`gather` `pick` `produce` `status` `watch` `tail` `from` `resume` `exp` `doctor` `test` 等。配方不跨人工闸串链； `runs/<date>/.just.lock` 串行化同一日期桶的 just 调用。 `ops/*.timer`（systemd）：06:30 collect、08:30 gate-1 死线、09:30 gate-2 死线 —— 无人值守时全自动放行出片。
 
-每期状态：`state/{history,items}.sqlite`（跨期）+ `runs/YYYY-MM-DD/` （当日全量 artifact + logs/ + 00_meta.json 阶段簿记）。
+每期状态：`state/state.sqlite`（跨期单库：条目池 + 去重历史 + 源状态 + kv）+ `runs/YYYY-MM-DD/` （当日全量 artifact + logs/ + 00_meta.json 阶段簿记）。
 
 ## Quickstart
 
@@ -78,7 +78,7 @@ docs/              全部项目文档——索引见 docs/README.md
 sources.yaml       161 源（method/tier/proxy/SLA；just lint-sources 校验）
 config.yaml        本机配置（不入库；模板 config.example.yaml）
 secrets.env        本机密钥（不入库；模板 secrets.env.example）
-state/             history.sqlite + items.sqlite + backups/ + 运行时小状态
+state/             state.sqlite（条目池+去重历史+源状态+kv 单库）+ backups/
 runs/<date>/       每期全量 artifact（NN_*.json*）+ logs/
 upstream/          vendored juya-news-card 卡片渲染器（docs/vendored-upstream.md）
 composer/          Remotion 合成器（备选引擎，docs/composer.md）
@@ -104,5 +104,3 @@ composer/          Remotion 合成器（备选引擎，docs/composer.md）
 - `upstream/juya-news-card` —— UP 主开源卡片渲染器真身（MIT fork `Mappedinfo/juya-news-card`；原 imjuya 仓库已删号）。Next.js+React+TS，174 套模板；现由 cards 阶段经 `scripts/render-batch.ts` 批渲染调用。
 
 环节归属（复刻口径）：内容卡片为纯上游实现（`generateTemplateHtml` + `claudeStyle` 模板逐像素渲染）；导航/面包屑叠加层、截图弹卡、字幕 pill、TTS 逐句对轨、ffmpeg 合成器为自造（原版必有对应物但未开源）；复刻期内容数据手写结构化（取自 UP 主当日 RSS），产线化后由 collect/filter/digest 的 LLM 环节取代。
-
-环节归属（复刻口径）：内容卡片为纯上游实现（`generateTemplateHtml` + `claudeStyle` 模板逐像素渲染）；导航/面包屑叠加层、截图弹卡、字幕 pill、TTS 逐句对轨、ffmpeg 合成器为自造（原版必有对应物但未开源）；复刻期内容数据手写结构化（取自 UP 主当日 RSS），产线化后由 collect/filter/ digest 的 LLM 环节取代。
