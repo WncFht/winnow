@@ -50,6 +50,7 @@ experiments/**/*.bin
 !experiments/**/body_*.bin
 !experiments/**/probe_*.bin
 !experiments/**/resp_*.bin
+!experiments/tr-com-feed-probe/*.bin
 experiments/**/*.mp4
 experiments/**/*.mkv
 experiments/**/*.wav
@@ -89,7 +90,8 @@ repro/chrome/
 repro/frames_v2/
 repro/subs/
 repro/shots/
-repro/assets/
+# assets 内容出库但目录本体不排——否则内层豁免不生效（git 不重入被排目录）
+repro/assets/*
 # …但 SmileySans-Oblique.ttf 是 render_chrome.py @font-face 的入参，豁免
 !repro/assets/SmileySans-Oblique.ttf
 repro/v1/cards/
