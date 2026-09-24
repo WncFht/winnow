@@ -101,9 +101,9 @@ TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
 
 # ---------------------------------------------------------------------------
 # 封面模板（逐字移植 experiments/cover-title/cover.html；query 参数驱动：
-# brand/big/sub/logos/hero/date。logo 走 cdn.simpleicons.org，失败时 .fb 文本
-# 兜底——确定性渲染。字体走本机 fontconfig：Alibaba PuHuiTi 3.0 / Smiley Sans /
-# DingTalk JinBuTi 均已装）
+# brand/big/sub/logos/names/domains/hero/date。logo 图源链：cdn.simpleicons.org
+# → unavatar favicon（商标下架品牌走 _BRAND_DOMAIN）→ .fb 字标兜底。
+# 字体走本机 fontconfig：Alibaba PuHuiTi 3.0 / Smiley Sans / DingTalk JinBuTi 均已装）
 # ---------------------------------------------------------------------------
 COVER_HTML = r"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
@@ -162,13 +162,20 @@ function abbrev(n){
   if(ver && !a.includes(ver)) a = (a + ver).slice(0,8);
   return a;
 }
+const domains = JSON.parse(P.get('domains')||'[]');
 const grid = document.getElementById('grid');
 logos.slice(0,9).forEach((s,ix)=>{
   const d=document.createElement('div'); d.className='cell'+(s===hero?' hero':'');
-  const i=document.createElement('img'); i.src=`https://cdn.simpleicons.org/${encodeURIComponent(s)}`; i.alt=s;
+  const i=document.createElement('img'); i.alt=s;
   const f=document.createElement('span'); f.className='fb'; f.textContent=abbrev(names[ix]||s);
   f.style.fontSize = f.textContent.length<=4?'64px':f.textContent.length<=6?'48px':'36px';
-  i.onerror=()=>{i.style.display='none';f.style.display='block'};
+  // 图源链：simpleicons → unavatar(favicon 聚合，fallback=false 无图 404) → 字标
+  const srcs=[`https://cdn.simpleicons.org/${encodeURIComponent(s)}`];
+  const dom=domains[ix];
+  if(dom) srcs.push(`https://unavatar.io/${dom}?fallback=false`);
+  let si=0;
+  i.onerror=()=>{ if(si<srcs.length){i.src=srcs[si++];} else {i.style.display='none';f.style.display='block';} };
+  i.onerror();
   d.appendChild(i); d.appendChild(f); grid.appendChild(d);
 });
 </script></body></html>
@@ -217,6 +224,9 @@ _ICON_SLUG = {
     "huawei": "huawei", "华为": "huawei", "盘古": "huawei",
     "智谱": "zhipu", "zhipu": "zhipu", "chatglm": "zhipu", "glm": "zhipu",
     "minimax": "minimax", "阶跃星辰": "stepfun", "stepfun": "stepfun",
+    "混元": "hunyuan", "腾讯混元": "hunyuan", "hunyuan": "hunyuan",
+    "hy image": "hunyuan", "腾讯": "腾讯",
+    "o1": "openai", "o3": "openai", "o4": "openai",
     "mistral": "mistralai", "mistralai": "mistralai",
     "huggingface": "huggingface", "hugging face": "huggingface",
     "perplexity": "perplexity", "ollama": "ollama", "suno": "suno",
@@ -243,6 +253,18 @@ _ICON_SLUG = {
     "arxiv": "arxiv", "bilibili": "bilibili", "b站": "bilibili",
     "unitednations": "unitednations", "联合国": "unitednations",
     "中国电信": "chinatelecom", "chinatelecom": "chinatelecom",
+}
+
+# slug → 官网域名：simple-icons 商标下架/缺收录的品牌，兜底走
+# unavatar favicon 聚合（?fallback=false 无图返回 404 → 再落字标）。
+_BRAND_DOMAIN = {
+    "openai": "openai.com", "microsoft": "microsoft.com", "amazon": "amazon.com",
+    "zhipu": "zhipuai.cn", "workday": "workday.com", "midjourney": "midjourney.com",
+    "stabilityai": "stability.ai", "stepfun": "stepfun.com",
+    "hunyuan": "hunyuan.tencent.com", "腾讯": "tencent.com",
+    "artificialanalysis": "artificialanalysis.ai", "bloomberg": "bloomberg.com",
+    "novartis": "novartis.com", "sierra": "sierra.ai", "epochai": "epoch.ai",
+    "semafor": "semafor.com",
 }
 
 
@@ -401,10 +423,13 @@ def _slug_of(name: str) -> str:
     if n in _ICON_SLUG:
         return _ICON_SLUG[n]
     toks = re.split(r"[\s\-]+", n)
-    for i in range(len(toks) - 1, 0, -1):
-        hit = _ICON_SLUG.get(" ".join(toks[:i]))
-        if hit:
-            return hit
+    # 版本号粘在词尾时（hy image3.5）按"净词"再试一轮前缀
+    toks_clean = [c for c in (re.sub(r"[\d.]+$", "", t) for t in toks) if c]
+    for seq in (toks, toks_clean):
+        for i in range(len(seq), 0, -1):
+            hit = _ICON_SLUG.get(" ".join(seq[:i]))
+            if hit:
+                return hit
     slug = re.sub(r"[^a-z0-9]+", "", n)
     return slug or str(name).strip()
 
@@ -431,7 +456,7 @@ def _cover_params(issue: dict, titles_doc: dict | None,
     # 再去掉悬空连词尾（"与…"→"…"）
     sub = re.sub(r"\s+", " ", str(hero.get("headline") or hero.get("tldr") or "")).strip()
     if len(sub) > 24:
-        cut = re.sub(r"[A-Za-z0-9.+-]*$", "", sub[:24]).rstrip()
+        cut = re.sub(r"[A-Za-z0-9.+-]*$", "", sub[:24].rstrip()).rstrip()
         cut = re.sub(r"[的了与和及或在为称其是将有对从向以至到并]+$", "", cut).rstrip()
         sub = (cut or sub[:24]) + "…"
 
@@ -468,6 +493,7 @@ def _cover_params(issue: dict, titles_doc: dict | None,
     return {"brand": str(brand), "big": big, "sub": sub,
             "hero": logos[0], "logos": ",".join(logos),
             "names": json.dumps([names[s] for s in logos], ensure_ascii=False),
+            "domains": json.dumps([_BRAND_DOMAIN.get(s, "") for s in logos]),
             "date": str(issue.get("date") or "")}
 
 
