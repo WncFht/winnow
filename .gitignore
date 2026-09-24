@@ -46,6 +46,20 @@ experiments/**/*.safetensors
 experiments/**/*.pt
 experiments/**/*.ckpt
 experiments/**/*.bin
+# …但探测证据 .bin 是调研档案（hard-*/probe 产物），不入"权重"豁免
+!experiments/**/body_*.bin
+!experiments/**/probe_*.bin
+!experiments/**/resp_*.bin
+experiments/**/*.mp4
+experiments/**/*.mkv
+experiments/**/*.wav
+experiments/**/*.zip
+experiments/**/*.tar.gz
+experiments/**/*.onnx
+experiments/**/*.so
+experiments/**/*.so.*
+experiments/**/*.ttf
+experiments/**/tmp/
 experiments/local-tts-try/pretrained_models/
 experiments/tts-local-eval/models/
 experiments/llm-filter-layer/llama/
@@ -60,6 +74,15 @@ adapters/bin/lychee
 venvs/
 tools/tts_workers/breeze-tts/
 
+# remotion 手工路径的本机 symlink（指向 gitignored 生成目录，跨机必悬空）
+composer/ffmpeg-baseline/
+composer/public/audio
+composer/public/frames_v2
+experiments/remotion-feas/ffmpeg-baseline/
+experiments/remotion-feas/public/audio
+experiments/remotion-feas/public/frames_v2
+experiments/bloomberglaw-feed-probe/node_modules
+
 # repro 生成产物（代码/数据保留，渲染/audio/字体出库）
 repro/audio/
 repro/chrome/
@@ -67,5 +90,7 @@ repro/frames_v2/
 repro/subs/
 repro/shots/
 repro/assets/
+# …但 SmileySans-Oblique.ttf 是 render_chrome.py @font-face 的入参，豁免
+!repro/assets/SmileySans-Oblique.ttf
 repro/v1/cards/
 repro/out.mp4
