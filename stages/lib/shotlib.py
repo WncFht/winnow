@@ -91,6 +91,26 @@ WALL_PAT = re.compile(
     re.I,
 )
 
+# 浏览器级错误页（导航"成功"但渲出错误文档：chrome-error://、代理错误页等）
+# ——goto 不抛、status 可空可 200，按正文/URL 特征判负走占位兜底。
+ERR_PAGE_PAT = re.compile(
+    r"this (page|site|webpage) (can'?t|could ?n'?t|isn'?t|cannot) ?\w* ?"
+    r"(be )?(reach|load|display|found|open)|"
+    r"this page isn'?t working|reload to try again|webpage is not available|"
+    r"err_(connection|ssl|http|tunnel|timed_out|name_not|address)[a-z_]*|"
+    r"无法访问此网站|无法显示此页|网页无法打开|页面无法加载",
+    re.I,
+)
+
+
+def _err_page(page, title: str, body: str) -> bool:
+    try:
+        if (page.url or "").startswith("chrome-error://"):
+            return True
+    except Exception:
+        pass
+    return bool(ERR_PAGE_PAT.search((title or "") + " " + (body or "")))
+
 # Host-suffix blocklist: pure telemetry/ads — nothing needed to render the page.
 BLOCK_HOSTS = (
     "doubleclick.net", "googlesyndication.com", "google-analytics.com",
@@ -573,6 +593,7 @@ def _attempt(ctx, url, shot_path: Path, nav_timeout: int) -> dict:
             "document.body?document.body.innerText.slice(0,800):''") or ""
         return {"status": status, "title": title[:110],
                 "wall": bool(WALL_PAT.search(title + " " + body)),
+                "err_page": _err_page(page, title, body),
                 "body_head": body[:100].replace("\n", " ")}
     finally:
         page.close()
@@ -709,13 +730,16 @@ class ShotSession:
                 rec["shot_kb"] = out_path.stat().st_size // 1024 \
                     if out_path.exists() else 0
                 if (not rec["wall"]) and (not blank) \
+                        and not rec.get("err_page") \
                         and (rec.get("status") or 0) < 400 \
                         and rec["shot_kb"] > int(self.cfg["min_shot_kb"]):
                     rec.update(path=str(out_path), kind="shot", ok=True,
                                attempts=attempt + 1)
                     return
                 # 失败归因（供 missing[] 记录）
-                if rec.get("wall"):
+                if rec.get("err_page"):
+                    rec["reason"] = "error_page"
+                elif rec.get("wall"):
                     rec["reason"] = "wall_detected"
                 elif (rec.get("status") or 0) >= 400:
                     rec["reason"] = f"http_{rec['status']}"
