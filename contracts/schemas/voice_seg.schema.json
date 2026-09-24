@@ -10,7 +10,7 @@
     },
     "seg_id": {
       "description": "NNN_item_si：与音频文件名同构（去扩展名）",
-      "pattern": "^\\d{3}_[a-z0-9-]+_\\d+$",
+      "pattern": "^\\d{3,}_[a-z0-9-]+_\\d+$",
       "title": "Seg Id",
       "type": "string"
     },

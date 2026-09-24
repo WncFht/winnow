@@ -22,7 +22,7 @@
   60_voice_script.jsonl 拍平口播句序列 = TTS 输入契约
   61_audio/NNN_item_si.* + 61_audio_manifest.json
   62_timeline.json     timeline/1：items+segs+overlays（shot 窗口已编译为绝对时间）
-  62_episode.srt/.vtt, 62_cards.ffconcat   投影
+  62_episode.srt/.vtt, 70_cards.ffconcat   投影
   63_cards.json        GeneratedContent+id（上游契约）+ envelope
   63_cards_manifest.json / 64_frames_manifest.json
   70_render_plan.json  完全解析后的合成计划（composer 唯一输入）
@@ -43,6 +43,8 @@ SCHEMAS = OUT / "schemas"
 Slug = Field(pattern=r"^[a-z0-9-]{2,24}$")
 ItemKey = Field(pattern=r"^[0-9a-f]{16}$", description="sha256(url_canon)[:16]")
 RFC3339 = Field(description="RFC 3339 timestamp, e.g. 2026-09-21T08:30:00+08:00")
+Episode = Field(pattern=r"^(\d{4}-\d{2}-\d{2}|_.+)$",
+                description="正片 YYYY-MM-DD；_ 前缀 = 沙盒 run dir（episode 常回退 run_dir.name）")
 
 
 # ---------- cross-cutting ----------
@@ -108,7 +110,7 @@ class RawItem(BaseModel):
 class RawManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["raw_manifest/1"] = Field(default="raw_manifest/1", alias="schema")
-    episode: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    episode: str = Episode
     window: dict = Field(description="{from,to} RFC3339 抓取窗口")
     file: str = Field(description="本批 JSONL 文件名")
     n_items: int
@@ -129,7 +131,7 @@ class FilterVerdict(BaseModel):
     verdict: Literal["keep", "drop", "review"] = Field(
         description="keep=直进概要; review=灰区留给人工/二级模型")
     ai_relevance: float = Field(ge=0, le=1, description="AI 相关度")
-    news_value: Optional[float] = Field(default=None, ge=0, le=100)
+    news_value: Optional[float] = Field(default=None, ge=0, le=1)
     reasons: list[str] = Field(default_factory=list)
     prov: Provenance
 
@@ -175,7 +177,7 @@ class Selected(BaseModel):
     """人工勾选结果。kept[] 数组顺序 = 正片顺序；id 是此后一切 join 键。"""
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["selected/1"] = Field(default="selected/1", alias="schema")
-    episode: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    episode: str = Episode
     decided_at: str = RFC3339
     decided_by: Literal["human", "auto"] = "human"
     kept: list[KeptItem] = Field(min_length=1)
@@ -189,7 +191,7 @@ class VoiceSeg(BaseModel):
     """拍平的一句口播 = 一次 TTS 请求。数组序即合成序（n 渲染时派生）。"""
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["voice_seg/1"] = Field(default="voice_seg/1", alias="schema")
-    seg_id: str = Field(pattern=r"^\d{3}_[a-z0-9-]+_\d+$",
+    seg_id: str = Field(pattern=r"^\d{3,}_[a-z0-9-]+_\d+$",
                         description="NNN_item_si：与音频文件名同构（去扩展名）")
     item: str = Slug
     si: int = Field(ge=0, description="item 内句序")
@@ -216,7 +218,7 @@ class AudioFile(BaseModel):
 class AudioManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["audio_manifest/1"] = Field(default="audio_manifest/1", alias="schema")
-    episode: str
+    episode: str = Episode
     engine: str = Field(description="e.g. edge-tts 7.2.8 / F5-TTS local / Azure")
     voice: str
     rate: Optional[str] = None
@@ -280,7 +282,7 @@ class Timeline(BaseModel):
     """时间轴规范契约（timeline/1）。一切按秒排布；SRT/VTT/ffconcat/render_plan 全是投影。"""
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["timeline/1"] = Field(default="timeline/1", alias="schema")
-    episode: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    episode: str = Episode
     time_unit: Literal["seconds"] = "seconds"
     total: float = Field(gt=0)
     lead_in: float = Field(default=0.6, ge=0)
@@ -312,7 +314,7 @@ class Cards(BaseModel):
     """GeneratedContent+id 的 envelope 版（上游渲染器消费 items[] 数组本身）。"""
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["cards/1"] = Field(default="cards/1", alias="schema")
-    episode: str
+    episode: str = Episode
     renderer: str = Field(description="juya-news-card@<git sha>")
     template: str = "claudeStyle"
     items: list[CardItem]
@@ -333,7 +335,7 @@ class FrameFile(BaseModel):
 class FramesManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["frames_manifest/1"] = Field(default="frames_manifest/1", alias="schema")
-    episode: str
+    episode: str = Episode
     dir: str
     files: list[FrameFile]
     missing: list[str] = Field(default_factory=list,
@@ -367,7 +369,7 @@ class RenderPlan(BaseModel):
     """完全解析的合成计划——composer 唯一输入，不含任何待推断语义。"""
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["render_plan/1"] = Field(default="render_plan/1", alias="schema")
-    episode: str
+    episode: str = Episode
     fps: int = 30
     size: list[int] = Field(default=[1920, 1080], min_length=2, max_length=2)
     aspect: str = Field(default="16:9",
@@ -394,7 +396,7 @@ class BuildTool(BaseModel):
 class BuildManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["build/1"] = Field(default="build/1", alias="schema")
-    episode: str
+    episode: str = Episode
     built_at: str = RFC3339
     inputs: dict = Field(description="{render_plan,timeline,audio_manifest,frames_manifest}: sha256:…")
     tool: BuildTool
@@ -415,7 +417,7 @@ class StageEntry(BaseModel):
 class RunMeta(BaseModel):
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["run_manifest/1"] = Field(default="run_manifest/1", alias="schema")
-    episode: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    episode: str = Episode
     created_at: str = RFC3339
     stages: dict[str, StageEntry] = Field(description="stage 名 → 产物登记；DAG 断点续跑的依据")
 

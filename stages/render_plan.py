@@ -635,6 +635,11 @@ def cmd_run(run_dir: Path) -> int:
     p.say(f"编译完成 v{len(plan['video_track'])}/a{len(plan['audio_track'])}/"
           f"o{len(plan['overlay_track'])} warn={len(warnings)} err={len(all_errs)}")
 
+    try:
+        from contracts.models import RenderPlan
+        RenderPlan.model_validate(plan)          # 契约 lint（extra=forbid），违例直接炸
+    except ImportError:
+        pass
     meta.atomic_write(run_dir / OUT_PLAN, plan)
     meta.atomic_write(run_dir / OUT_FFCONCAT, ffconcat_text(plan))
     p.say(f"ffprobe 解析校验 {OUT_FFCONCAT}")

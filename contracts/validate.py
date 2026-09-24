@@ -188,7 +188,9 @@ def main():
     # ---------- input/output hash chain ----------
     for k, v in bm.inputs.items():
         target = RUN / {"render_plan": "70_render_plan.json",
-                        "timeline": "62_timeline.json"}.get(k, k)
+                        "timeline": "62_timeline.json",
+                        "audio_manifest": "61_audio_manifest.json",
+                        "frames_manifest": "64_frames_manifest.json"}.get(k, k)
         if target.exists() and v != "sha256:" + sha256_file(target):
             err(f"build inputs.{k} 哈希陈旧（上游改了没重建）")
 
