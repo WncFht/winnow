@@ -1,0 +1,196 @@
+% state-db.tex — Winnow: state/state.sqlite single-DB layout.
+% One WAL-mode file, four data families; writers on the left, readers on the right.
+% Render: python3 ~/.agents/incubator/figure-viz/scripts/render.py docs/assets/state-db.tex --outdir docs/assets --dpi 200
+%
+% ===================== SEMANTIC LEDGER =====================
+% object           class    meaning                                producer / consumer
+% ---------------- -------- -------------------------------------- -----------------------------
+% s_* (6 nodes)    stage    pipeline stage box, write role         collect, filter, gate_select,
+%                                                                  dedup, meta_qa, collectors
+% r_* (5 nodes)    stage    same stages in their read role         filter, gate_select,
+%                           (dup across sides is intentional)      review_server, dedup, meta_qa
+% f_items          fam      items + item_runs tables: episode      W: collect,filter,dedup,
+%                           pool, lifecycle cache + carry-over         gate_select (+meta_qa,
+%                                                              R: filter,gate_select,review  review writeback)
+% f_dedup          fam      dedup_items + dedup_clusters:          W: dedup,meta_qa
+%                           clusters, centroids, verdicts          R: filter,dedup,gate,meta_qa
+% f_source         fam      source_state: seen URLs + health       RW: collect
+% f_kv             fam      kv: x_nitter_health / reddit_token /   RW: collectors
+%                           weibo_cookie JSON blobs
+% dbbox            band     the single sqlite file (WAL)           container for 4 families
+% bus              mdot     branch point of shared dedup_* read    w12 trunk -> w13 tap
+% w1..w15          wire     data-flow edges; left = writes into    see vaudit via=/endpoint=
+%                           families, right = reads out of them
+% hue map          -        cards colored per family (items=vteal,
+%                           dedup=vviolet, source=vorange, kv=vgold);
+%                           stages neutral vgray (same role both sides)
+%
+% ===================== GEOMETRY LEDGER (cm) =====================
+% stage boxes    w~2.3 h~1.08 (text width 2.0, min height 1.05)
+% left col  c_x=0.80  x~[-0.35,1.95]; y: collect 9.50, filter 8.00,
+%          gate 6.50, dedup 5.00, meta_qa 3.50, collectors 1.85
+%          (pitch 1.5 / 1.65 > box-h + crowd 0.35)
+% right col c_x=13.25 x~[12.1,14.4]; y: filter 9.60, gate 8.10,
+%          review 6.60, dedup 5.10, meta_qa 3.60 (pitch 1.5)
+% family cards  x[5.6,10.7] c=8.15, w~5.1 h=2.05 (min height, dedup
+%          title wraps to 2 lines -> uniform min-height keeps class=fam
+%          equal), pitch 2.50:
+%          items y[7.55,9.60], dedup y[5.05,7.10],
+%          source y[2.55,4.60], kv y[0.05,2.10]   (gaps ~0.45)
+% dbtitle (8.15,10.10) inside band; dbbox fit(inner sep 10pt)
+%          ~x[5.25,11.05] y[-0.30,10.65]
+% routing    vertical card stack => every card west/east edge reachable
+%          by a straight line crossing only dbbox border (via=dbbox).
+%          exceptions (declared):
+%          * w2 collect<->source loops the far-left channel x=-0.85,
+%            re-enters at y2.62 inside the container's west margin
+%            x5.45 (a direct diagonal would cross all five
+%            items/dedup-bound left wires);
+%          * w12 dedup->r_filter + w13 dedup->r_gate share an
+%            orthogonal trunk at x=11.55 with bus tap (11.55,7.7);
+%            the vertical crosses w10,w11 (wire-wire, unaudited) —
+%            K(2,3) bipartite on the east face cannot be planar.
+% wire labels  lab style (white fill) centered ON their own wire at
+%          x=3.6 inside the 3.3cm left channel, declared via=lcN on
+%          that wire; right channel too narrow -> read semantics live
+%          in the mean-box mechanism line.
+% ==================================================================
+\documentclass[border=8pt]{standalone}
+\usepackage[UTF8,fontset=fandol]{ctex}
+\usepackage{amsmath,amssymb}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,decorations.pathreplacing,fit}
+\input{vizstyle}
+\input{vizaudit}
+\begin{document}
+\begin{tikzpicture}
+
+% ---- column headers -------------------------------------------------
+\node[vstage, vaudit={}] (hw) at (0.80,10.85) {WRITES};
+\node[vstage, vaudit={}] (hr) at (13.25,10.85) {READS};
+
+% ---- writer stages (left column) ------------------------------------
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (s_collect) at (0.80,9.50) {collect};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (s_filter) at (0.80,8.00) {filter};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (s_gate) at (0.80,6.50) {gate\_select};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (s_dedup) at (0.80,5.00) {dedup};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (s_metaqa) at (0.80,3.50) {meta\_qa};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (s_coll) at (0.80,1.85)
+      {collectors\\[-1pt]{\scriptsize x·reddit·weibo}};
+
+% ---- reader stages (right column; same stage = separate read role) --
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (r_filter) at (13.25,9.60) {filter};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (r_gate) at (13.25,8.10) {gate\_select};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (r_review) at (13.25,6.60) {review\_server};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (r_dedup) at (13.25,5.10) {dedup};
+\node[model, fill=vgray!8, text width=2.0cm, minimum height=1.05cm,
+      font=\small, vaudit={class=stage}] (r_metaqa) at (13.25,3.60) {meta\_qa};
+
+% ---- DB container title (inside band, is a fit member) --------------
+\node[font=\small\bfseries, text=vink, vaudit={inside=dbbox}] (dbtitle)
+      at (8.15,10.30) {state/state.sqlite (WAL)};
+
+% ---- family cards (equal size via uniform minimum height) -----------
+\node[card, draw=vteal, fill=vteal!12, text width=4.75cm, minimum height=2.05cm,
+      vaudit={class=fam,inside=dbbox}] (f_items) at (8.15,8.55)
+      {{\small\bfseries items + item\_runs}\\[-1pt]
+       {\scriptsize episode pool}\\[-1pt]
+       {\scriptsize lifecycle cache + carry-over}};
+\node[card, draw=vviolet, fill=vviolet!12, text width=4.75cm, minimum height=2.05cm,
+      vaudit={class=fam,inside=dbbox}] (f_dedup) at (8.15,6.05)
+      {{\small\bfseries dedup\_items + dedup\_clusters}\\[-1pt]
+       {\scriptsize dedup history}\\[-1pt]
+       {\scriptsize clusters · centroids · verdicts}};
+\node[card, draw=vorange, fill=vorange!12, text width=4.75cm, minimum height=2.05cm,
+      vaudit={class=fam,inside=dbbox}] (f_source) at (8.15,3.55)
+      {{\small\bfseries source\_state}\\[-1pt]
+       {\scriptsize seen URLs + health}\\[-1pt]
+       {\scriptsize (consecutive\_fails)}};
+\node[card, draw=vgold, fill=vgold!12, text width=4.75cm, minimum height=2.05cm,
+      vaudit={class=fam,inside=dbbox}] (f_kv) at (8.15,1.05)
+      {{\small\bfseries kv}\\[-1pt]
+       {\scriptsize JSON blobs}\\[-1pt]
+       {\scriptsize nitter · reddit · weibo}};
+
+% ---- container band (bg layer, fit after members) --------------------
+\begin{pgfonlayer}{bg}
+  \node[band=vgray, draw=vgray!55, line width=0.7pt,
+        fit=(dbtitle)(f_items)(f_dedup)(f_source)(f_kv), inner sep=10pt,
+        vaudit={}] (dbbox) {};
+\end{pgfonlayer}
+
+% ---- write wires (left -> card west edges) ---------------------------
+\draw[varr] (s_collect.east) -- ($(f_items.west)+(0,0.55)$);   % w1 upsert
+\vzwire{w1}{s_collect.east;($(f_items.west)+(0,0.55)$)}{endpoint=s_collect,f_items via=dbbox,lc1}
+\draw[{Stealth[length=2.4mm]}-{Stealth[length=2.4mm]}, line width=0.7pt, draw=black!60]
+  (s_collect.west) -- (-0.85,9.50) -- (-0.85,2.62) -- (5.45,2.62)
+  -- (5.45,3.55) -- (f_source.west);          % w2 RW seen+health, far-left loop
+\vzwire{w2}{s_collect.west;(-0.85,9.5);(-0.85,2.62);(5.45,2.62);(5.45,3.55);f_source.west}{endpoint=s_collect,f_source via=dbbox}
+\draw[varr] (s_filter.east) -- ($(f_items.west)+(0,0.18)$);    % w3 cache write
+\vzwire{w3}{s_filter.east;($(f_items.west)+(0,0.18)$)}{endpoint=s_filter,f_items via=dbbox,lc2}
+\draw[varr] (s_gate.east) -- ($(f_items.west)-(0,0.18)$);      % w4 used_in_episode
+\vzwire{w4}{s_gate.east;($(f_items.west)-(0,0.18)$)}{endpoint=s_gate,f_items via=dbbox,lc3}
+\draw[varr] (s_dedup.east) -- ($(f_items.west)-(0,0.55)$);     % w5 dedup_* cols
+\vzwire{w5}{s_dedup.east;($(f_items.west)-(0,0.55)$)}{endpoint=s_dedup,f_items via=dbbox,lc4}
+\draw[varr] (s_dedup.east) -- ($(f_dedup.west)+(0,0.25)$);     % w6 clusters+members
+\vzwire{w6}{s_dedup.east;($(f_dedup.west)+(0,0.25)$)}{endpoint=s_dedup,f_dedup via=dbbox}
+\draw[varr] (s_metaqa.east) -- ($(f_dedup.west)-(0,0.25)$);    % w7 reported/published
+\vzwire{w7}{s_metaqa.east;($(f_dedup.west)-(0,0.25)$)}{endpoint=s_metaqa,f_dedup via=dbbox,lc6}
+\draw[{Stealth[length=2.4mm]}-{Stealth[length=2.4mm]}, line width=0.7pt, draw=black!60]
+  (s_coll.east) -- (f_kv.west);               % w8 RW token/cookie blobs
+\vzwire{w8}{s_coll.east;f_kv.west}{endpoint=s_coll,f_kv via=dbbox,lc7}
+
+% ---- read wires (card east edges -> right) ---------------------------
+\draw[varr] ($(f_items.east)+(0,0.60)$) -- ($(r_filter.west)+(0,0.25)$); % w9 cache lookup
+\vzwire{w9}{($(f_items.east)+(0,0.6)$);($(r_filter.west)+(0,0.25)$)}{endpoint=f_items,r_filter via=dbbox}
+\draw[varr] ($(f_items.east)+(0,0.20)$) -- ($(r_gate.west)+(0,0.10)$);   % w10 candidates
+\vzwire{w10}{($(f_items.east)+(0,0.2)$);($(r_gate.west)+(0,0.1)$)}{endpoint=f_items,r_gate via=dbbox}
+\draw[{Stealth[length=2.4mm]}-{Stealth[length=2.4mm]}, line width=0.7pt, draw=black!60]
+  ($(f_items.east)-(0,0.25)$) -- (r_review.west);         % w11 RW display+used
+\vzwire{w11}{($(f_items.east)-(0,0.25)$);r_review.west}{endpoint=f_items,r_review via=dbbox}
+\draw[varr] ($(f_dedup.east)+(0,0.40)$) -- (11.55,6.45) -- (11.55,9.20)
+  -- ($(r_filter.west)-(0,0.40)$);                      % w12 trunk: L0 url_hash
+\vzwire{w12}{($(f_dedup.east)+(0,0.4)$);(11.55,6.45);(11.55,9.2);($(r_filter.west)-(0,0.4)$)}{endpoint=f_dedup,r_filter via=dbbox,bus}
+\node[mdot=vink, vaudit={}] (bus) at (11.55,7.70) {};
+\draw[varr] (bus) -- ($(r_gate.west)-(0,0.40)$);          % w13 tap: published gate
+\vzwire{w13}{bus;($(r_gate.west)-(0,0.4)$)}{endpoint=bus,r_gate}
+\draw[varr] ($(f_dedup.east)-(0,0.05)$) -- (r_dedup.west); % w14 open clusters
+\vzwire{w14}{($(f_dedup.east)-(0,0.05)$);r_dedup.west}{endpoint=f_dedup,r_dedup via=dbbox}
+\draw[varr] ($(f_dedup.east)-(0,0.50)$) -- (r_metaqa.west);% w15 kept rows
+\vzwire{w15}{($(f_dedup.east)-(0,0.5)$);r_metaqa.west}{endpoint=f_dedup,r_metaqa via=dbbox}
+
+% ---- wire labels (lab = white-backed tag sitting on its own wire) ----
+\node[lab, vaudit={}] (lc1) at (3.60,9.32) {pool upsert};
+\node[lab, vaudit={}] (lc2) at (3.60,8.33) {verdict·summary};
+\node[lab, vaudit={}] (lc3) at (3.60,7.35) {used\_in\_episode};
+\node[lab, vaudit={}] (lc4) at (3.60,6.36) {dedup\_* cols};
+\node[lab, vaudit={}] (lc6) at (3.60,4.54) {mark published};
+\node[lab, vaudit={}] (lc7) at (3.60,1.49) {token·cookie};
+\node[vshape, rotate=90, vaudit={}] (lcL) at (-1.15,6.00) {seen URLs + health};
+
+% ---- meaning box + caption -------------------------------------------
+\node[mean, text width=15.4cm, anchor=north, vaudit={}] (meanbox) at (6.45,-0.75)
+      {\textbf{Objects:} four table families in one WAL-mode SQLite file;
+       left column = stages that write, right column = stages that read —
+       a stage may appear on both sides (dedup writes clusters, reads them back).\\
+       \textbf{Mechanism:} items is the shared episode pool (verdict/summary
+       cache, dedup columns, used\_in\_episode marks — also rewritten by
+       meta\_qa and review\_server for kept items); dedup history feeds the
+       L0 url\_hash check, cluster matching and the published-gate;
+       source\_state and kv carry collector-side state (seen URLs, tokens).};
+\node[vshape, text=vgray, anchor=north, vaudit={}] (cap)
+      at ($(meanbox.south)+(0,-0.40)$)
+      {state-db · one SQLite file, four data families — write path (left) vs read path (right)};
+
+\end{tikzpicture}
+\end{document}

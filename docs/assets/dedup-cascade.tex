@@ -1,0 +1,236 @@
+% dedup-cascade.tex — Winnow 35_dedup decision cascade (mechanism diagram).
+% Engine: TikZ flow grammar (references/tikz/flow.md). Render via
+%   python3 <figure-viz>/scripts/render.py dedup-cascade.tex --outdir <dir> --dpi 200
+%
+% ============================ SEMANTIC LEDGER ============================
+% item    — one 30_summaries row {title, summary, url_canon}; producer:
+%           summarize stage; consumer: dedup cascade (this figure). hue vteal.
+% gate    — deterministic check over state.sqlite (dedup_items/dedup_clusters):
+%           g1 url_hash exact (ANY history), g2 member-simhash ham<=4 (open
+%           clusters), g3 best centroid cos over open clusters. hue vblue.
+%           class=gate: identical w,h. A "no" answer continues down the spine.
+% judge   — LLM 3-way arbiter on gray-zone (item <-> best open cluster) pairs.
+%           hue vviolet. A->suppressed, B->reissue, C->new cluster; error or
+%           conf<0.6 -> gray_pending.
+% terms   — verdict terminal column (class=term, uniform size):
+%           sup  (vcoral)  verdict=suppressed — dropped for this episode
+%           new  (vgreen)  verdict=fresh — own cluster, publish candidate
+%           rei  (vorange) verdict=reissue — attach to cluster, n_reissues++,
+%                          centroid merge; update_of iff cluster.published=1
+%           gray (vgray)   verdict=gray_pending -> human UI, never auto-suppressed
+% rail    — suppression bus (vcoral thick): all suppress paths merge before
+%           the suppressed terminal — one verdict, many evidence paths.
+% wires   — ink spine = "check failed, cascade continues"; colored branch =
+%           verdict reached, hue = destination terminal's. via-tags on labels
+%           are the DB evidence vocabulary (dup_exact/dup_near/dup_same/
+%           judge_a/judge_b/judge_c/judge_na/embed_lo/no_history).
+% note    — storage invariants box (top right).
+% Hue budget note: 6 semantic families + neutrals — each hue maps 1:1 to a
+% distinct role (item/checks/judge/4 verdicts); justified by the
+% color-as-semantics invariant; fills kept at !8-!14 to stay muted.
+%
+% ============================ GEOMETRY LEDGER ============================
+% Canvas ~[-0.4,13.6]x[-7.4,10.4] cm, y up. Two columns + channel:
+%   spine   x=3.0 (gates text width 4.85 -> box ~5.25, x 0.375..5.625):
+%           in 9.6 | g1 7.6 | g2 5.6 | g3 3.5 | judge 1.1  (h=1.45 uniform)
+%   channel x 5.625..8.15 — on-wire labels; judge-A return runs west riser
+%           x=-0.15 + top corridor y=8.7 (hops the in->g1 spine wire at
+%           x=3.0, apex 8.85 — in.south is 9.10)
+%   rail    x=8.15 vertical bus: taps r1 7.6 / r2 5.6 / r4 3.96,
+%           r3 8.7 top return, rout 6.6 -> sup
+%   terms   x=10.9 (text width 4.3 -> box ~4.6, x 8.6..13.2, h=1.85 uniform):
+%           sup 6.6 | new 2.8 | rei 0.5 | gray -2.0
+%   note    (10.9, 9.55) storage invariants
+%   mean    full-width meaning box, north anchored at y=-3.45; caption below
+% =========================================================================
+
+\documentclass[border=8pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit}
+\input{vizstyle}
+\input{vizaudit}
+
+\begin{document}
+\begin{tikzpicture}[x=1cm,y=1cm]
+
+% ---- shared styles -------------------------------------------------------
+\tikzset{
+  gate/.style={model, draw=vblue!80, fill=vblue!10, text width=4.85cm,
+               minimum height=1.45cm, font=\small},
+  term/.style={model, text width=4.3cm, minimum height=1.85cm, font=\small},
+  wlab/.style={vnote, fill=white, inner xsep=2.5pt, inner ysep=1.5pt,
+               align=center},
+}
+
+% ---- nodes ---------------------------------------------------------------
+\node[model, draw=vteal!80, fill=vteal!14, text width=4.85cm, font=\small,
+      vaudit={}] (in) at (3.0,9.6)
+  {\textbf{\texttt{30\_summaries} item}\\[-1pt]
+   \scriptsize title · summary · url\_canon};
+
+\node[gate, vaudit={class=gate}] (g1) at (3.0,7.6)
+  {\textbf{1 · url\_hash hit?}\\[-1pt]
+   \scriptsize exact match in \texttt{dedup\_items}\\[-1pt]
+   \scriptsize any history, not only open};
+
+\node[gate, vaudit={class=gate}] (g2) at (3.0,5.6)
+  {\textbf{2 · simhash hamming $\leq 4$?}\\[-1pt]
+   \scriptsize over open-cluster members\\[-1pt]
+   \scriptsize fp = title + summary};
+
+\node[gate, vaudit={class=gate}] (g3) at (3.0,3.5)
+  {\textbf{3 · centroid cos}\\[-1pt]
+   \scriptsize max cos(q\_embed, centroid)\\[-1pt]
+   \scriptsize state=open $\wedge$ not expired};
+
+\node[gate, draw=vviolet!80, fill=vviolet!12,
+      vaudit={class=gate}] (judge) at (3.0,1.1)
+  {\textbf{4 · LLM judge · 3-way}\\[-1pt]
+   \scriptsize item $\leftrightarrow$ best cluster\\[-1pt]
+   \scriptsize A suppress · B reissue · C fresh};
+
+% ---- verdict terminals ---------------------------------------------------
+\node[term, draw=vcoral!85, fill=vcoral!12,
+      vaudit={class=term}] (sup) at (10.9,6.6)
+  {\textbf{suppressed}\\[-1pt]
+   \scriptsize dropped this episode; rows kept\\[-1pt]
+   \scriptsize via dup\_exact · near · same};
+
+\node[term, draw=vgreen!85, fill=vgreen!12,
+      vaudit={class=term}] (new) at (10.9,2.8)
+  {\textbf{new cluster}\\[-1pt]
+   \scriptsize verdict fresh $\to$ candidate\\[-1pt]
+   \scriptsize via embed\_lo · judge\_c\\[-1pt]
+   \scriptsize via no\_history (empty store)};
+
+\node[term, draw=vorange!90, fill=vorange!14,
+      vaudit={class=term}] (rei) at (10.9,0.5)
+  {\textbf{reissue}\\[-1pt]
+   \scriptsize same story + new dev\\[-1pt]
+   \scriptsize attach · n\_reissues++ · merge\\[-1pt]
+   \scriptsize update\_of iff published=1};
+
+\node[term, draw=vgray!85, fill=vgray!12,
+      vaudit={class=term}] (gray) at (10.9,-2.0)
+  {\textbf{gray\_pending $\to$ human}\\[-1pt]
+   \scriptsize judge N/A or conf $<0.6$\\[-1pt]
+   \scriptsize never auto-suppressed};
+
+% ---- side note ------------------------------------------------------------
+\node[model, draw=vgray!60, fill=vgray!8, text width=4.3cm, font=\small,
+      vaudit={}] (note) at (10.9,9.55)
+  {\textbf{state.sqlite}\\[-1pt]
+   \scriptsize TTL 21d · expiry keeps rows\\[-1pt]
+   \scriptsize rerun-safe: purge\_episode\\[-1pt]
+   \scriptsize single-tx verdict write};
+
+% ---- rail geometry (named tap points, exact-y via -| coordinate expr) -----
+\coordinate (railx) at (8.15,0);
+\coordinate (r1) at (g1.east -| railx);
+\coordinate (r2) at (g2.east -| railx);
+\coordinate (r3) at (8.15,8.7);
+\coordinate (r4) at (g3.10 -| railx);
+\coordinate (rout) at (8.15,6.6);
+\coordinate (railA) at (8.15,3.8);
+\coordinate (railB) at (r3);
+
+% ---- connectors -----------------------------------------------------------
+% suppression bus
+\draw[draw=vcoral!80, line width=1.1pt] (railA) -- (railB);
+\vzwire{rail}{railA;railB}{}
+\draw[varr, draw=vcoral!80] (rout) -- (sup.west);
+\vzwire{w_rout}{rout;sup.west}{endpoint=sup}
+
+% spine (ink): cascade continues on "no"
+\draw[varr] (in.south) -- (g1.north);
+\vzwire{w_in}{in.south;g1.north}{endpoint=in,g1}
+\draw[varr] (g1.south) -- (g2.north);
+\vzwire{w_12}{g1.south;g2.north}{endpoint=g1,g2 via=l12}
+\draw[varr] (g2.south) -- (g3.north);
+\vzwire{w_23}{g2.south;g3.north}{endpoint=g2,g3 via=l23}
+\draw[varr] (g3.south) -- (judge.north);
+\vzwire{w_3j}{g3.south;judge.north}{endpoint=g3,judge}
+
+% suppress branches -> rail (coral)
+\draw[varr, draw=vcoral!80] (g1.east) -- (r1);
+\vzwire{w_g1s}{g1.east;r1}{endpoint=g1 via=l_g1s}
+\draw[varr, draw=vcoral!80] (g2.east) -- (r2);
+\vzwire{w_g2s}{g2.east;r2}{endpoint=g2 via=l_g2s}
+\draw[varr, draw=vcoral!80] (g3.10) -- (r4);
+\vzwire{w_g3s}{g3.10;r4}{endpoint=g3 via=l_g3s}
+
+% judge A -> suppressed: west riser + top corridor, hops in->g1 wire at x=3.0
+\draw[varr, draw=vcoral!80] (judge.west) -- (-0.15,1.1) -- (-0.15,8.7)
+  -- (2.85,8.7) arc[start angle=180, end angle=0, radius=0.15]
+  -- (r3);
+\vzwire{w_ret}{judge.west;(-0.15,1.1);(-0.15,8.7);(2.85,8.7);(3.0,8.85);(3.15,8.7);r3}{endpoint=judge via=l_ret}
+
+% cos < 0.58 -> new cluster (green)
+\draw[varr, draw=vgreen!80] (g3.-10) -- (g3.-10 -| new.west);
+\vzwire{w_g3n}{g3.-10;(g3.-10 -| new.west)}{endpoint=g3,new via=l_g3n}
+
+% judge C -> new cluster (green)
+\draw[varr, draw=vgreen!80] (judge.east) -- (6.6,1.1) -- (6.6,2.35)
+  -- (6.6,2.35 -| new.west);
+\vzwire{w_jc}{judge.east;(6.6,1.1);(6.6,2.35);(6.6,2.35 -| new.west)}{endpoint=judge,new via=l_jc}
+
+% judge B -> reissue (orange)
+\draw[varr, draw=vorange!85] (judge.east |- rei.west) -- (rei.west);
+\vzwire{w_jb}{(judge.east |- rei.west);rei.west}{endpoint=judge,rei via=l_jb}
+
+% judge unavailable / low conf -> gray_pending (gray)
+\draw[varr, draw=vgray!85] (judge.south) -- (3.0,-2.0) -- (gray.west);
+\vzwire{w_jg}{judge.south;(3.0,-2.0);gray.west}{endpoint=judge,gray via=l_jg}
+
+% ---- labels ---------------------------------------------------------------
+% spine labels
+\node[wlab, vaudit={adjacent=g1,adjacent=g2}] (l12)
+  at (3.0,6.65) {miss};
+\node[wlab, vaudit={adjacent=g2,adjacent=g3}] (l23)
+  at (3.0,4.55) {ham $>4$};
+\node[vnote, anchor=west, align=left,
+      vaudit={adjacent=g3,adjacent=judge,adjacent=l_g3n}] (l3j)
+  at (3.35,2.3) {$0.58\leq$ cos $<0.85$\\[-1pt](or $\geq0.85$, ham $>8$)};
+
+% branch on-wire labels (white halo)
+\node[wlab, vaudit={adjacent=g1}] (l_g1s)
+  at (6.95,7.6) {yes · dup\_exact};
+\node[wlab, vaudit={}] (l_g2s)
+  at (6.9,5.6) {ham $\leq4$\\[-1pt]dup\_near};
+\node[wlab, vaudit={adjacent=l_g3n}] (l_g3s)
+  at (7.05,3.96) {cos $\geq0.85$\\[-1pt]$\wedge$ ham $\leq8$};
+\node[wlab, vaudit={}] (l_g3n)
+  at (7.1,3.04) {cos $<0.58$};
+\node[wlab, vaudit={adjacent=g1,adjacent=in}] (l_ret)
+  at (5.9,8.7) {A · same event};
+\node[wlab, vaudit={adjacent=new}] (l_jc)
+  at (7.6,2.35) {C · different};
+\node[wlab, vaudit={}] (l_jb)
+  at (7.2,0.5) {B · new dev};
+\node[wlab, vaudit={}] (l_jg)
+  at (5.9,-2.0) {unavail / conf $<0.6$};
+
+% ---- meaning box + caption ------------------------------------------------
+\node[mean, text width=12.9cm, anchor=north, vaudit={}]
+  (meanbox) at (6.45,-3.45)
+  {\hyphenpenalty=10000\exhyphenpenalty=10000
+   \textbf{Object}\quad \texttt{item} = one \texttt{30\_summaries} row
+   (title, summary, url\_canon); blue gates = deterministic checks on
+   \texttt{state.sqlite}, violet = LLM judge, right column = verdict
+   terminals; wire hue = verdict reached.\\[3pt]
+   \textbf{Mechanism}\quad cheap $\to$ expensive: url\_hash $\to$ member
+   simhash $\to$ centroid cos; an LLM call only for cos $\in[0.58,0.85)$
+   — or $\geq0.85$ with ham $>8$; evidence tag stored per verdict.\\[3pt]
+   \textbf{Guards}\quad judge B sets \texttt{update\_of} only when
+   \texttt{cluster.published=1}; judge error or conf $<0.6$ $\to$
+   \texttt{gray\_pending} $\to$ human UI — never auto-suppressed.};
+
+\node[font=\scriptsize, text=vgray, align=center,
+      vaudit={adjacent=meanbox}]
+  (capt) at ($(meanbox.south)+(0,-0.35)$)
+  {Winnow · \texttt{35\_dedup} decision cascade — deterministic gates
+   $\to$ cosine bands $\to$ 3-way LLM judge; all state in
+   \texttt{state.sqlite}};
+
+\end{tikzpicture}
+\end{document}

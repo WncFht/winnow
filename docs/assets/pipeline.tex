@@ -1,0 +1,227 @@
+% =============================================================================
+% pipeline.tex -- Winnow daily pipeline: ~160 sources -> one narrated mp4.
+% Shared by README.md / README.zh-CN.md (labels intentionally English).
+% render:
+%   python3 ~/.agents/incubator/figure-viz/scripts/render.py \
+%     docs/assets/pipeline.tex --outdir docs/assets --dpi 200
+%
+% SEMANTIC LEDGER (one drawn object = one semantic object)
+%   collect..meta : 11 automated stages (vteal, class stg) -- stages/<name>.py,
+%                   driven by `just` recipes / systemd timers
+%   g1, g2        : the two human gates (vorange, class gate) -- review-UI pick
+%                   (08:30 deadline -> auto top-K) and 50_review edit
+%                   (09:30 deadline -> auto import)
+%   srcA/outB     : input stub sources.yaml (~160 feeds) / output stub 90_qa
+%   lbl0..lbl13   : per-run artifacts under runs/<date>/ (edge captions)
+%   bandA/bandB   : `just gather` (collect..dedup) / `just produce` (callb..meta)
+%                   recipe groupings -- recipes never chain across a gate
+%   dl1, dl2      : deadline tags (vorange) hanging under each gate; clock glyph
+%   db + dbIcon   : state/state.sqlite -- item pool, dedup history, source
+%                   state, kv; violet bus + taps feed filter/dedup/g1/meta
+%   claim         : top claim line;  mean/cap : meaning box + caption
+%
+% GEOMETRY LEDGER (cm; +x east, +y north; chain centerline y=0)
+%   stage boxes w1.85 h1.05 (class stg) ; gates w2.20 h1.25 (class gate)
+%   x: collect 0.0, filter 2.3, dedup 4.6, g1 7.1, digest 9.6, g2 12.4,
+%      callb 15.2, voice 18.0, cards 20.3, subs 22.6, rplan 24.9,
+%      compose 27.2, meta 29.5 ; stubs srcA -1.75, outB 31.25
+%   bands: fit(members)+8pt on bg layer; band labels anchored +0.15 above north
+%   artifact labels: anchor=north y=-1.22 at edge midpoints (ledger x above)
+%   deadline tags: center y=-2.32 under g1/g2 (single line); clock r=0.10 at tag.west+(-0.30,0)
+%   state bus: y=-2.85, x 2.3..29.5 ; taps rise at x=2.3/4.6/7.0/29.5
+%   db: center (14.75,-3.98) ; mean: top y=-5.15, text width 29.5 ; cap below
+% =============================================================================
+\documentclass[border=8pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes.geometric,shapes.misc}
+\input{vizstyle}
+\input{vizaudit}
+\begin{document}
+\begin{tikzpicture}
+
+  % ---- top claim -------------------------------------------------------
+  \node[vsym, text=vink!80, vaudit={}] (claim) at (14.75,1.80)
+    {$\sim$160 sources in $\to$ one narrated mp4 out ---
+      two human gates auto-release at deadline};
+
+  % ---- chain nodes: 11 vteal stages + 2 vorange gates ------------------
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandA}] (collect) at (0,0) {collect};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandA,aligny=collect}] (filter) at (2.3,0) {filter};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandA,aligny=collect}] (dedup) at (4.6,0) {dedup};
+
+  \node[chamfered rectangle, draw=vorange, fill=vorange!22, line width=1.1pt,
+        minimum width=2.20cm, minimum height=1.25cm, align=center, inner sep=4pt,
+        font=\small,
+        vaudit={class=gate,aligny=collect,adjacent=bandA}] (g1) at (7.1,0)
+        {\textbf{GATE 1}\\human pick};
+
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,aligny=collect}] (digest) at (9.6,0) {digest};
+
+  \node[chamfered rectangle, draw=vorange, fill=vorange!22, line width=1.1pt,
+        minimum width=2.20cm, minimum height=1.25cm, align=center, inner sep=4pt,
+        font=\small,
+        vaudit={class=gate,aligny=collect}] (g2) at (12.4,0)
+        {\textbf{GATE 2}\\human edit};
+
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandB,aligny=collect}] (callb) at (15.2,0) {callb};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandB,aligny=collect}] (voice) at (18.0,0) {voice};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandB,aligny=collect}] (cards) at (20.3,0) {cards};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandB,aligny=collect}] (subs) at (22.6,0) {subs};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandB,aligny=collect}] (rplan) at (24.9,0) {render-\\plan};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandB,aligny=collect}] (compose) at (27.2,0) {compose};
+  \node[model, draw=vteal, fill=vteal!14, minimum width=1.85cm,
+        minimum height=1.05cm, font=\small\bfseries,
+        vaudit={class=stg,inside=bandB,aligny=collect}] (meta) at (29.5,0) {meta};
+
+  % ---- recipe bands (bg layer) -----------------------------------------
+  \begin{pgfonlayer}{bg}
+    \node[band, fit=(collect)(filter)(dedup), inner sep=8pt, vaudit={}] (bandA) {};
+    \node[band, fit=(callb)(voice)(cards)(subs)(rplan)(compose)(meta),
+          inner sep=8pt, vaudit={}] (bandB) {};
+  \end{pgfonlayer}
+  \node[vshape, text=vgray, anchor=south, vaudit={adjacent=bandA}] (blA)
+        at ($(bandA.north)+(0,0.15)$) {\texttt{just gather}};
+  \node[vshape, text=vgray, anchor=south, vaudit={adjacent=bandB}] (blB)
+        at ($(bandB.north)+(0,0.15)$) {\texttt{just produce}};
+
+  % ---- input/output stubs ----------------------------------------------
+  \coordinate (srcA) at (-1.75,0);
+  \coordinate (outB) at (31.25,0);
+
+  % ---- main chain arrows -------------------------------------------------
+  \draw[varr] (srcA) -- (collect);      \vzwire{wIn}{srcA;collect}{endpoint=collect via=bandA}
+  \draw[varr] (collect) -- (filter);    \vzwire{wCF}{collect;filter}{endpoint=collect,filter via=bandA}
+  \draw[varr] (filter) -- (dedup);      \vzwire{wFD}{filter;dedup}{endpoint=filter,dedup via=bandA}
+  \draw[varr] (dedup) -- (g1);          \vzwire{wDG}{dedup;g1}{endpoint=dedup,g1 via=bandA}
+  \draw[varr] (g1) -- (digest);         \vzwire{wGD}{g1;digest}{endpoint=g1,digest}
+  \draw[varr] (digest) -- (g2);         \vzwire{wDE}{digest;g2}{endpoint=digest,g2}
+  \draw[varr] (g2) -- (callb);          \vzwire{wGC}{g2;callb}{endpoint=g2,callb via=bandB}
+  \draw[varr] (callb) -- (voice);       \vzwire{wCV}{callb;voice}{endpoint=callb,voice via=bandB}
+  \draw[varr] (voice) -- (cards);       \vzwire{wVC}{voice;cards}{endpoint=voice,cards via=bandB}
+  \draw[varr] (cards) -- (subs);        \vzwire{wCS}{cards;subs}{endpoint=cards,subs via=bandB}
+  \draw[varr] (subs) -- (rplan);        \vzwire{wSR}{subs;rplan}{endpoint=subs,rplan via=bandB}
+  \draw[varr] (rplan) -- (compose);     \vzwire{wRC}{rplan;compose}{endpoint=rplan,compose via=bandB}
+  \draw[varr] (compose) -- (meta);      \vzwire{wCM}{compose;meta}{endpoint=compose,meta via=bandB}
+  \draw[varr] (meta) -- (outB);         \vzwire{wOut}{meta;outB}{endpoint=meta via=bandB}
+
+  % ---- state store: box + icon + bus + taps ------------------------------
+  \coordinate (tapF) at (2.3,-2.85);
+  \coordinate (tapD) at (4.6,-2.85);
+  \coordinate (tapG) at (7.1,-2.85);
+  \coordinate (busS) at (14.75,-2.85);
+  \coordinate (tapM) at (29.5,-2.85);
+
+  \node[model, draw=vviolet!80, fill=vviolet!10, font=\scriptsize,
+        align=center, vaudit={}] (db) at (14.75,-3.98)
+        {\textbf{state/state.sqlite}\\
+         item pool $\cdot$ dedup history $\cdot$ source state $\cdot$ kv};
+  \node[cylinder, draw=vviolet!80, fill=vviolet!18, aspect=0.30,
+        minimum width=0.55cm, minimum height=0.95cm, shape border rotate=90,
+        vaudit={adjacent=db}] (dbIcon) at ($(db.west)+(-0.55,0)$) {};
+
+  \draw[draw=vviolet!70, line width=0.6pt] (tapF) -- (tapM);
+        \vzwire{wbus}{tapF;tapD;tapG;busS;tapM}{}
+  \draw[draw=vviolet!70, line width=0.6pt] (db.north) -- (busS);
+        \vzwire{wstub}{db.north;busS}{endpoint=db}
+  \draw[-{Stealth[length=2mm]}, draw=vviolet!75, line width=0.6pt]
+        (tapF) -- (filter.south);
+        \vzwire{wtF}{tapF;filter.south}{endpoint=filter via=bandA}
+  \draw[-{Stealth[length=2mm]}, draw=vviolet!75, line width=0.6pt]
+        (tapD) -- (dedup.south);
+        \vzwire{wtD}{tapD;dedup.south}{endpoint=dedup via=bandA}
+  \draw[-{Stealth[length=2mm]}, draw=vviolet!75, line width=0.6pt]
+        (tapG) -- (g1.south);
+        \vzwire{wtG}{tapG;g1.south}{endpoint=g1 via=dl1}
+  \draw[-{Stealth[length=2mm]}, draw=vviolet!75, line width=0.6pt]
+        (tapM) -- (meta.south);
+        \vzwire{wtM}{tapM;meta.south}{endpoint=meta via=bandB}
+
+  % ---- deadline tags + clock glyphs -------------------------------------
+  \node[lab, draw=vorange!65, text=vorange!85!vink, fill=white, align=center,
+        vaudit={}] (dl1) at (7.1,-2.32) {08:30 deadline $\to$ auto top-K};
+  \node[lab, draw=vorange!65, text=vorange!85!vink, fill=white, align=center,
+        vaudit={}] (dl2) at (12.4,-2.32) {09:30 deadline $\to$ auto import};
+  \draw[draw=vorange!85!vink, line width=0.55pt]
+        ($(dl1.west)+(-0.30,0)$) circle[radius=0.10]
+        ($(dl1.west)+(-0.30,0)$) -- ++(0,0.062)
+        ($(dl1.west)+(-0.30,0)$) -- ++(0.052,-0.018);           % fv:noaudit
+  \draw[draw=vorange!85!vink, line width=0.55pt]
+        ($(dl2.west)+(-0.30,0)$) circle[radius=0.10]
+        ($(dl2.west)+(-0.30,0)$) -- ++(0,0.062)
+        ($(dl2.west)+(-0.30,0)$) -- ++(0.052,-0.018);           % fv:noaudit
+  \draw[draw=black!45, line width=0.5pt] (g2.south) -- (dl2.north);
+        \vzwire{wleash}{g2.south;dl2.north}{endpoint=g2,dl2}
+
+  % ---- artifact labels (runs/<date>/ files) ------------------------------
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl0) at (-1.30,-1.22)
+        {sources.yaml\\$\sim$160 feeds};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl1) at (1.15,-1.22) {10\_raw\_items};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl2) at (3.45,-1.22)
+        {20\_filtered\\+30\_summaries};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl3) at (5.76,-1.22) {35\_dedup};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl4) at (8.44,-1.22) {40\_selected};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl5) at (10.9,-1.22) {50\_issue};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl6) at (13.9,-1.22) {50\_issue(locked)};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl7) at (16.6,-1.22) {60\_voice\_script};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl8) at (19.15,-1.22) {61\_audio};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl9) at (21.45,-1.22)
+        {63\_cards\\+64\_frames};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl10) at (23.75,-1.22) {65\_subs};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl11) at (26.05,-1.22) {70\_render\_plan};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl12) at (28.35,-1.22) {final.mp4};
+  \node[vshape, text=vgray, font=\scriptsize\ttfamily, align=center,
+        anchor=north, vaudit={}] (lbl13) at (30.8,-1.22) {90\_qa};
+
+  % ---- meaning box + caption ---------------------------------------------
+  \node[mean, text width=29.5cm, anchor=north, vaudit={}] (mean) at (14.75,-5.15) {%
+    \textbf{Axes}\ ---\ horizontal: execution order within one daily run,
+    left~$\to$~right; vertical position carries no magnitude.\\
+    \textbf{Objects}\ ---\ \textcolor{vteal!85!vink}{teal} boxes: automated
+    stages; \textcolor{vorange!85!vink}{orange} gates: human review; gray
+    bands: \texttt{just} recipes (never chain across a gate);
+    \textcolor{vviolet!85!vink}{violet}: persistent store; edge captions:
+    per-run artifacts in \texttt{runs/<date>/}.\\
+    \textbf{Mechanism}\ ---\ each gate auto-releases at deadline
+    (08:30~$\to$ top-K pick, 09:30~$\to$ auto-import), so a day completes
+    unattended; \texttt{state/state.sqlite} feeds filter, dedup, gate~1 and
+    meta across days.};
+  \node[vnote, text=vgray, anchor=north, vaudit={adjacent=mean}] (cap)
+        at ($(mean.south)+(0,-0.14)$)
+        {Winnow --- 11 automated stages, 2 human gates, 1 persistent store;
+         edge numbers are \texttt{runs/<date>/} artifact prefixes};
+
+\end{tikzpicture}
+\end{document}

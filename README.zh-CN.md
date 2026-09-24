@@ -8,6 +8,8 @@
 
 ## Pipeline 概览
 
+![Pipeline 概览——12 阶段、两道人工闸、一份跨期状态库](docs/assets/pipeline.png)
+
 ```
 collect      sources.yaml 161 源 → 原始抓取
 filter       L0 规则 + LLM verdict/summary（state/state.sqlite 条目池跨期缓存）
@@ -31,6 +33,12 @@ meta         标题/封面/QA → 90_qa.json
 驱动是 justfile（~40 配方）：`gather` `pick` `produce` `status` `watch` `tail` `from` `resume` `exp` `doctor` `test` 等。配方不跨人工闸串链； `runs/<date>/.just.lock` 串行化同一日期桶的 just 调用。 `ops/*.timer`（systemd）：06:30 collect、08:30 gate-1 死线、09:30 gate-2 死线 —— 无人值守时全自动放行出片。
 
 每期状态：`state/state.sqlite`（跨期单库：条目池 + 去重历史 + 源状态 + kv）+ `runs/YYYY-MM-DD/` （当日全量 artifact + logs/ + 00_meta.json 阶段簿记）。
+
+![state.sqlite——单 WAL 文件四族数据 + 各阶段读写面](docs/assets/state-db.png)
+
+去重对每条走一串已校准的级联判定——url_hash 精确命中 → simhash 海明距 → embed cos 分段 → 只有灰区才调 LLM judge：
+
+![dedup 级联——url_hash → simhash → cos 分段 → LLM judge](docs/assets/dedup-cascade.png)
 
 ## Quickstart
 
