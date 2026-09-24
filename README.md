@@ -112,13 +112,13 @@ All documentation lives under `docs/` (index: `docs/README.md`).
 | `docs/deploy.md` | deployment guide — prerequisites, services to configure (LLM/TTS/alerts/proxy), systemd timers, first-run checklist |
 | `rulebook.md` | filter/digest rulebook — stays at root: `stages/` reads it as a runtime input |
 | `docs/CONTRIBUTING.md` | engineering conventions: uv project layout, just driver, test matrix |
-| `docs/ops.md` | systemd user timers + prelude.sh/_jlock shared prelude |
+| `docs/ops.md` | systemd user timers + prelude.sh/\_jlock shared prelude |
 | `docs/vendored-upstream.md` | juya-news-card pinned SHA, local patches, re-sync procedure |
 | `docs/composer.md` | Remotion composer usage + feasibility notes |
 
 ## Research background
 
-This repo began as a teardown & full re-implementation of 橘鸦Juya's daily 《AI早报》 production line (BV1NqeY6dEPP, 2026-09-20 episode); the current repo is the productionized form. The research archive behind it — teardown evidence (`evidence/`), the static replica pipeline (`repro/`), and the selection/feasibility labs (`experiments/`) — is kept private and _not_ shipped: `docs/PLAN.md` cites `experiments/…` paths as provenance markers, so those references will not resolve in a public clone.
+This repo began as a teardown & full re-implementation of 橘鸦 Juya's daily《AI 早报》production line (BV1NqeY6dEPP, 2026-09-20 episode); the current repo is the productionized form. The research archive behind it — teardown evidence (`evidence/`), the static replica pipeline (`repro/`), and the selection/feasibility labs (`experiments/`) — is kept private and _not_ shipped: `docs/PLAN.md` cites `experiments/…` paths as provenance markers, so those references will not resolve in a public clone.
 
 - `upstream/juya-news-card` — the author's open-sourced card renderer (MIT fork `Mappedinfo/juya-news-card`; original imjuya repo deleted). Next.js+React+TS, 174 templates; driven by `scripts/render-batch.ts`.
 
