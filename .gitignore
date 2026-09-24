@@ -1,6 +1,7 @@
 # secrets / runtime state
 secrets.env
-config.yaml           # 本地覆盖（engine 切换等）；模板走 config.example.yaml
+# 本地覆盖（engine 切换等）；模板走 config.example.yaml
+config.yaml
 state/
 data/
 runs/
