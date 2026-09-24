@@ -4,9 +4,18 @@
 
 [![offline-test](../../actions/workflows/offline-test.yml/badge.svg)](../../actions/workflows/offline-test.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**[中文版 README → README.zh-CN.md](README.zh-CN.md)** · [Contributing](docs/CONTRIBUTING.md)
+**[中文版 README → README.zh-CN.md](README.zh-CN.md)** · [Deploy](docs/deploy.md) · [Contributing](docs/CONTRIBUTING.md)
 
-Winnow is a daily AI-news production line: it collects from ~160 sources, filters and deduplicates with an LLM, puts a human in the loop at two editorial gates (each with a deadline auto-release), then synthesizes a finished narrated mp4 — title, cover, QA included. Document output is planned next. Everything is driven by `just`; `docs/PLAN.md` is the single source of truth for design decisions.
+![A real episode's artifacts — the phone pick screen at gate 1, a rendered card frame, and the generated cover (2026-09-23 run)](docs/assets/demo-strip.jpg)
+
+Winnow turns the daily AI-news firehose into a finished, narrated mp4 — while you're still asleep. Every morning it collects from ~160 sources, filters and deduplicates behind a calibrated cascade (the LLM judge fires only in the gray zone), then pauses at two editorial gates you can answer from your phone — each backed by a deadline that auto-releases top-K if nobody shows up. The rest of the line synthesizes voice, cards, subtitles and cover into an upload-ready video, title and QA included.
+
+- **Two human gates, two deadlines** — real editorial control when you want it, full autonomy when you don't; systemd timers ship an episode either way.
+- **Every artifact is a contract** — 12 stages read and write typed JSON checked by pydantic models; runs resume (`just resume`), replay and audit cleanly.
+- **Single-file state** — `state/state.sqlite` carries the cross-episode item pool, dedup history, source health and kv in one WAL file.
+- **Offline-tested end to end** — a `just test` suite of selftests plus a golden-run fixture gates every commit in CI; no network needed.
+
+Everything is driven by `just`. `docs/PLAN.md` is the single source of truth for design decisions; `docs/deploy.md` walks through setup and which services to configure. Document output is planned next.
 
 ## Pipeline overview
 
@@ -100,6 +109,7 @@ All documentation lives under `docs/` (index: `docs/README.md`).
 | File | Contents |
 | --- | --- |
 | `docs/PLAN.md` | **single source of truth**: decisions D1–D12, per-stage design, acceptance criteria |
+| `docs/deploy.md` | deployment guide — prerequisites, services to configure (LLM/TTS/alerts/proxy), systemd timers, first-run checklist |
 | `rulebook.md` | filter/digest rulebook — stays at root: `stages/` reads it as a runtime input |
 | `docs/CONTRIBUTING.md` | engineering conventions: uv project layout, just driver, test matrix |
 | `docs/ops.md` | systemd user timers + prelude.sh/_jlock shared prelude |

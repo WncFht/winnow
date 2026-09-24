@@ -5,6 +5,7 @@
 | 文件 | 内容 |
 | --- | --- |
 | `PLAN.md` | **设计/实施唯一真源**：D1–D12 已拍板决策、各阶段详设、验收口径 |
+| `deploy.md` | 部署指南：前置依赖、外部服务配置（LLM/TTS/告警/代理）、systemd timer、首跑 checklist |
 | `CONTRIBUTING.md` | 工程约定：PEP 723 stage 形态、just 驱动、测试矩阵 |
 | `ops.md` | systemd user units + just 配方公共前奏（prelude.sh/\_jlock） |
 | `composer.md` | Remotion 合成器用法（手工/冒烟路径）+ 可行性实验记录 |

@@ -4,7 +4,16 @@
 
 > 中文快照（2026-09-24）；最新以英文 README.md 为准。
 
-每日《AI 早报》生产线 —— 从 161 个信息源到成片 mp4 + 标题/封面/QA。2 段自动块夹 2 个人工闸（各带死线自动放行），全部经 justfile 驱动。设计/实施唯一真源是 `docs/PLAN.md`，本文件只做门面。
+![一期真实产出——手机端 gate-1 选稿页、卡片渲染帧、生成封面（2026-09-23 期）](docs/assets/demo-strip.jpg)
+
+每日《AI 早报》生产线：每天清晨从约 160 个信息源收流，经已校准的级联去重 + LLM 筛选（LLM judge 只在灰区出手），在两道人工闸前停一停——手机上选稿、改稿都行，死线到点未动则按 news_value 自动放行 top-K；随后合成配音、卡片、字幕、封面，产出可直接投稿的 mp4（含标题与 QA）。
+
+- **两道人工闸、两条死线**——想管时是真正的编辑权，不管时 systemd timer 自动出片；
+- **每个 artifact 都是契约**——12 个阶段读写 pydantic 校验过的 JSON，runs 可续跑（`just resume`）、可回放、可审计；
+- **单文件状态库**——`state/state.sqlite` 一个 WAL 文件装下跨期条目池、去重历史、源健康与 kv；
+- **全链路离线测试**——`just test` 自测套件 + golden-run fixture 守住每次提交，无需联网。
+
+全部经 justfile 驱动。设计/实施唯一真源是 `docs/PLAN.md`；部署与服务配置见 `docs/deploy.md`。
 
 ## Pipeline 概览
 
@@ -99,6 +108,7 @@ composer/          Remotion 合成器（备选引擎，docs/composer.md）
 | 文件 | 内容 |
 | --- | --- |
 | `docs/PLAN.md` | **设计/实施唯一真源**：D1–D12 已拍板决策、各阶段详设、验收口径 |
+| `docs/deploy.md` | 部署指南：前置依赖、外部服务配置（LLM/TTS/告警/代理）、systemd timer、首跑 checklist |
 | `rulebook.md` | filter/digest 筛选规则手册——留在根目录：stages 运行时直接读它 |
 | `docs/CONTRIBUTING.md` | 工程约定：uv 项目形态、just 驱动、测试矩阵 |
 | `docs/ops.md` | systemd user timer 部署 + prelude.sh/\_jlock 公共前奏 |
