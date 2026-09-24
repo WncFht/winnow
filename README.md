@@ -1,13 +1,12 @@
-# ai-news-pipeline
+# Winnow
 
-[中文版 README → README.zh-CN.md](README.zh-CN.md) ·
-[Contributing](CONTRIBUTING.md)
+> **风选 /wɪn.oʊ/** — throw the stream into the air; the wind takes the chaff, the grain falls. ~160 sources in, one narrated video out.
 
-A daily "AI Morning News" production line — from ~160 sources to a finished
-mp4 plus title/cover/QA, with two automated blocks sandwiching two human
-gates (each with a deadline auto-release). Everything is driven by `just`.
-`PLAN.md` is the single source of truth for design decisions; this file is
-the front door.
+[![offline-test](../../actions/workflows/offline-test.yml/badge.svg)](../../actions/workflows/offline-test.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**[中文版 README → README.zh-CN.md](README.zh-CN.md)** · [Contributing](CONTRIBUTING.md)
+
+Winnow is a daily AI-news production line: it collects from ~160 sources, filters and deduplicates with an LLM, puts a human in the loop at two editorial gates (each with a deadline auto-release), then synthesizes a finished narrated mp4 — title, cover, QA included. Document output is planned next. Everything is driven by `just`; `PLAN.md` is the single source of truth for design decisions.
 
 ## Pipeline overview
 
@@ -31,19 +30,13 @@ compose      ffmpeg → out/final.mp4 (Remotion composer is the alt engine)
 meta         title candidates / cover / QA → 90_qa.json
 ```
 
-~40 `just` recipes drive it: `gather` `pick` `produce` `status` `watch`
-`tail` `from` `resume` `exp` `doctor` `test` … Recipes never chain across
-human gates; `runs/<date>/.just.lock` serializes same-day invocations.
-`ops/*.timer` (systemd): 06:30 collect, 08:30 gate-1 deadline, 09:30 gate-2
-deadline — fully unattended when nobody shows up.
+~40 `just` recipes drive it: `gather` `pick` `produce` `status` `watch` `tail` `from` `resume` `exp` `doctor` `test` … Recipes never chain across human gates; `runs/<date>/.just.lock` serializes same-day invocations. `ops/winnow-*.timer` (systemd): 06:30 collect, 08:30 gate-1 deadline, 09:30 gate-2 deadline — fully unattended when nobody shows up.
 
-Per-episode state: `state/{history,items}.sqlite` (cross-episode) +
-`runs/YYYY-MM-DD/` (full artifacts + logs/ + `00_meta.json` stage ledger).
+Per-episode state: `state/{history,items}.sqlite` (cross-episode) + `runs/YYYY-MM-DD/` (full artifacts + logs/ + `00_meta.json` stage ledger).
 
 ## Quickstart
 
-Requires: python ≥3.11, uv, node/npm, just, flock, ffmpeg (libx264).
-Chromium, node_modules, lychee are installed by `setup-toolchain`.
+Requires: python ≥3.11, uv, node/npm, just, flock, ffmpeg (libx264). Chromium, node_modules, lychee are installed by `setup-toolchain`.
 
 ```bash
 cp secrets.env.example secrets.env    # fill SWE2MAX_API_KEY (local LLM gateway)
@@ -60,9 +53,7 @@ just produce           # digest → callb → voice → cards → subs → rende
                        # → compose → meta → runs/<date>/out/final.mp4
 ```
 
-Gate-2 editing: after `pick`, run `just digest` for `50_review.md`, edit via
-`just edit`, then `just edit-import`, then `just produce` (Call A is skipped
-when `50_issue.json` exists). Or ignore both gates — timers auto-release.
+Gate-2 editing: after `pick`, run `just digest` for `50_review.md`, edit via `just edit`, then `just edit-import`, then `just produce` (Call A is skipped when `50_issue.json` exists). Or ignore both gates — timers auto-release.
 
 - Other date bucket: `just DATE=2026-09-20 gather`
 - Resume after a break: `just resume` (validates `00_meta.json`, re-runs gaps)
@@ -80,7 +71,7 @@ stages/lib/        shared libs: http/store/pool/embed/simhash/prompts/
 contracts/         artifact pydantic models + emitted JSON schemas
 adapters/          LLM gateway, edge-tts, ntfy/deadman alerts, X paid adapter
 tools/watch.py     status / watch dashboards
-ops/               prelude.sh (_jlock) + systemd service/timer + install.sh
+ops/               prelude.sh (_jlock) + winnow-* systemd units + install.sh
 sources.yaml       ~160 sources (method/tier/proxy/SLA; just lint-sources)
 config.yaml        local config (untracked; template config.example.yaml)
 secrets.env        local secrets (untracked; template secrets.env.example)
@@ -95,43 +86,29 @@ repro/ evidence/   original-pipeline teardown artifacts (see below)
 ## Docs map
 
 | File | Contents |
-|---|---|
+| --- | --- |
 | `PLAN.md` | **single source of truth**: decisions D1–D12, per-stage design, acceptance criteria |
 | `rulebook.md` | filter/digest rulebook (distilled from daily human feedback) |
 | `repro/README.md` | replica pipeline: stage↔original mapping + re-run flow |
 | `upstream/VENDORED.md` | juya-news-card pinned SHA, local patches, re-sync procedure |
 | `composer/NOTES.md` | Remotion composer usage + feasibility notes |
+| `experiments/README.md` | research archive index (adopted/live/snapshot/superseded) |
 | `experiments/tts-bakeoff/sami-tts.md` | SAMI TTS reverse-engineered API (alt channel, research archive) |
 
 ## Research background
 
-This repo began as a teardown & full re-implementation of 橘鸦Juya's daily
-《AI早报》production line (BV1NqeY6dEPP, 2026-09-20 episode); the current
-repo is the productionized form. Teardown artifacts kept for provenance:
+This repo began as a teardown & full re-implementation of 橘鸦Juya's daily 《AI早报》 production line (BV1NqeY6dEPP, 2026-09-20 episode); the current repo is the productionized form. Teardown artifacts kept for provenance:
 
-- `evidence/` — teardown notes, transcripts (`.srt`), and reference frames.
-  The source videos themselves are *not* redistributed — fetch them by BV
-  number: original episode BV1NqeY6dEPP, workflow-reveal BV1JmdhYqEoy,
-  tooling intro BV199AUzHE8q. `web/` holds feed/page availability captures.
-- `upstream/juya-news-card` — the author's open-sourced card renderer
-  (MIT fork `Mappedinfo/juya-news-card`; original imjuya repo deleted).
-  Next.js+React+TS, 174 templates; driven by `scripts/render-batch.ts`.
-- `repro/` — single-episode static replica pipeline (fetch_shots →
-  render_chrome → composite_frames → tts → compose → out.mp4 268.5s).
-- `experiments/` — pre-PLAN selection/feasibility labs (artifact-contracts,
-  dedup-llm, remotion-feas, factcheck-layer, …); each marked
-  adopted / superseded / snapshot.
+- `evidence/` — teardown notes, transcripts (`.srt`), and reference frames. The source videos themselves are _not_ redistributed — fetch them by BV number: original episode BV1NqeY6dEPP, workflow-reveal BV1JmdhYqEoy, tooling intro BV199AUzHE8q. `web/` holds feed/page availability captures.
+- `upstream/juya-news-card` — the author's open-sourced card renderer (MIT fork `Mappedinfo/juya-news-card`; original imjuya repo deleted). Next.js+React+TS, 174 templates; driven by `scripts/render-batch.ts`.
+- `repro/` — single-episode static replica pipeline (fetch_shots → render_chrome → composite_frames → tts → compose → out.mp4 268.5s).
+- `experiments/` — pre-PLAN selection/feasibility labs (artifact-contracts, dedup-llm, remotion-feas, factcheck-layer, …); each marked adopted / superseded / snapshot.
 
 ## License & third-party notices
 
 MIT — see `LICENSE`. Notable boundaries:
 
 - `upstream/juya-news-card` is vendored under its own MIT license.
-- **Breeze TTS** (`tools/tts_workers/breeze-tts` + HF `BreezeBlue/Breeze-TTS-2`
-  weights) is a *non-commercial research* model — weights are never vendored,
-  `just setup-breeze` pulls them to your HF cache. If your use is commercial,
-  keep `tts.engine: edge` (the online fallback engine) in `config.yaml`.
-- The LLM stage talks to an OpenAI-compatible endpoint (`base_url`/`api_key`
-  in `secrets.env`); nothing is hardcoded to a specific provider.
-- `sources.yaml` content feeds belong to their publishers; this repo only
-  fetches public RSS/API/ HTML for personal pipeline use.
+- **Breeze TTS** (`tools/tts_workers/breeze-tts` + HF `BreezeBlue/Breeze-TTS-2` weights) is a _non-commercial research_ model — weights are never vendored, `just setup-breeze` pulls them to your HF cache. If your use is commercial, keep `tts.engine: edge` (the online fallback engine) in `config.yaml`.
+- The LLM stage talks to an OpenAI-compatible endpoint (`base_url`/`api_key` in `secrets.env`); nothing is hardcoded to a specific provider.
+- `sources.yaml` content feeds belong to their publishers; this repo only fetches public RSS/API/HTML for personal pipeline use.

@@ -89,7 +89,7 @@ OAUTH = "https://oauth.reddit.com"
 REDDIT_UA = "Reddit/2025.45.0/Android 14"
 BROWSER_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 "
-              "ai-news-pipeline/0.1")
+              "winnow/0.1")
 SCOPES = ["*", "email", "pii"]
 TOKEN_MARGIN_S = 600                  # re-mint this many seconds before expiry
 RPM = 30                              # PLAN §5.3: ≤30 rpm pacing

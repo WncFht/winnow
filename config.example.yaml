@@ -32,9 +32,9 @@ alerts:
   deadman_ping_url: ""    # healthchecks.io uuid
   proxy: ""               # 推送专用代理；空 → proxy.http → *_proxy env（alert_ntfy/deadman 消费）
 schedule:
-  collect_cron: "30 6 * * *"   # 保留位：当前无消费者——真实调度在 ops/ai-news-collect.timer
+  collect_cron: "30 6 * * *"   # 保留位：当前无消费者——真实调度在 ops/winnow-collect.timer
   gate1_deadline: "08:30"
-  gate2_deadline: "09:30"      # 保留位：当前无消费者——代码只读 gate1_deadline；gate2 时刻由 ops/ai-news-gate2.timer 定
+  gate2_deadline: "09:30"      # 保留位：当前无消费者——代码只读 gate1_deadline；gate2 时刻由 ops/winnow-gate2.timer 定
   topk_autopick: 14
   max_items: 20
 render:

@@ -67,7 +67,7 @@ ERRORS = {
 }  # plus "http_<code>" generated dynamically
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-      "Chrome/131.0.0.0 Safari/537.36 ai-news-pipeline/0.1")
+      "Chrome/131.0.0.0 Safari/537.36 winnow/0.1")
 
 # Bot-wall / challenge markers — calibrated list lifted from
 # experiments/qa-loop/audit_links.py (269-URL live audit), plus common WAFs.
@@ -478,7 +478,7 @@ if __name__ == "__main__":
     print("offline classify asserts OK")
 
     # --- save_raw ----------------------------------------------------------
-    scratch = Path.home() / ".cache" / "ainews_http_selftest" / "runs" / "2099-01-01"
+    scratch = Path.home() / ".cache" / "winnow_http_selftest" / "runs" / "2099-01-01"
     ref = save_raw(scratch, "self_test", "https://example.com/a?utm_source=x",
                    b'{"ok": true}')
     rp = _repo_root_for(scratch) / ref

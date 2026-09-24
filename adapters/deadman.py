@@ -175,7 +175,7 @@ def ping(
             url = url.rstrip("/") + "/" + suffix.lstrip("/")
 
         req = urllib.request.Request(url, method="GET",
-                                     headers={"User-Agent": "ai-news-pipeline/deadman"})
+                                     headers={"User-Agent": "winnow/deadman"})
         with _opener(_resolve_proxy(cfg, proxy)).open(req, timeout=timeout) as resp:
             ok = 200 <= resp.status < 300
             if not ok:

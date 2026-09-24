@@ -1,5 +1,5 @@
 # AI 早报 pipeline — gate-2 deadline watcher (PLAN §9, D8)
-# Fired by ai-news-gate2.timer at 09:30 Asia/Shanghai.
+# Fired by winnow-gate2.timer at 09:30 Asia/Shanghai.
 # `just deadline2`: lock 50_issue.json as it stands (auto-imports a modified
 # 50_review.md once), then callb -> voice -> cards -> subs -> render-plan ->
 # compose -> meta.
@@ -19,4 +19,4 @@ Environment=TZ=Asia/Shanghai
 # downstream chain includes TTS + card render + remotion/ffmpeg compose
 TimeoutStartSec=4h
 ExecStart=__HOME__/.cargo/bin/just deadline2
-SyslogIdentifier=ai-news-gate2
+SyslogIdentifier=winnow-gate2

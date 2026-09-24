@@ -1,5 +1,5 @@
 # AI 早报 pipeline — gate-1 deadline watcher (PLAN §9, D8)
-# Fired by ai-news-gate1.timer at 08:30 Asia/Shanghai.
+# Fired by winnow-gate1.timer at 08:30 Asia/Shanghai.
 # `just deadline1`: auto top-K release when no human pick landed, then digest.
 # TEMPLATE: __REPO__ / __HOME__ are substituted by ops/install.sh at install
 # time — do not copy this file into systemd/user verbatim.
@@ -16,4 +16,4 @@ Environment=PATH=__HOME__/.local/bin:__HOME__/.cargo/bin:/usr/local/bin:/usr/bin
 Environment=TZ=Asia/Shanghai
 TimeoutStartSec=2h
 ExecStart=__HOME__/.cargo/bin/just deadline1
-SyslogIdentifier=ai-news-gate1
+SyslogIdentifier=winnow-gate1

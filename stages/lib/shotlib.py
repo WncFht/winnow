@@ -1180,7 +1180,7 @@ def _selftest():
         print("live shots skipped (--offline)")
         return
 
-    out = Path.home() / ".cache" / "ainews_shotlib_selftest"
+    out = Path.home() / ".cache" / "winnow_shotlib_selftest"
     out.mkdir(parents=True, exist_ok=True)
     fails = []
 

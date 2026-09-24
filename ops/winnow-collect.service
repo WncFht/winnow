@@ -1,5 +1,5 @@
 # AI 早报 pipeline — auto block A (PLAN §9): collect -> filter -> dedup
-# Fired by ai-news-collect.timer at 06:30 Asia/Shanghai.
+# Fired by winnow-collect.timer at 06:30 Asia/Shanghai.
 # TEMPLATE: __REPO__ / __HOME__ are substituted by ops/install.sh at install
 # time — do not copy this file into systemd/user verbatim.
 # Install: bash ops/install.sh
@@ -16,4 +16,4 @@ Environment=TZ=Asia/Shanghai
 # gather can run long (161 sources + LLM batches); no arbitrary cap
 TimeoutStartSec=2h
 ExecStart=__HOME__/.cargo/bin/just gather
-SyslogIdentifier=ai-news-collect
+SyslogIdentifier=winnow-collect

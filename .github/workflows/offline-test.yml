@@ -19,6 +19,9 @@ jobs:
       - name: system deps
         run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-cjk
 
+      - name: markdown format check
+        run: git ls-files '*.md' | xargs npx --yes prettier --check --log-level warn
+
       - name: embed model fixture
         run: just fetch-embed
 

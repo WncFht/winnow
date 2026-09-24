@@ -515,7 +515,7 @@ if __name__ == "__main__":
         print("offline: contracts unavailable — skipped pydantic validate")
 
     # --- 离线：健康分/轮换/全灭 ---------------------------------------------
-    tmp_state = (Path.home() / ".cache" / "ainews_xnitter_selftest"
+    tmp_state = (Path.home() / ".cache" / "winnow_xnitter_selftest"
                  / "x_nitter_health.json")
     tmp_state.parent.mkdir(parents=True, exist_ok=True)
     if tmp_state.exists():

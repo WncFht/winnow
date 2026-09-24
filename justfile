@@ -93,8 +93,12 @@ setup-toolchain:
     if [ -x adapters/bin/lychee ]; then
       echo "  ok $(adapters/bin/lychee --version | head -1)"
     else
-      src=$(find experiments/factcheck-layer -maxdepth 3 -name lychee -type f 2>/dev/null | head -1)
-      if [ -n "$src" ]; then cp "$src" adapters/bin/lychee && chmod +x adapters/bin/lychee && echo "  ok copied $src"; else echo "  MISS no lychee binary under experiments/factcheck-layer"; miss=$((miss+1)); fi
+      url="https://github.com/lycheeverse/lychee/releases/latest/download/lychee-x86_64-unknown-linux-gnu.tar.gz"
+      if curl -fL --retry 2 -o state/tmp/lychee.tar.gz "$url" \
+        && tar -xzf state/tmp/lychee.tar.gz -C adapters/bin lychee 2>/dev/null \
+        && chmod +x adapters/bin/lychee; then
+        rm -f state/tmp/lychee.tar.gz; echo "  ok downloaded lychee release"
+      else echo "  MISS lychee download failed ($url)"; miss=$((miss+1)); fi
     fi
 
     echo "== node deps =="
@@ -248,7 +252,7 @@ doctor:
 
     ntfy=$(cfg alerts.ntfy_url "")
     if [ -n "$ntfy" ]; then
-      if curl -m 10 -s -o /dev/null -d "ai-news doctor smoke" "$ntfy"; then pass "ntfy push"; else fail "ntfy push" "$ntfy"; fi
+      if curl -m 10 -s -o /dev/null -d "winnow doctor smoke" "$ntfy"; then pass "ntfy push"; else fail "ntfy push" "$ntfy"; fi
     else skip "ntfy push" "alerts.ntfy_url unset"; fi
     deadman=$(cfg alerts.deadman_ping_url "")
     if [ -n "$deadman" ]; then
@@ -714,9 +718,15 @@ test:
     echo "test: $pass pass / $fail fail (logs: $SCRATCH/logs/)"
     [ "$fail" -eq 0 ]
 
+# markdown 一段一行（.prettierrc proseWrap=never；upstream/ 等见 .prettierignore）
+fmt:
+    @git ls-files '*.md' | xargs npx --yes prettier --write --log-level warn
+
+fmt-check:
+    @git ls-files '*.md' | xargs npx --yes prettier --check --log-level warn
+
 ls-run:
     @ls -la {{RUN}}
-
 # daily history.sqlite + items.sqlite backup, keep newest 14 each (§9)
 backup-state:
     @mkdir -p state/backups

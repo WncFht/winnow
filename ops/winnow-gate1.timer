@@ -1,5 +1,5 @@
 # AI 早报 pipeline — gate-1 deadline timer (PLAN §9, D8)
-# 08:30 Asia/Shanghai daily -> ai-news-gate1.service (`just deadline1`)
+# 08:30 Asia/Shanghai daily -> winnow-gate1.service (`just deadline1`)
 # Persistent=true: catch up after downtime (deadline-check still auto-releases
 # because now > deadline).
 # Install: bash ops/install.sh

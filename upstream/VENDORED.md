@@ -1,6 +1,6 @@
 # Vendored: juya-news-card
 
-- 上游: https://github.com/Mappedinfo/juya-news-card.git
+- 上游：https://github.com/Mappedinfo/juya-news-card.git
 - 定格 SHA: e7442e4a29c35fce0dea1538c892b7f04b1c119d
 - License: MIT（LICENSE 已保留）
 - 原内部 gitdir 移至 `upstream/juya-news-card.gitdir/`（gitignored，可改名回 `.git` 恢复 diff 能力）

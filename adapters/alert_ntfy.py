@@ -350,7 +350,7 @@ def main(argv: Optional[list] = None) -> int:
                     help="offline self-test (no real push)")
     ap.add_argument("--send-test", action="store_true",
                     help="send ONE real test push to configured ntfy_url")
-    ap.add_argument("--title", default="ai-news-pipeline test")
+    ap.add_argument("--title", default="winnow test")
     ap.add_argument("--msg", default="alert_ntfy --send-test smoke ping")
     ap.add_argument("--priority", default="default")
     ap.add_argument("--tag", action="append", dest="tags", default=[])

@@ -23,12 +23,13 @@ API:
     chat(messages, *, max_tokens, temperature, want_json, tag, cfg,
          timeout, retries=3)                  -> {"text": str, "prov": {...}}
     extract_json(text)                        -> 首个 JSON obj/array
-    chat_json(messages, retries=2, **kw)      -> obj（解析失败追 "只输出JSON对象" 重试）
+    chat_json(messages, retries=2, **kw)      -> obj（解析失败追 "只输出 JSON 对象" 重试）
     coverage_reconcile(inputs, outputs, key)  -> {"outputs", "missing"}（重批由调用方做）
 
 prov = {model, ts, prompt_tokens, completion_tokens, tag}——stage 侧再并入
 contracts.Provenance(model/prompt/input_sha/decided_at) 写进 artifact（§4）。
 """
+
 from __future__ import annotations
 
 import json
@@ -46,24 +47,31 @@ import yaml
 
 REPO = Path(__file__).resolve().parents[1]
 
-_BACKOFF = (1.0, 2.0, 4.0)            # §6：指数退避 1s/2s/4s，上限 3 次重试
+_BACKOFF = (1.0, 2.0, 4.0)  # §6：指数退避 1s/2s/4s，上限 3 次重试
 _RETRYABLE_HTTP = {429, 500, 502, 503, 504}
-_WAIT_CAP = 30.0                      # Retry-After/reset-in 提示的等待上限（秒）
-_JSON_RETRY_HINT = "只输出JSON对象"
+_WAIT_CAP = 30.0  # Retry-After/reset-in 提示的等待上限（秒）
+_JSON_RETRY_HINT = "只输出 JSON 对象"
 
 
 class LLMError(RuntimeError):
     """adapter 内重试耗尽后的网关失败。跨模型/降级由调用方容错层决定（D1）。"""
 
-    def __init__(self, msg: str, *, status: int | None = None,
-                 retryable: bool = True, body: str = ""):
+    def __init__(
+        self,
+        msg: str,
+        *,
+        status: int | None = None,
+        retryable: bool = True,
+        body: str = "",
+    ):
         super().__init__(msg)
-        self.status = status          # HTTP code，传输层错误为 None
-        self.retryable = retryable    # False = 4xx 类/解析类，重试无意义
+        self.status = status  # HTTP code，传输层错误为 None
+        self.retryable = retryable  # False = 4xx 类/解析类，重试无意义
         self.body = body[:500]
 
 
 # ---------- config ----------
+
 
 def load_cfg(path: str | Path | None = None) -> dict:
     """config.yaml 的 llm 段（缺省回退 config.example.yaml）+ api_key_env 指向的环境变量。
@@ -84,19 +92,23 @@ def load_cfg(path: str | Path | None = None) -> dict:
     if not key:
         raise LLMError(
             f"llm api key env ${bg_env}/${env} 均未设置（见 secrets.env.example）",
-            retryable=False)
+            retryable=False,
+        )
     cfg["api_key"] = key
     cfg["key_env"] = bg_env if os.environ.get(bg_env) else env
     cfg.setdefault("base_url", "http://127.0.0.1:3033/v1")
     cfg.setdefault("model", "swe-2-max")
     cfg.setdefault("temperature", 0.2)
-    cfg.setdefault("max_tokens", 24000)   # 勿调小：reasoning 烧预算→空响应（实测 164s 空）
+    cfg.setdefault(
+        "max_tokens", 24000
+    )  # 勿调小：reasoning 烧预算→空响应（实测 164s 空）
     cfg.setdefault("batch_size", 24)
     cfg.setdefault("timeout", 300)
     return cfg
 
 
 # ---------- core call ----------
+
 
 def _wait_s(headers: httpx.Headers, body: str, attempt: int) -> float:
     """退避 1/2/4s；尊重 Retry-After 头与网关 'reset in N second' 体提示，封顶 _WAIT_CAP。"""
@@ -114,10 +126,17 @@ def _wait_s(headers: httpx.Headers, body: str, attempt: int) -> float:
     return w
 
 
-def chat(messages: list[dict], *, max_tokens: int | None = None,
-         temperature: float | None = None, want_json: bool = False,
-         tag: str = "", cfg: dict | None = None,
-         timeout: float | None = None, retries: int = 3) -> dict:
+def chat(
+    messages: list[dict],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    want_json: bool = False,
+    tag: str = "",
+    cfg: dict | None = None,
+    timeout: float | None = None,
+    retries: int = 3,
+) -> dict:
     """一次 /chat/completions 调用 → {"text", "prov"}。
 
     max_tokens/temperature 缺省取 cfg；want_json=True 发 response_format json_object
@@ -141,8 +160,11 @@ def chat(messages: list[dict], *, max_tokens: int | None = None,
     host = re.sub(r"^https?://", "", c["base_url"]).split("/")[0].split(":")[0]
     loopback = host in ("127.0.0.1", "localhost", "::1")
 
-    with httpx.Client(proxy=proxy, trust_env=(proxy is None and not loopback),
-                      timeout=httpx.Timeout(tmo)) as client:
+    with httpx.Client(
+        proxy=proxy,
+        trust_env=(proxy is None and not loopback),
+        timeout=httpx.Timeout(tmo),
+    ) as client:
         for attempt in range(retries + 1):
             try:
                 r = client.post(url, json=body, headers=headers)
@@ -156,8 +178,12 @@ def chat(messages: list[dict], *, max_tokens: int | None = None,
                 try:
                     data = r.json()
                 except json.JSONDecodeError as e:
-                    err = LLMError("llm 200 but non-JSON body", status=200,
-                                   retryable=True, body=r.text)
+                    err = LLMError(
+                        "llm 200 but non-JSON body",
+                        status=200,
+                        retryable=True,
+                        body=r.text,
+                    )
                     if attempt < retries:
                         time.sleep(_wait_s(r.headers, r.text, attempt))
                         continue
@@ -174,8 +200,12 @@ def chat(messages: list[dict], *, max_tokens: int | None = None,
                 }
                 return {"text": text, "prov": prov}
             retryable = r.status_code in _RETRYABLE_HTTP or r.status_code >= 500
-            err = LLMError(f"llm http {r.status_code}", status=r.status_code,
-                           retryable=retryable, body=r.text)
+            err = LLMError(
+                f"llm http {r.status_code}",
+                status=r.status_code,
+                retryable=retryable,
+                body=r.text,
+            )
             if retryable and attempt < retries:
                 time.sleep(_wait_s(r.headers, r.text, attempt))
                 continue
@@ -185,17 +215,19 @@ def chat(messages: list[dict], *, max_tokens: int | None = None,
 
 # ---------- JSON extraction ----------
 
+
 def extract_json(text: str):
     """从网关文本剥出首个 JSON obj/array：先试整体，再 ```json 围栏，再首个 {/[ → 末个 }/]。"""
     if not text or not text.strip():
-        raise LLMError("empty LLM response (reasoning 烧光 max_tokens?)",
-                       retryable=True)
+        raise LLMError(
+            "empty LLM response (reasoning 烧光 max_tokens?)", retryable=True
+        )
     s = text.strip()
     try:
         return json.loads(s)
     except json.JSONDecodeError:
         pass
-    for m in re.finditer(r"```(?:json)?[ \t]*\r?\n(.*?)```", s, re.S):
+    for m in re.finditer(r"```(?:json)?[ \t]*\r?\n(.*?)```", s, re.DOTALL):
         try:
             return json.loads(m.group(1).strip())
         except json.JSONDecodeError:
@@ -205,16 +237,16 @@ def extract_json(text: str):
         j = s.rfind("}" if s[i] == "{" else "]")
         if j > i:
             try:
-                return json.loads(s[i:j + 1])
+                return json.loads(s[i : j + 1])
             except json.JSONDecodeError:
                 pass
-    raise LLMError("no parseable JSON in LLM response", retryable=False,
-                   body=s)
+    raise LLMError("no parseable JSON in LLM response", retryable=False, body=s)
 
 
-def chat_json(messages: list[dict], retries: int = 2, *,
-              prov_out: list | None = None, **kw):
-    """chat(want_json=True) + extract_json；解析失败追加「只输出JSON对象」重试。
+def chat_json(
+    messages: list[dict], retries: int = 2, *, prov_out: list | None = None, **kw
+):
+    """chat(want_json=True) + extract_json；解析失败追加「只输出 JSON 对象」重试。
 
     prov_out: 传入 list 则每次底层 chat 的 prov 追加进去（stage 落 artifact 用）。
     """
@@ -233,11 +265,15 @@ def chat_json(messages: list[dict], retries: int = 2, *,
                 {"role": "assistant", "content": res["text"] or "(empty)"},
                 {"role": "user", "content": _JSON_RETRY_HINT},
             ]
-    raise LLMError(f"chat_json: 连续 {retries + 1} 次未返回可解析 JSON: {last}",
-                   retryable=False, body=(last.body if last else ""))
+    raise LLMError(
+        f"chat_json: 连续 {retries + 1} 次未返回可解析 JSON: {last}",
+        retryable=False,
+        body=(last.body if last else ""),
+    )
 
 
 # ---------- coverage reconcile ----------
+
 
 def coverage_reconcile(inputs: list, outputs: list, key) -> dict:
     """批式调用覆盖核对（§6）：返回 {"outputs", "missing"}，missing 子集的重批由调用方做。
@@ -245,8 +281,7 @@ def coverage_reconcile(inputs: list, outputs: list, key) -> dict:
     key: 输出/输入 dict 里的同名字段名，或 callable item->id；标量条目直接用自身。
     outputs 中键不属于 inputs、或重复出现的条目被丢弃（保留首次）。
     """
-    kof = key if callable(key) else (
-        lambda x: x.get(key) if isinstance(x, dict) else x)
+    kof = key if callable(key) else (lambda x: x.get(key) if isinstance(x, dict) else x)
     keys_in = [kof(it) for it in inputs]
     in_set = set(keys_in)
     seen, kept = set(), []
@@ -266,12 +301,21 @@ if __name__ == "__main__":
     provs: list = []
     t0 = time.time()
     out = chat_json(
-        [{"role": "user", "content":
-          '只输出JSON对象 {"ok": true, "sum": 1+1的结果}，不要输出任何其他内容。'}],
-        prov_out=provs, tag="selftest", cfg=cfg)
+        [
+            {
+                "role": "user",
+                "content": '只输出 JSON 对象 {"ok": true, "sum": 1+1 的结果}，不要输出任何其他内容。',
+            }
+        ],
+        prov_out=provs,
+        tag="selftest",
+        cfg=cfg,
+    )
     dt = time.time() - t0
     assert isinstance(out, dict) and out.get("ok") is True, f"bad reply: {out!r}"
     p = provs[-1]
-    print(f"selftest ok in {dt:.1f}s model={p['model']} "
-          f"prompt_tokens={p['prompt_tokens']} completion_tokens={p['completion_tokens']} "
-          f"-> {out}")
+    print(
+        f"selftest ok in {dt:.1f}s model={p['model']} "
+        f"prompt_tokens={p['prompt_tokens']} completion_tokens={p['completion_tokens']} "
+        f"-> {out}"
+    )

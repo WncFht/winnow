@@ -1,5 +1,5 @@
 # AI 早报 pipeline — collect timer (PLAN §9, D8)
-# 06:30 Asia/Shanghai daily -> ai-news-collect.service (`just gather`)
+# 06:30 Asia/Shanghai daily -> winnow-collect.service (`just gather`)
 # Persistent=true: catch up the run if the machine was off at 06:30.
 # Install: bash ops/install.sh
 [Unit]
