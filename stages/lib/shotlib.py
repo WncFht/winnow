@@ -17,7 +17,10 @@
   0. news.google.* 中转 URL 先经 googlenewsdecoder 解出出版方真链
      （可选依赖——包缺失/解码失败照原 URL 走老路；命中记 rec.resolved），
      再对真链走下述判定；
-  1. host 命中 rules/cloudflare_fronted → 直接渲染品牌占位卡，不导航；
+  1. host 命中 rules/cloudflare_fronted → 按 action 分派：
+     placeholder 直接渲染品牌占位卡，不导航；
+     x_embed（x.com/twitter.com）走 cdn.syndication.twimg.com 公开
+     tweet-result JSON → 自绘品牌推文卡（不导航 x.com，绕过 403 墙）；
   2. 否则 playwright chromium 截图：ctx locale="en-US" + 启动参数
      --lang=en-US + extra_http_headers Accept-Language=en-US —— 防
      Google-Translate 弹窗烤进图（硬教训，勿回退 zh-CN）；
@@ -30,8 +33,8 @@
 截图默认 1400×900@dsf1.5 → 2100×1350 PNG（对齐 repro shotcard ≤1340×716 内嵌）。
 
 常量层移植自 experiments/webshot-hardening/shotlib.py（2026-09 matrix 校准），
-运行层蒸馏自同目录 fetch_shots_v2.py（patchright/GFW-wayback/x-embed 等
-重写路未纳入 —— 策略表只保留 screenshot|placeholder 两种 action）。
+运行层蒸馏自同目录 fetch_shots_v2.py（patchright/GFW-wayback 重写路未纳入；
+x-embed 以 x_embed action 重新落地 —— syndication 端点直连可达）。
 
 cfg(dict) 键：policy / policy_path / proxy(None=env,'direct' 直连,或 URL)
   / viewport=(w,h) / scale / nav_timeout_ms / retries / headless
@@ -45,6 +48,7 @@ Smoke:  uv run stages/lib/shotlib.py            # 3 URL 实测（含 x/wechat �
 from __future__ import annotations
 
 import html as htmlmod
+import math
 import os
 import re
 import sys
@@ -295,6 +299,8 @@ _DEFAULT_CFG = {
     "proxy": None,                # None=env; 'direct' 直连; 否则代理 URL
     "placeholder_size": (1920, 1080),
     "min_shot_kb": 8,             # PNG 下限；非 blank + <400 下仍过小才算 undersized
+    "headful_retry": True,        # 粘性 CF 墙 → Xvfb+headful 升级一次（Turnstile 对
+                                # headless 指纹判负率高，headful 常自解；无 Xvfb 自动跳过）
 }
 
 
@@ -312,8 +318,14 @@ def load_policy(path=None) -> dict:
     return {
         "default": "screenshot",
         "rules": [
-            {"match": "x.com", "action": "placeholder", "reason": "403 botwall"},
-            {"match": "twitter.com", "action": "placeholder", "reason": "→x.com 403"},
+            {"match": "x.com", "action": "x_embed",
+             "reason": "403 botwall → syndication 推文卡"},
+            {"match": "twitter.com", "action": "x_embed",
+             "reason": "→x.com 403 → syndication 推文卡"},
+            {"match": "reuters.com", "action": "placeholder",
+             "reason": "TLS 全路重置（SNI reset）"},
+            {"match": "openai.com", "action": "screenshot", "proxy": "direct",
+             "reason": "clash 出口吃 chunk 403/CF 墙，直连干净"},
             {"match": "mp.weixin.qq.com", "action": "placeholder",
              "reason": "风控墙 flake"},
         ],
@@ -359,6 +371,17 @@ def _rule_reason(policy: dict, url: str) -> str:
         if _match(host, d):
             return cf.get("reason") or "cf_fronted"
     return "policy"
+
+
+def _rule_proxy(policy: dict, url: str):
+    """rules 可带 proxy 键："direct" 或显式代理 URL——作为**首次**尝试的
+    路由（重试仍回落 env→config 默认链，两条出口各抽几次签）。
+    例：openai.com 走 clash 必吃 chunk 403/CF 墙，直连干净。"""
+    host = _host(url)
+    for r in (policy or {}).get("rules") or []:
+        if _match(host, r.get("match")) and r.get("proxy"):
+            return r["proxy"]
+    return None
 
 
 # --------------------------------------------------------- placeholder ------
@@ -427,6 +450,192 @@ def _placeholder_pil(domain: str, out_path: Path, size=(1920, 1080)) -> bool:
         return False
 
 
+# ------------------------------------------------------ x.com syndication ---
+# x.com/twitter.com 页面本体是硬 403 botwall，但官方 embed 数据端点
+# cdn.syndication.twimg.com/tweet-result 直连可达（2026-09-24 实测；token
+# 非严格校验——仍按官方算法生成以防收紧）。拿 JSON 自绘品牌推文卡，
+# 全程不导航 x.com 本体。
+_X_STATUS_RE = re.compile(r"/status(?:es)?/(\d+)")
+
+
+def _tweet_token(tweet_id: str) -> str:
+    """官方 embed 的 token：((id/1e15)*π).toString(36) 去掉 '.' 与所有 '0'。"""
+    x = int(tweet_id) / 1e15 * math.pi
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    ip = int(x)
+    whole = ""
+    while ip:
+        whole = digits[ip % 36] + whole
+        ip //= 36
+    frac = x - int(x)
+    out = []
+    while frac > 0 and len(out) < 15:
+        frac *= 36
+        d = int(frac)
+        out.append(digits[d])
+        frac -= d
+    return (whole + "".join(out)).replace("0", "")
+
+
+def _http_json(u: str, timeout: int = 12):
+    """urllib 取 JSON：先试直连（syndication/publish 直连可达），再退 env 代理。"""
+    import json as _json
+    import urllib.request
+    req = urllib.request.Request(
+        u, headers={"User-Agent": UA, "Accept": "application/json"})
+    openers = [urllib.request.build_opener(urllib.request.ProxyHandler({})),
+               urllib.request.build_opener()]
+    for opn in openers:
+        try:
+            with opn.open(req, timeout=timeout) as r:
+                return _json.loads(r.read().decode("utf-8", "replace"))
+        except Exception:
+            continue
+    return None
+
+
+def _fetch_tweet(url: str):
+    """x/twitter status URL → tweet-result dict | None。"""
+    m = _X_STATUS_RE.search(url or "")
+    if not m:
+        return None
+    tid = m.group(1)
+    tw = _http_json(
+        "https://cdn.syndication.twimg.com/tweet-result"
+        f"?id={tid}&token={_tweet_token(tid)}&lang=en")
+    if isinstance(tw, dict) and tw.get("text"):
+        tw["_tid"] = tid
+        return tw
+    return None
+
+
+_X_LOGO = ("<svg class='xlogo' viewBox='0 0 24 24' fill='#2f2a26'>"
+           "<path d='M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406"
+           "l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594"
+           "l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z'/></svg>")
+
+_X_CHECK = ("<svg class='chk' viewBox='0 0 24 24'>"
+            "<circle cx='12' cy='12' r='11' fill='#1d9bf0'/>"
+            "<path fill='#fff' d='M10.8 15.9l-3.5-3.5 1.4-1.4 2.1 2.1"
+            " 4.5-4.5 1.4 1.4z'/></svg>")
+
+
+def _x_card_html(tw: dict) -> str:
+    """tweet-result JSON → 品牌推文卡（对齐 placeholder_html 色系/版式）。"""
+    esc = htmlmod.escape
+    user = tw.get("user") or {}
+    name = esc(str(user.get("name") or ""))
+    handle = esc(str(user.get("screen_name") or ""))
+    avatar = esc(str(user.get("profile_image_url_https") or "")
+                 .replace("_normal.", "_400x400."))
+    verified = user.get("is_blue_verified") or user.get("verified")
+    badge_url = esc(str(((user.get("highlighted_label") or {})
+                         .get("badge") or {}).get("url") or ""))
+    text = str(tw.get("text") or "")
+    rng = tw.get("display_text_range")
+    if isinstance(rng, (list, tuple)) and len(rng) == 2 and rng[1]:
+        text = text[int(rng[0]):int(rng[1])]
+    for ent in ((tw.get("entities") or {}).get("urls")) or []:
+        if ent.get("url") and ent.get("display_url"):
+            text = text.replace(ent["url"], ent["display_url"])
+    body = esc(text).replace("\n", "<br>")
+    try:
+        fav = f"{int(tw.get('favorite_count')):,}"
+    except (TypeError, ValueError):
+        fav = ""
+    date = str(tw.get("created_at") or "")[:10]
+    img = ""
+    media = (tw.get("photos") or tw.get("mediaDetails")
+             or (tw.get("entities") or {}).get("media") or [])
+    for mm in media:
+        src = isinstance(mm, dict) and (mm.get("url") or
+                                        mm.get("media_url_https"))
+        if src:
+            img = (f"<img class='media' src='{esc(str(src))}'"
+                   " onerror=\"this.style.display='none'\">")
+            break
+    avtag = (f"<img class='av' src='{avatar}'"
+             " onerror=\"this.style.display='none'\">") if avatar \
+        else "<div class='av'></div>"
+    biz = (f"<img class='biz' src='{badge_url}'"
+           " onerror=\"this.style.display='none'\">") if badge_url else ""
+    chk = _X_CHECK if verified else ""
+    meta = " · ".join(x for x in (esc(date), f"♥ {esc(fav)}" if fav else "")
+                     if x)
+    return f"""<!doctype html><html><head><meta charset='utf-8'><style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+html,body {{ width:1920px; height:1080px; overflow:hidden; }}
+body {{
+  background:#fbf9f6; display:flex; align-items:center; justify-content:center;
+  font-family:'Noto Sans CJK SC','Noto Sans SC','DejaVu Sans',sans-serif;
+}}
+.card {{
+  width:1400px; background:#fdfbf6; border:2px solid #e3ddcd;
+  border-radius:28px; box-shadow:0 18px 60px rgba(90,80,60,.14);
+  padding:64px 72px;
+}}
+.head {{ display:flex; align-items:flex-start; }}
+.av {{ width:96px; height:96px; border-radius:50%; background:#e3ddcd;
+       flex:none; }}
+.who {{ margin-left:28px; flex:1; min-width:0; }}
+.name {{ font-size:44px; font-weight:800; color:#2f2a26; display:flex;
+         align-items:center; gap:12px; }}
+.chk {{ width:36px; height:36px; flex:none; }}
+.biz {{ width:38px; height:38px; border-radius:6px; flex:none; }}
+.handle {{ margin-top:8px; font-size:30px; color:#8a8175; }}
+.xlogo {{ width:46px; height:46px; flex:none; margin-top:6px; }}
+.text {{ margin-top:42px; font-size:44px; line-height:1.5; color:#2f2a26;
+         word-break:break-word; }}
+.media {{ margin-top:36px; max-width:100%; max-height:400px;
+          border-radius:18px; border:1px solid #e3ddcd; }}
+.foot {{ margin-top:46px; display:flex; align-items:center;
+         justify-content:space-between; }}
+.meta {{ font-size:30px; color:#8a8175; }}
+.badge {{ background:#d14f27; color:#fff; border-radius:10px;
+          font-size:24px; font-weight:700; letter-spacing:.2em;
+          padding:8px 20px 8px 26px; }}
+</style></head><body><div class="card">
+  <div class="head">{avtag}
+    <div class="who">
+      <div class="name">{name}{chk}{biz}</div>
+      <div class="handle">@{handle}</div>
+    </div>{_X_LOGO}
+  </div>
+  <div class="text">{body}</div>{img}
+  <div class="foot"><div class="meta">{meta}</div>
+    <div class="badge">POST</div></div>
+</div></body></html>"""
+
+
+def _x_oembed_card(url: str):
+    """tweet-result 失败的次选：publish.twitter.com/oembed 的 blockquote
+    套品牌卡壳（仍不导航 x.com；widgets.js script 剥掉——我们只要静态 HTML）。"""
+    import urllib.parse
+    data = _http_json("https://publish.twitter.com/oembed?url=" +
+                      urllib.parse.quote(url or "", safe=""))
+    bq = (data or {}).get("html") if isinstance(data, dict) else None
+    if not bq:
+        return None
+    bq = re.sub(r"<script[^>]*>.*?</script>", "", bq, flags=re.S)
+    return f"""<!doctype html><html><head><meta charset='utf-8'><style>
+* {{ margin:0; padding:0; box-sizing:border-box; }}
+html,body {{ width:1920px; height:1080px; overflow:hidden; }}
+body {{
+  background:#fbf9f6; display:flex; align-items:center; justify-content:center;
+  font-family:'Noto Sans CJK SC','Noto Sans SC','DejaVu Sans',sans-serif;
+}}
+.card {{
+  width:1400px; background:#fdfbf6; border:2px solid #e3ddcd;
+  border-radius:28px; box-shadow:0 18px 60px rgba(90,80,60,.14);
+  padding:72px 80px;
+}}
+blockquote {{ font-size:42px; line-height:1.5; color:#2f2a26;
+              word-break:break-word; }}
+blockquote a {{ color:#d14f27; text-decoration:none; }}
+blockquote p {{ margin-bottom:36px; }}
+</style></head><body><div class="card">{bq}</div></body></html>"""
+
+
 # ------------------------------------------------------------ mechanics -----
 
 def _blankish(path: Path):
@@ -470,13 +679,26 @@ def _cfg_proxy():
 
 def _resolve_proxy(url: str, proxy, force_cfg: bool = False):
     """-> playwright proxy dict | None。'direct'/'none' 强制直连。
-    force_cfg=True 时 env 缺省再退到 config proxy.http（重试兜底路由）。"""
+    force_cfg=True 时 env 缺省再退到 config proxy.http（重试兜底路由）。
+    语义依赖：browser 以 proxy=None + 干净 env 启动，ctx 的 None 才等于
+    真直连（ctx proxy=None 本是"继承 browser 级代理"——playwright 1.63
+    也不认 "direct://" 哨兵，会 ERR_PROXY_CONNECTION_FAILED）。"""
     if isinstance(proxy, str) and proxy.lower() in ("direct", "none", "off"):
         return None
     cand = proxy if isinstance(proxy, str) and proxy else _env_proxy(url)
     if not cand and force_cfg:
         cand = _cfg_proxy()
     return {"server": cand} if cand else None
+
+
+def _clean_env(**extra) -> dict:
+    """剥掉 *_proxy 的进程环境：Chromium 会读 env 代理当默认出口，
+    导致 ctx proxy=None 的"直连"其实仍走 clash。browser 一律用干净
+    环境启动，代理改由 ctx 级显式指定——规则路由/direct 才真正生效。"""
+    env = {k: v for k, v in os.environ.items()
+           if k.lower() not in ("http_proxy", "https_proxy", "all_proxy")}
+    env.update(extra)
+    return env
 
 
 def _gn_resolve(url: str, timeout: int = 10):
@@ -497,12 +719,30 @@ def _gn_resolve(url: str, timeout: int = 10):
         return None
 
 
-def _block(route):
-    req = route.request
-    if req.resource_type == "media" or any(h in req.url for h in BLOCK_HOSTS):
-        route.abort()
-    else:
-        route.continue_()
+# Playwright 路由拦截会让 Chromium 走非优化网络栈（HTTP/2 指纹变化），
+# Vercel/CF 边缘据此对同源 JS chunk 回 403 → openai.com 这类站整页
+# "couldn't load"。所以绝不注册 "**/*"：只给 blocklist 域与媒体扩展名
+# 挂 URL-glob 路由——不匹配的请求完全不进拦截路径，指纹零变化。
+_MEDIA_EXT_GLOB = (
+    "**/*.{mp4,webm,mov,m4v,mkv,mp3,m4a,ogg,wav,flac,flv,m3u8,mpd}"
+)
+
+
+def _install_block(ctx):
+    def _abort(route):
+        try:
+            route.abort()
+        except Exception:
+            pass
+    for h in BLOCK_HOSTS:
+        try:
+            ctx.route(f"**/*{h}*", _abort)
+        except Exception:
+            pass
+    try:
+        ctx.route(_MEDIA_EXT_GLOB, _abort)
+    except Exception:
+        pass
 
 
 def _clean(page):
@@ -544,6 +784,59 @@ def _clean(page):
     page.wait_for_timeout(300)
 
 
+def _settle(page, nav_timeout: int) -> tuple[str, str]:
+    """goto/reload 后的就绪等待：load 态 + news.google 中转跳转 +
+    CF/Turnstile 挑战自解（~18s 上限 + checkbox 点击）。返回 (title, body)。"""
+    try:
+        page.wait_for_load_state("load", timeout=9000)
+    except Exception:
+        pass
+    # news.google/rss/articles 是 JS 中转页（"Loading <real url>"）——
+    # 不等它跳完就会截到中转页（undersized）。轮询最多 12s 等真站跳转。
+    for _ in range(12):
+        if "news.google." not in (_host(page.url) or ""):
+            break
+        page.wait_for_timeout(1000)
+    if "news.google." not in (_host(page.url) or ""):
+        try:
+            page.wait_for_load_state("load", timeout=9000)
+        except Exception:
+            pass
+    page.wait_for_timeout(700)
+    # CF/Turnstile：最多 ~18s 等挑战页自解，顺手点 checkbox
+    for _ in range(6):
+        try:
+            sniff = (page.title() or "") + " " + page.evaluate(
+                "document.body?document.body.innerText.slice(0,400):''")
+        except Exception:
+            sniff = ""
+        if not WALL_PAT.search(sniff):
+            break
+        try:
+            for f in page.frames:
+                if "challenges.cloudflare" in (f.url or ""):
+                    el = f.query_selector("input[type=checkbox],label")
+                    if el:
+                        el.click(timeout=800)
+        except Exception:
+            pass
+        page.wait_for_timeout(3000)
+    try:
+        title = page.title() or ""
+        body = page.evaluate(
+            "document.body?document.body.innerText.slice(0,800):''") or ""
+    except Exception:
+        title, body = "", ""
+    return title, body
+
+
+# 站点级"couldn't load"是边缘节点概率性 403 子资源所致（openai.com
+# 实测命中率 ~25%/次，与 stealth/代理无关）——同 ctx 内 reload 换一批
+# chunk 请求即可抽新签；可能落到 CF 挑战页，故每轮重跑 _settle。
+# wall 也抽新签，但连续 2 次 wall 视为粘性墙（非 flake）早停省时间。
+_ERR_RELOADS = 5
+
+
 def _attempt(ctx, url, shot_path: Path, nav_timeout: int) -> dict:
     page = ctx.new_page()
     page.on("dialog", lambda d: d.dismiss())     # js dialog 会挂死 headless
@@ -551,46 +844,40 @@ def _attempt(ctx, url, shot_path: Path, nav_timeout: int) -> dict:
         resp = page.goto(url, wait_until="domcontentloaded",
                          timeout=nav_timeout)
         status = resp.status if resp else None
-        try:
-            page.wait_for_load_state("load", timeout=9000)
-        except Exception:
-            pass
-        # news.google/rss/articles 是 JS 中转页（"Loading <real url>"）——
-        # 不等它跳完就会截到中转页（undersized）。轮询最多 12s 等真站跳转。
-        for _ in range(12):
-            if "news.google." not in (_host(page.url) or ""):
+        title, body = "", ""
+        walls = 0
+        # 站点级"couldn't load"是异步 error boundary：SSR 标题先对，
+        # chunk 403 后 React 才把 DOM 换成错误页——所以检查必须放在
+        # _clean 之后（给异步崩溃留浮现窗口），错了就整轮 reload 重抽。
+        for r in range(1 + _ERR_RELOADS):
+            if r:
+                try:
+                    page.reload(wait_until="domcontentloaded",
+                                timeout=nav_timeout)
+                except Exception:
+                    break
+            title, body = _settle(page, nav_timeout)
+            bad = _err_page(page, title, body) or \
+                bool(WALL_PAT.search(title + " " + body))
+            if not bad:
+                _clean(page)
+                page.wait_for_timeout(900)  # error boundary 异步浮现窗口
+                try:
+                    title = page.title() or ""
+                    body = page.evaluate(
+                        "document.body?document.body.innerText.slice(0,800):''"
+                        ) or ""
+                except Exception:
+                    title, body = "", ""
+                bad = _err_page(page, title, body) or \
+                    bool(WALL_PAT.search(title + " " + body))
+            walls = walls + 1 if WALL_PAT.search(title + " " + body) else 0
+            if not bad:
                 break
-            page.wait_for_timeout(1000)
-        if "news.google." not in (_host(page.url) or ""):
-            try:
-                page.wait_for_load_state("load", timeout=9000)
-            except Exception:
-                pass
-        page.wait_for_timeout(700)
-        # CF/Turnstile：最多 ~18s 等挑战页自解，顺手点 checkbox
-        for _ in range(6):
-            try:
-                sniff = (page.title() or "") + " " + page.evaluate(
-                    "document.body?document.body.innerText.slice(0,400):''")
-            except Exception:
-                sniff = ""
-            if not WALL_PAT.search(sniff):
-                break
-            try:
-                for f in page.frames:
-                    if "challenges.cloudflare" in (f.url or ""):
-                        el = f.query_selector("input[type=checkbox],label")
-                        if el:
-                            el.click(timeout=800)
-            except Exception:
-                pass
-            page.wait_for_timeout(3000)
-        _clean(page)
+            if walls >= 2:
+                break                        # 粘性 CF 墙，不再浪费 reload
         page.screenshot(path=str(shot_path), style=FREEZE_CSS,
                         animations="disabled", caret="hide", timeout=15000)
-        title = page.title() or ""
-        body = page.evaluate(
-            "document.body?document.body.innerText.slice(0,800):''") or ""
         return {"status": status, "title": title[:110],
                 "wall": bool(WALL_PAT.search(title + " " + body)),
                 "err_page": _err_page(page, title, body),
@@ -616,33 +903,73 @@ class ShotSession:
             self.cfg.get("policy_path"))
         self._pw = None
         self._browser = None
+        self._browser_hf = None    # Xvfb headful 升级路（懒启动）
+        self._xvfb = None
         self.driver_error = None
 
     def __enter__(self):
         try:
             from playwright.sync_api import sync_playwright
             self._pw = sync_playwright().start()
-            proxy = _resolve_proxy("https://example.com", self.cfg["proxy"])
+            # browser 恒直连启动：env 剥代理（Chromium 会读 *_proxy 环境
+            # 变量当默认出口）+ proxy=None；每次截图在 ctx 显式解析路由。
             self._browser = self._pw.chromium.launch(
                 headless=self.cfg["headless"], args=ARGS,
-                proxy=proxy, timeout=30000)
+                proxy=None, timeout=30000, env=_clean_env())
         except Exception as e:
             self.driver_error = f"{type(e).__name__}: {e}"
             self._browser = None
         return self
 
     def __exit__(self, *exc):
-        try:
-            if self._browser:
-                self._browser.close()
-        except Exception:
-            pass
+        for br in (self._browser, self._browser_hf):
+            try:
+                if br:
+                    br.close()
+            except Exception:
+                pass
         try:
             if self._pw:
                 self._pw.stop()
         except Exception:
             pass
-        self._browser = self._pw = None
+        try:
+            if self._xvfb:
+                self._xvfb.terminate()
+                self._xvfb.wait(timeout=5)
+        except Exception:
+            pass
+        self._browser = self._browser_hf = self._pw = self._xvfb = None
+
+    def _headful_browser(self):
+        """粘性 CF 墙升级路：Xvfb + headful chromium。Turnstile 对 headless
+        指纹判负率高，headful 常自解——openai.com 实测 headless 全墙时
+        headful 一把过。懒启动；无 Xvfb/启动失败 → None 跳过。"""
+        if self._browser_hf or not self._pw:
+            return self._browser_hf
+        import shutil
+        import subprocess
+        if not shutil.which("Xvfb"):
+            return None
+        disp = None
+        for n in range(200, 220):
+            if not os.path.exists(f"/tmp/.X11-unix/X{n}"):
+                disp = f":{n}"
+                break
+        if not disp:
+            return None
+        try:
+            self._xvfb = subprocess.Popen(
+                ["Xvfb", disp, "-screen", "0", "1920x1080x24"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+            # 同主 browser：剥 *_proxy env，代理由 ctx 级显式给。
+            self._browser_hf = self._pw.chromium.launch(
+                headless=False, args=ARGS, timeout=30000,
+                env=_clean_env(DISPLAY=disp))
+        except Exception:
+            self._browser_hf = None
+        return self._browser_hf
 
     # ---- per-url -----------------------------------------------------------
 
@@ -663,6 +990,10 @@ class ShotSession:
         if action == "placeholder":
             rec["reason"] = _rule_reason(self.policy, url)
             return self._finish_placeholder(rec, out_path)
+        if action == "x_embed":
+            r = self._x_embed(rec, out_path, url)
+            rec["ms"] = int((time.time() - t0) * 1000)
+            return r
         self._screenshot(url, out_path, rec)
         rec["ms"] = int((time.time() - t0) * 1000)
         return rec
@@ -677,6 +1008,11 @@ class ShotSession:
         return rec
 
     def _placeholder_browser(self, domain, out_path: Path, url) -> bool:
+        return self._render_html(placeholder_html(domain, url), out_path)
+
+    def _render_html(self, html_doc: str, out_path: Path) -> bool:
+        """set_content → screenshot，走 placeholder_size（1920×1080）。
+        READY_JS 等头像/媒体图加载（x_embed 卡片有外链图）。"""
         if not self._browser:
             return False
         w, h = self.cfg["placeholder_size"]
@@ -686,80 +1022,123 @@ class ShotSession:
                 locale="en-US", bypass_csp=True)
             pg = ctx.new_page()
             try:
-                pg.set_content(placeholder_html(domain, url),
-                               wait_until="load", timeout=8000)
-                pg.screenshot(path=str(out_path), timeout=8000)
+                pg.set_content(html_doc, wait_until="load", timeout=12000)
+                try:
+                    pg.evaluate(READY_JS)
+                except Exception:
+                    pass
+                pg.wait_for_timeout(400)
+                pg.screenshot(path=str(out_path), timeout=10000)
             finally:
                 ctx.close()
             return out_path.exists() and out_path.stat().st_size > 5000
         except Exception:
             return False
 
+    def _x_embed(self, rec: dict, out_path: Path, url: str) -> dict:
+        """x_embed action：syndication tweet-result → 品牌推文卡；
+        数据拿不到退 oembed blockquote 卡，再不行退占位卡。"""
+        tw = _fetch_tweet(url)
+        html_doc = _x_card_html(tw) if tw else _x_oembed_card(url)
+        if html_doc is None:
+            rec["reason"] = "x_embed_fetch_failed"
+            return self._finish_placeholder(rec, out_path)
+        if self._render_html(html_doc, out_path):
+            rec.update(path=str(out_path), kind="shot", ok=True,
+                       via="x_embed" if tw else "x_oembed",
+                       tweet_id=(tw or {}).get("_tid"))
+            return rec
+        rec["reason"] = "x_embed_render_failed"
+        return self._finish_placeholder(rec, out_path)
+
+    def _try_ctx(self, browser, url, out_path: Path, rec: dict,
+                 route, force_cfg: bool) -> bool:
+        """单次 ctx 尝试：建 ctx → _attempt → 判成败 + 失败归因。返回是否成功。"""
+        vw, vh = self.cfg["viewport"]
+        ctx = None
+        try:
+            ctx = browser.new_context(
+                viewport={"width": vw, "height": vh},
+                device_scale_factor=self.cfg["scale"],
+                user_agent=UA, locale="en-US",
+                extra_http_headers=dict(EXTRA_HEADERS),
+                reduced_motion="reduce", color_scheme="light",
+                ignore_https_errors=True, service_workers="block",
+                proxy=_resolve_proxy(url, route, force_cfg=force_cfg))
+            ctx.add_init_script(STEALTH_JS)
+            try:
+                bare = ".".join((_host(url) or "").split(".")[-2:])
+                if bare:
+                    ctx.add_cookies(consent_cookies("." + bare))
+            except Exception:
+                pass
+            _install_block(ctx)
+            r = _attempt(ctx, url, out_path, int(self.cfg["nav_timeout_ms"]))
+            rec.update(r)
+            blank, sd = _blankish(out_path)
+            rec["stddev"] = sd
+            rec["shot_kb"] = out_path.stat().st_size // 1024 \
+                if out_path.exists() else 0
+            if (not rec["wall"]) and (not blank) \
+                    and not rec.get("err_page") \
+                    and (rec.get("status") or 0) < 400 \
+                    and rec["shot_kb"] > int(self.cfg["min_shot_kb"]):
+                rec.update(path=str(out_path), kind="shot", ok=True)
+                rec.pop("reason", None)   # 清掉前次尝试留下的失败归因
+                return True
+            # 失败归因（供 missing[] 记录）
+            if rec.get("err_page"):
+                rec["reason"] = "error_page"
+            elif rec.get("wall"):
+                rec["reason"] = "wall_detected"
+            elif (rec.get("status") or 0) >= 400:
+                rec["reason"] = f"http_{rec['status']}"
+            elif blank:
+                rec["reason"] = "blank_capture"
+            else:
+                rec["reason"] = "undersized_capture"
+        except Exception as e:
+            rec["err"] = f"{type(e).__name__}: {str(e)[:140]}"
+            rec["reason"] = rec.get("reason") or rec["err"]
+        finally:
+            try:
+                if ctx:
+                    ctx.close()
+            except Exception:
+                pass
+        return False
+
     def _screenshot(self, url, out_path: Path, rec: dict):
         if not self._browser:
             rec["reason"] = f"browser_unavailable: {self.driver_error}"
             return self._finish_placeholder(rec, out_path)
-        vw, vh = self.cfg["viewport"]
         retries = int(self.cfg["retries"])
-        last_err = None
+        rprox = _rule_proxy(self.policy, url)   # 规则级首选路由（如 openai→direct）
+        tries = 0
         for attempt in range(1 + retries):
-            ctx = None
-            try:
-                ctx = self._browser.new_context(
-                    viewport={"width": vw, "height": vh},
-                    device_scale_factor=self.cfg["scale"],
-                    user_agent=UA, locale="en-US",
-                    extra_http_headers=dict(EXTRA_HEADERS),
-                    reduced_motion="reduce", color_scheme="light",
-                    ignore_https_errors=True, service_workers="block",
-                    proxy=_resolve_proxy(url, self.cfg["proxy"],
-                                         force_cfg=attempt > 0))
-                ctx.add_init_script(STEALTH_JS)
-                try:
-                    bare = ".".join((_host(url) or "").split(".")[-2:])
-                    if bare:
-                        ctx.add_cookies(consent_cookies("." + bare))
-                except Exception:
-                    pass
-                ctx.route("**/*", _block)
-                r = _attempt(ctx, url, out_path,
-                             int(self.cfg["nav_timeout_ms"]))
-                rec.update(r)
-                blank, sd = _blankish(out_path)
-                rec["stddev"] = sd
-                rec["shot_kb"] = out_path.stat().st_size // 1024 \
-                    if out_path.exists() else 0
-                if (not rec["wall"]) and (not blank) \
-                        and not rec.get("err_page") \
-                        and (rec.get("status") or 0) < 400 \
-                        and rec["shot_kb"] > int(self.cfg["min_shot_kb"]):
-                    rec.update(path=str(out_path), kind="shot", ok=True,
-                               attempts=attempt + 1)
-                    return
-                # 失败归因（供 missing[] 记录）
-                if rec.get("err_page"):
-                    rec["reason"] = "error_page"
-                elif rec.get("wall"):
-                    rec["reason"] = "wall_detected"
-                elif (rec.get("status") or 0) >= 400:
-                    rec["reason"] = f"http_{rec['status']}"
-                elif blank:
-                    rec["reason"] = "blank_capture"
-                else:
-                    rec["reason"] = "undersized_capture"
-                last_err = rec["reason"]
-            except Exception as e:
-                last_err = f"{type(e).__name__}: {str(e)[:140]}"
-                rec["err"] = last_err
-            finally:
-                try:
-                    if ctx:
-                        ctx.close()
-                except Exception:
-                    pass
+            # attempt0 走规则路由；重试回落默认链（env→config）换出口抽签
+            route = rprox if (attempt == 0 and rprox) else self.cfg["proxy"]
+            tries += 1
+            if self._try_ctx(self._browser, url, out_path, rec,
+                             route, force_cfg=attempt > 0):
+                rec["attempts"] = tries
+                return
             if attempt < retries:
                 time.sleep(2)          # wechat 式 flake：新 ctx 间隔重试
-        rec["reason"] = rec.get("reason") or last_err or "shot_failed"
+        # 粘性 CF 墙最后一搏：Xvfb headful（Turnstile 对 headful 判负率低）
+        if rec.get("reason") == "wall_detected" \
+                and self.cfg.get("headful_retry"):
+            br = self._headful_browser()
+            if br:
+                tries += 1
+                # headful 升级路走默认代理链（env→config），刻意忽略规则
+                # 路由：clash 出口实测常过 Turnstile，直连反而吃墙
+                if self._try_ctx(br, url, out_path, rec,
+                                 self.cfg["proxy"], force_cfg=True):
+                    rec["attempts"] = tries
+                    rec["via"] = "headful"
+                    return
+        rec["reason"] = rec.get("reason") or "shot_failed"
         return self._finish_placeholder(rec, out_path)
 
 
@@ -793,9 +1172,11 @@ def _selftest():
     # --- offline asserts ---------------------------------------------------
     pol = load_policy()
     assert policy_action(pol, "https://x.com/a/status/1") == \
-        ("placeholder", "rule:x.com")
-    assert policy_action(pol, "https://mobile.twitter.com/a") == \
-        ("placeholder", "rule:twitter.com")
+        ("x_embed", "rule:x.com")
+    assert policy_action(pol, "https://mobile.twitter.com/a/status/1") == \
+        ("x_embed", "rule:twitter.com")
+    assert policy_action(pol, "https://www.reuters.com/x") == \
+        ("placeholder", "rule:reuters.com")
     assert policy_action(pol, "https://mp.weixin.qq.com/s/abc") == \
         ("placeholder", "rule:mp.weixin.qq.com")
     assert policy_action(pol, "https://www.science.org/x") == \
@@ -803,6 +1184,7 @@ def _selftest():
     assert policy_action(pol, "https://example.com/a")[0] == "screenshot"
     doc = placeholder_html("x.com")
     assert "SOURCE" in doc and "x.com" in doc and "1920px" in doc
+    assert _tweet_token("2102464672519815512").startswith("53h35hnc")
     print("offline policy/placeholder asserts OK")
 
     if offline:
@@ -813,11 +1195,11 @@ def _selftest():
     out.mkdir(parents=True, exist_ok=True)
     fails = []
 
-    # 1) x.com —— 策略命中，应直接占位（不导航，快）
-    r = shot("https://x.com/thsottiaux/status/2101352781219258527",
+    # 1) x.com —— x_embed：syndication 推文卡；网络异常时退占位也算过
+    r = shot("https://x.com/sama/status/2102464672519815512",
              out / "x.png")
     print("[x]", json.dumps(r, ensure_ascii=False))
-    assert r["kind"] == "placeholder" and r["ok"] and r["path"]
+    assert r["ok"] and r["path"]
 
     # 2) wechat —— 策略命中占位
     r = shot("https://mp.weixin.qq.com/s/selftest-placeholder",
