@@ -26,7 +26,7 @@ compose      ffmpeg → out/final.mp4（composer/ Remotion 为备选引擎）
 meta         标题/封面/QA → 90_qa.json
 ```
 
-驱动是 justfile（~30 配方）：`gather` `pick` `produce` `status` `watch`
+驱动是 justfile（~40 配方）：`gather` `pick` `produce` `status` `watch`
 `tail` `from` `resume` `exp` `doctor` `test` 等。配方不跨人工闸串链；
 `runs/<date>/.just.lock` 串行化同一日期桶的 just 调用。
 `ops/*.timer`（systemd）：06:30 collect、08:30 gate-1 死线、09:30 gate-2
@@ -45,6 +45,8 @@ cp secrets.env.example secrets.env    # 填 SWE2MAX_API_KEY（本地 LLM 网关�
 cp config.example.yaml config.yaml    # 按需改 alerts/proxy/schedule
 
 just setup-toolchain   # 一次性：工具检查 + 目录 + npm install + playwright
+just fetch-embed       # 拉 Qwen3-Embedding-0.6B-ONNX 到 ~/.cache/embed（dedup 必需，embed.py 不自动下载）
+just setup-breeze      # Breeze TTS worker（clone + venvs/breeze；本机生产默认引擎，留 edge 可跳过）
 just doctor            # 联网冒烟全组件（LLM/卡片/TTS/proxy/告警）
 
 just gather            # collect → filter → dedup

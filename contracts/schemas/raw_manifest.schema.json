@@ -28,7 +28,7 @@
       "type": "integer"
     },
     "sources": {
-      "description": "[{name,kind,n,errors:[url+err]}] 每源统计",
+      "description": "[{name,method,tier,status,items_new,items_fresh,items_total,last_error,latency_ms,via,endpoint}] 每源统计",
       "items": {
         "additionalProperties": true,
         "type": "object"

@@ -114,7 +114,9 @@ class RawManifest(BaseModel):
     window: dict = Field(description="{from,to} RFC3339 抓取窗口")
     file: str = Field(description="本批 JSONL 文件名")
     n_items: int
-    sources: list[dict] = Field(description="[{name,kind,n,errors:[url+err]}] 每源统计")
+    sources: list[dict] = Field(
+        description="[{name,method,tier,status,items_new,items_fresh,items_total,"
+                    "last_error,latency_ms,via,endpoint}] 每源统计")
     produced_at: str = RFC3339
     stats: Optional[dict] = Field(
         default=None,
