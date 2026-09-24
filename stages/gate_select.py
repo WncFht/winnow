@@ -8,7 +8,7 @@ WARN 退回纯文件路径：
   30_summaries.jsonl  title_zh/summary/entities/section_guess（文案）
   35_dedup.jsonl      dedup verdict/cluster_id/match_cos/judge
   10_raw_items.jsonl  url/源名/date_published/url_canon
-  state/items.sqlite  条目池：结转候选源 + used/eligible/projected-dedup
+  state/state.sqlite  条目池 items 表：结转候选源 + used/eligible/projected-dedup
                       谓词数据（--items-db 可改路径）
 
 人工/自动勾选 → `40_selected.json`（契约 selected/1）。
@@ -16,11 +16,11 @@ WARN 退回纯文件路径：
 候选集 = filter verdict∈{keep,review} 且 dedup verdict∉{suppressed}
 （dedup 的 gray/gray_pending 自动进列表并打灰区标记）。
 
-POOL-MODE（run_dir 名为 YYYY-MM-DD 且 state/items.sqlite 已有本期 item_runs）：
+POOL-MODE（run_dir 名为 YYYY-MM-DD 且 state.sqlite 已有本期 item_runs）：
 候选集 = 当期文件路径 ∪ 条目池结转（lib.pool.select_candidates）∪ L0 丢行
 兜底（当期被 l0-url-hash 占位 drop、但池行 standing verdict∈{keep,review}
 且 eligible 者 → carried=True，feed 重发不丢候选格）。并集统一过
-used-check / eligible 窗口 / projected-dedup（叠加 history.sqlite 已出片
+used-check / eligible 窗口 / projected-dedup（叠加 dedup_clusters 已出片
 cluster 投影）谓词；出局按 skipped_used / skipped_window / suppressed
 （文件侧 ∪ 池投影审计列）归账，filter 判 drop 仅计 n_dropped_by_filter，
 n_stale_floor 亦仅计数（pub<下限的结转根本没进候选评估）。结转条目的
@@ -39,7 +39,7 @@ raw/summary 每次 build 都重新物化到 38_pool_items.jsonl /
   gate_select.py --run-dir R --deadline-check HH:MM
         # 死线已过且未提交 → 自动放行（供 timer 调用）
   gate_select.py --selftest                 # fixture 端到端自测（含 schema 断言）
-  公共 flag：--items-db P = 条目池改走 P（> config.storage.items_db；
+  公共 flag：--items-db P = 条目池改走 P（> config.storage.state_db；
         --serve 会转发给 review_server）
 
 不覆盖原则：40_selected.json 已存在时 --auto/--deadline-check 直接跳过（人工已拍板），
@@ -103,9 +103,9 @@ def load_jsonl(p: Path) -> list[dict]:
 # ------------------------------------------------------------- pool helpers
 
 def _published_cluster_ids(cfg: dict) -> set:
-    """history.sqlite 已出片 cluster_id 集（clusters.published=1，只读连接）；
+    """state.sqlite 已出片 cluster_id 集（dedup_clusters.published=1，只读）；
     库缺席/打不开 -> 空集（projected_dedup 退化为纯存储判定）。"""
-    p = Path(str(cfg.get("history_db") or "state/history.sqlite"))
+    p = Path(str(cfg.get("state_db") or "state/state.sqlite"))
     if not p.is_absolute():
         p = REPO / p
     if not p.exists():
@@ -114,17 +114,17 @@ def _published_cluster_ids(cfg: dict) -> set:
         conn = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
         try:
             return {r[0] for r in conn.execute(
-                "SELECT cluster_id FROM clusters WHERE published=1")}
+                "SELECT cluster_id FROM dedup_clusters WHERE published=1")}
         finally:
             conn.close()
     except sqlite3.Error as e:
-        eprint(f"[gate_select] WARN history.sqlite 只读打开失败 {e}"
+        eprint(f"[gate_select] WARN state.sqlite 只读打开失败 {e}"
                " — published 投影按空集")
         return set()
 
 
 def _open_pool(cfg: dict, episode: str):
-    """POOL-MODE 判定：run_dir 名是日期 + items.sqlite 存在 + item_runs 有本期
+    """POOL-MODE 判定：run_dir 名是日期 + state.sqlite 存在 + item_runs 有本期
     -> (conn, wfrom, wto, grace_from, sfloor, published_cids)；否则全 None
     六元组 + 响亮 WARN（配置/库就位却半空，绝不静默）。
 
@@ -135,7 +135,7 @@ def _open_pool(cfg: dict, episode: str):
     none = (None, "", "", "", "", set())
     if not DATE_RE.fullmatch(episode):
         return none                                   # fixture/冒烟目录：纯文件
-    db = pool.resolve_path(cfg.get("items_db"))
+    db = pool.resolve_path(cfg.get("state_db"))
     if not db.exists():
         eprint(f"[gate_select] WARN 条目池 {db} 不存在 — 退回纯文件路径"
                "（collect 池回写尚未接入/未跑？）")
@@ -772,7 +772,7 @@ def main(argv=None) -> int:
     ap.add_argument("--deadline-check", metavar="HH:MM",
                     help="死线检查：无 40_selected 且已过点 → auto")
     ap.add_argument("--items-db", default=None,
-                    help="items.sqlite 路径（默认 config.storage.items_db > state/；"
+                    help="state.sqlite 路径（默认 config.storage.state_db > state/；"
                          "--serve 会转发给 review_server）")
     ap.add_argument("--selftest", action="store_true", help="fixture 端到端自测")
     args = ap.parse_args(argv)

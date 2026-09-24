@@ -721,13 +721,11 @@ fmt-check:
 
 ls-run:
     @ls -la {{RUN}}
-# daily history.sqlite + items.sqlite backup, keep newest 14 each (§9)
+# daily state.sqlite backup（sqlite .backup 在线一致拷贝），keep newest 14 (§9)
 backup-state:
     @mkdir -p state/backups
-    @[ -f state/history.sqlite ] && cp state/history.sqlite "state/backups/history-$(date +%F-%H%M).sqlite" && echo "backed up" || echo "no history.sqlite yet"
-    @[ -f state/items.sqlite ] && cp state/items.sqlite "state/backups/items-$(date +%F-%H%M).sqlite" && echo "items backed up" || echo "no items.sqlite yet"
-    @ls -t state/backups/history-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
-    @ls -t state/backups/items-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
+    @[ -f state/state.sqlite ] && sqlite3 state/state.sqlite ".backup 'state/backups/state-$(date +%F-%H%M).sqlite'" && echo "backed up" || echo "no state.sqlite yet"
+    @ls -t state/backups/state-*.sqlite 2>/dev/null | tail -n +15 | xargs -r rm -v
 
 # 拉 Qwen3-Embedding-0.6B-ONNX int8 到 ~/.cache/embed（embed.py 只读不下载；
 # dedup-history/model 已出库，此配方是新克隆唯一获取路径）

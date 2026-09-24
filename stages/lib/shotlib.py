@@ -2,9 +2,9 @@
 """stages/lib/shotlib.py — 来源页截图 + 品牌占位卡（docs/PLAN.md §7.6）。
 
     shot(url, out_path, cfg=None) -> {"path": str|None, "kind": "shot"|"placeholder", ...}
-    load_policy(path=None)        -> dict                # state/shot_policy.yaml
+    load_policy(path=None)        -> dict                # shot_policy.yaml
 
-策略链（域名策略表 state/shot_policy.yaml 先行）：
+策略链（域名策略表 shot_policy.yaml 先行）：
   0. news.google.* 中转 URL 先经 googlenewsdecoder 解出出版方真链
      （可选依赖——包缺失/解码失败照原 URL 走老路；命中记 rec.resolved），
      再对真链走下述判定；
@@ -55,7 +55,7 @@ sys.path[:] = [p for p in sys.path
                if str(Path(p or ".").resolve()) != _SELF_DIR]
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_POLICY_PATH = REPO_ROOT / "state" / "shot_policy.yaml"
+DEFAULT_POLICY_PATH = REPO_ROOT / "shot_policy.yaml"
 
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
@@ -295,7 +295,7 @@ _DEFAULT_CFG = {
 
 
 def load_policy(path=None) -> dict:
-    """state/shot_policy.yaml -> {"default":..., "rules":[...],
+    """shot_policy.yaml -> {"default":..., "rules":[...],
     "cloudflare_fronted": {...}}。文件缺失/损坏时返回内置种子策略。"""
     p = Path(path) if path else DEFAULT_POLICY_PATH
     try:

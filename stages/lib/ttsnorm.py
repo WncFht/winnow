@@ -15,7 +15,7 @@
      （Xing4.0-29B-A4B→Xing4.0 29B A4B、MiniMax-M3.1→MiniMax M3.1、
      cua-s1-forms→cua s1 forms）；纯数字区间 N-M→N到M；纯字母连字符保留
      （Thinker-Talker）。
-  4. 发音词典替换：state/tts_dict.yaml 的 {写法: 读法}，长键优先、大小写
+  4. 发音词典替换：tts_dict.yaml 的 {写法: 读法}，长键优先、大小写
      不敏感、ASCII 键按字母数字边界匹配（API 命中"调API"不吃 GraphAPI）；
      数字结尾的键额外挡 "."（"Qwen3"不吃 "Qwen3.5"）。
   5. 标点 → 停顿提示：;:/引号/省略号/破折号→逗号、.→句号、括号剥壳、
@@ -43,7 +43,7 @@ import yaml
 LETTER_DIGIT_HYPHEN = re.compile(r"([A-Za-z])-(\d)|(\d)-([A-Za-z])")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DICT = REPO_ROOT / "state" / "tts_dict.yaml"
+DEFAULT_DICT = REPO_ROOT / "tts_dict.yaml"
 
 _DIGITS = "零一二三四五六七八九"
 _SEC_UNIT = ["", "十", "百", "千"]

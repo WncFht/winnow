@@ -1,8 +1,8 @@
-"""story-line 去重历史库 — state/history.sqlite 的读写层（PLAN §7.2）。
+"""story-line 去重历史库 — state/state.sqlite 内 dedup_* 表的读写层
+（PLAN §7.2；与条目池 items/item_runs 同库，表名去重前缀防撞）。
 
-单文件 SQLite（WAL），两级结构，schema 与 experiments/dedup-history/schema.sql
-逐字一致，仅 clusters 新增 `published`（该 cluster 有 item verdict='reported'
-即置 1，由 meta_qa 在出片后经 mark_reported() 回写）。
+单文件 SQLite（WAL），两级结构 dedup_clusters/dedup_items；published
+标记由 meta_qa 在出片后经 mark_reported() 回写。
 
 行基本不删：cluster 过期只是退出比对集（state='expired'），可审计、可回放；
 唯二的删除路径是 purge_episode()（--rerun 整期重跑）与 init_db 的
@@ -36,8 +36,8 @@ mark_reported/expire/unexpire/split/merge/purge_*）一律不 commit——事务
   cluster.item_count = 成员数；n_reissues = 成员中 verdict='reissue' 数；
   cluster.published = 成员中存在 verdict='reported'。
 
-冷启动：history.sqlite 为空时由 stages/dedup.py 回填近 7 日 raw_cache
-预热比对集（本模块只管读写，不管回填来源）。
+冷启动：state.sqlite 的 dedup_* 为空时由 stages/dedup.py 回填近 7 日
+raw_cache 预热比对集（本模块只管读写，不管回填来源）。
 
 stdlib only — 与 lib/meta.py 同级约定，任何 PEP 723 stage 脚本可安全 import；
 调用方传进来的 embed 可以是 list/np.ndarray/f32 bytes，本模块统一归一。
@@ -45,7 +45,7 @@ stdlib only — 与 lib/meta.py 同级约定，任何 PEP 723 stage 脚本可安
 用法（stages/dedup.py）::
 
     from stages.lib import store
-    conn = store.init_db(run_dir / "state/history.sqlite")   # 或 state/ 下
+    conn = store.init_db()   # state/state.sqlite（dedup_* 表侧）
     for it in candidates:
         it["url_hash"]  = store.url_hash(it["url_canon"])
         it["simhash"]   = store.simhash64(it["title_zh"] + " " + it["summary"])
@@ -72,50 +72,11 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Sequence, Union
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-# ---------------------------------------------------------------------------
-# schema — 与 experiments/dedup-history/schema.sql 逐字一致 + clusters.published
-# ---------------------------------------------------------------------------
+from stages.lib import state
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS clusters (
-  cluster_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-  canonical_title TEXT    NOT NULL,          -- 故事线代表标题（首见 item 标题）
-  centroid        BLOB    NOT NULL,          -- float32 1024d unit-norm 运行均值
-  first_seen      TEXT    NOT NULL,          -- ISO date 首次进入候选
-  last_seen       TEXT    NOT NULL,          -- 最近一次命中/重报的日期
-  expires_at      TEXT    NOT NULL,          -- last_seen + TTL_DAYS，命中刷新
-  item_count      INTEGER NOT NULL DEFAULT 1,
-  n_reissues      INTEGER NOT NULL DEFAULT 0, -- 以 newdev 身份被重报次数
-  state           TEXT    NOT NULL DEFAULT 'open',  -- open|expired|merged
-  published       INTEGER NOT NULL DEFAULT 0  -- 有成员 verdict='reported' 即 1
-);
-CREATE INDEX IF NOT EXISTS idx_clusters_cmp
-  ON clusters(state, expires_at);            -- 比对集 = state='open' AND expires_at>=today
+# DDL 已收口 stages/lib/state.py（表名 items/clusters → dedup_*
+# 家族，与条目池同库共存）。
 
-CREATE TABLE IF NOT EXISTS items (
-  item_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-  cluster_id INTEGER NOT NULL REFERENCES clusters(cluster_id),
-  day        TEXT    NOT NULL,               -- 进入候选/被报道的日期
-  episode    TEXT,                           -- 所属期号（如 2026-09-20）
-  title      TEXT    NOT NULL,
-  summary    TEXT,                           -- 上游逐条概要（判重特征可拼入）
-  source     TEXT,
-  url_canon  TEXT    NOT NULL,               -- 规范化 URL（去跟踪参数/www./尾斜杠）
-  url_hash   TEXT    NOT NULL,               -- sha1(url_canon)，唯一性靠应用层
-  lang       TEXT,
-  simhash    INTEGER NOT NULL,               -- 64-bit（存为 sqlite signed）
-  embed      BLOB    NOT NULL,               -- float32 1024d，doc 侧无 instruct
-  verdict    TEXT    NOT NULL DEFAULT 'candidate',
-             -- reported | suppressed | candidate | reissue | gray_pending
-  via        TEXT,                           -- 判定路径（dup_exact/judge_a/…），重放用
-  match_cos  REAL,                           -- 与命中 cluster 的 cos（证据）
-  judge      TEXT,                           -- LLM 判词 JSON（灰区时填）
-  created_at TEXT    NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_items_urlhash ON items(url_hash);
-CREATE INDEX IF NOT EXISTS idx_items_cluster ON items(cluster_id);
-CREATE INDEX IF NOT EXISTS idx_items_day     ON items(day);
-"""
 
 # ---------------------------------------------------------------------------
 # 校准阈值（勿改——依据见 experiments/dedup-history/schema.sql 尾注与 PLAN §7.2）
@@ -154,7 +115,7 @@ def canon_url(u: str) -> str:
 
 
 def url_hash(u: str) -> str:
-    """sha1(url_canon) — items.url_hash，dup_exact 判定键。"""
+    """sha1(url_canon) — dedup_items.url_hash，dup_exact 判定键。"""
     return hashlib.sha1(canon_url(u).encode()).hexdigest()
 
 
@@ -292,31 +253,21 @@ def _plus_ttl(day: str, ttl_days: int = TTL_DAYS) -> str:
 # 连接
 # ---------------------------------------------------------------------------
 
-def init_db(path) -> sqlite3.Connection:
-    """打开/创建 history.sqlite：WAL + schema + 幂等迁移。传 ':memory:' 可跑全量自测。
+def init_db(path=None) -> sqlite3.Connection:
+    """打开/创建 state.sqlite 的 dedup_* 表侧：schema + 幂等迁移。
 
-    迁移（每次打开都跑，全是 no-op 安全的）：
-      items.via 列补缺 → (url_hash,day) 重复行自愈去重（旧版 rerun 残留）
-      → 部分 UNIQUE 索引兜底。注意去重会真删行并重算受影响簇。
+    ':memory:' 可跑全量自测。迁移（每次打开都跑，全是 no-op 安全的）：
+      dedup_items.via 列补缺 → (url_hash,day) 重复行自愈去重（旧版 rerun
+      残留）→ 部分 UNIQUE 索引兜底。注意去重会真删行并重算受影响簇。
     """
-    p = str(path)
-    if p != ":memory:":
-        Path(p).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(p)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-    except sqlite3.OperationalError:
-        pass  # :memory: 不支持 WAL，忽略
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.executescript(SCHEMA)
-    cols = {r[1] for r in conn.execute("PRAGMA table_info(items)")}
+    conn = state.open(path if path is not None else state.DEFAULT_DB)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(dedup_items)")}
     if "via" not in cols:
-        conn.execute("ALTER TABLE items ADD COLUMN via TEXT")
+        conn.execute("ALTER TABLE dedup_items ADD COLUMN via TEXT")
     _dedupe_url_day(conn)
     conn.execute(  # 空 url 行（_EMPTY_SHA1）不参与唯一约束
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_items_url_day"
-        f" ON items(url_hash, day) WHERE url_hash <> '{_EMPTY_SHA1}'")
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_dedup_items_url_day"
+        f" ON dedup_items(url_hash, day) WHERE url_hash <> '{_EMPTY_SHA1}'")
     conn.commit()
     return conn
 
@@ -331,13 +282,13 @@ def open_clusters(conn: sqlite3.Connection, today: Optional[str] = None) -> list
     rows = conn.execute(
         "SELECT cluster_id, canonical_title, centroid, first_seen, last_seen,"
         "       expires_at, item_count, n_reissues, published"
-        " FROM clusters WHERE state='open' AND expires_at>=?", (today,)).fetchall()
+        " FROM dedup_clusters WHERE state='open' AND expires_at>=?", (today,)).fetchall()
     return [dict(r) | {"centroid": _b2v(r["centroid"])} for r in rows]
 
 
 def _cluster_members(conn: sqlite3.Connection, cid: int) -> list:
     return conn.execute(
-        "SELECT item_id, title, simhash, embed, verdict, day FROM items"
+        "SELECT item_id, title, simhash, embed, verdict, day FROM dedup_items"
         " WHERE cluster_id=?", (cid,)).fetchall()
 
 
@@ -357,7 +308,7 @@ def add_cluster(conn: sqlite3.Connection, title: str, day: str,
     fs = _check_day(first_seen) if first_seen else day
     exp = _plus_ttl(day)
     cur = conn.execute(
-        "INSERT INTO clusters(canonical_title,centroid,first_seen,last_seen,"
+        "INSERT INTO dedup_clusters(canonical_title,centroid,first_seen,last_seen,"
         " expires_at,item_count,n_reissues,state,published)"
         " VALUES(?,?,?,?,?,?,?,?,?)",
         (title, _v2b(c), fs, day, exp, item_count, n_reissues, state, published))
@@ -394,7 +345,7 @@ def _insert_item(conn: sqlite3.Connection, item: dict, cluster_id: int,
     iday = _check_day(item.get("day") or _today())
     try:
         cur = conn.execute(
-            "INSERT INTO items(cluster_id,day,episode,title,summary,source,url_canon,"
+            "INSERT INTO dedup_items(cluster_id,day,episode,title,summary,source,url_canon,"
             " url_hash,lang,simhash,embed,verdict,via,match_cos,judge)"
             " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (cluster_id, iday, item.get("episode"),
@@ -403,7 +354,7 @@ def _insert_item(conn: sqlite3.Connection, item: dict, cluster_id: int,
              match_cos, jtxt))
     except sqlite3.IntegrityError:
         row = conn.execute(
-            "SELECT item_id FROM items WHERE url_hash=? AND day=?"
+            "SELECT item_id FROM dedup_items WHERE url_hash=? AND day=?"
             " ORDER BY item_id LIMIT 1", (uh, iday)).fetchone()
         if row is None:
             raise
@@ -437,14 +388,14 @@ def _merge_into_cluster(conn: sqlite3.Connection, cid: int, vec: list,
     day = _check_day(day)
     row = conn.execute(
         "SELECT centroid,item_count,n_reissues,last_seen,expires_at"
-        " FROM clusters WHERE cluster_id=?", (cid,)).fetchone()
+        " FROM dedup_clusters WHERE cluster_id=?", (cid,)).fetchone()
     cent, n = _b2v(row["centroid"]), row["item_count"]
     acc = [c * n + v for c, v in zip(cent, vec)]
     m = _unit([x / (n + 1) for x in acc])
     last_seen = max(row["last_seen"], day)
     expires = max(row["expires_at"], _plus_ttl(day))
     conn.execute(
-        "UPDATE clusters SET centroid=?, item_count=?, n_reissues=?,"
+        "UPDATE dedup_clusters SET centroid=?, item_count=?, n_reissues=?,"
         " last_seen=?, expires_at=? WHERE cluster_id=?",
         (_v2b(m), n + 1, row["n_reissues"] + (1 if reissue else 0),
          last_seen, expires, cid))
@@ -516,7 +467,7 @@ class CmpSet:
         rows = conn.execute(
             "SELECT cluster_id, canonical_title, centroid, first_seen, last_seen,"
             "       expires_at, item_count, n_reissues, published"
-            " FROM clusters WHERE state='open' AND expires_at>=?", (today,)).fetchall()
+            " FROM dedup_clusters WHERE state='open' AND expires_at>=?", (today,)).fetchall()
         for r in rows:
             cl = dict(r)
             cid = cl["cluster_id"]
@@ -530,7 +481,7 @@ class CmpSet:
         if cs.n:
             qm = ",".join("?" * cs.n)
             for cid, sim in conn.execute(
-                    f"SELECT cluster_id, simhash FROM items"
+                    f"SELECT cluster_id, simhash FROM dedup_items"
                     f" WHERE cluster_id IN ({qm})", tuple(cs.ids)):
                 cs._append_member(cid, int(sim))
         return cs
@@ -610,8 +561,8 @@ def _scan(conn: sqlite3.Connection, uh: str, sh: int, vec: list,
     #    同一 URL 以前见过即压，哪怕故事已过期）
     if uh and uh != _EMPTY_SHA1:
         row = conn.execute(
-            "SELECT i.cluster_id, i.title, c.published FROM items i"
-            " JOIN clusters c ON c.cluster_id=i.cluster_id"
+            "SELECT i.cluster_id, i.title, c.published FROM dedup_items i"
+            " JOIN dedup_clusters c ON c.cluster_id=i.cluster_id"
             " WHERE i.url_hash=? LIMIT 1", (uh,)).fetchone()
         if row:
             return {"kind": "dup_exact", "row": row}
@@ -777,7 +728,7 @@ def check(conn: sqlite3.Connection, item: dict,
 
 def _find_item_ids(conn: sqlite3.Connection, episode: str,
                    keys: Iterable[Union[int, str]]) -> list:
-    """item_key(=sha256(url_canon)[:16]) 或 int item_id -> items.item_id 列表。"""
+    """item_key(=sha256(url_canon)[:16]) 或 int item_id -> dedup_items.item_id 列表。"""
     keys = list(keys)
     int_ids = {int(k) for k in keys if isinstance(k, int) or
                (isinstance(k, str) and k.isdigit() and len(k) != 16)}
@@ -785,8 +736,8 @@ def _find_item_ids(conn: sqlite3.Connection, episode: str,
                 not (k.isdigit() and len(k) != 16)}
     out = set()
     for rows in (conn.execute(
-            "SELECT item_id, url_canon FROM items WHERE day=?", (episode,)),
-            conn.execute("SELECT item_id, url_canon FROM items")):
+            "SELECT item_id, url_canon FROM dedup_items WHERE day=?", (episode,)),
+            conn.execute("SELECT item_id, url_canon FROM dedup_items")):
         for iid, uc in rows:
             if iid in int_ids or item_key(uc) in hex_keys:
                 out.add(int(iid))
@@ -797,9 +748,9 @@ def _find_item_ids(conn: sqlite3.Connection, episode: str,
 
 def mark_reported(conn: sqlite3.Connection, episode: str,
                   item_keys: Iterable[Union[int, str]]) -> int:
-    """出片后回写：items.verdict='reported' + episode，clusters.published=1。
+    """出片后回写：dedup_items.verdict='reported' + episode，dedup_clusters.published=1。
 
-    item_keys 收契约 item_key（sha256(url_canon)[:16]）或 items.item_id。
+    item_keys 收契约 item_key（sha256(url_canon)[:16]）或 dedup_items.item_id。
     返回被标记的 item 数。
     """
     episode = _check_day(episode)
@@ -808,12 +759,12 @@ def mark_reported(conn: sqlite3.Connection, episode: str,
         return 0
     q = ",".join("?" * len(iids))
     conn.execute(
-        f"UPDATE items SET verdict='reported', episode=? WHERE item_id IN ({q})",
+        f"UPDATE dedup_items SET verdict='reported', episode=? WHERE item_id IN ({q})",
         (episode, *iids))
     cids = [r[0] for r in conn.execute(
-        f"SELECT DISTINCT cluster_id FROM items WHERE item_id IN ({q})", iids)]
+        f"SELECT DISTINCT cluster_id FROM dedup_items WHERE item_id IN ({q})", iids)]
     conn.execute(
-        f"UPDATE clusters SET published=1 WHERE cluster_id IN"
+        f"UPDATE dedup_clusters SET published=1 WHERE cluster_id IN"
         f" ({','.join('?' * len(cids))})", cids)
     return len(iids)
 
@@ -829,10 +780,10 @@ def expire_clusters(conn: sqlite3.Connection, today: Optional[str] = None,
     """
     today = _check_day(today or _today())
     conn.execute(
-        "UPDATE clusters SET expires_at=date(last_seen, '+' || ? || ' days')"
+        "UPDATE dedup_clusters SET expires_at=date(last_seen, '+' || ? || ' days')"
         " WHERE state='open'", (ttl_days,))
     n = conn.execute(
-        "UPDATE clusters SET state='expired' WHERE state='open' AND expires_at<?",
+        "UPDATE dedup_clusters SET state='expired' WHERE state='open' AND expires_at<?",
         (today,)).rowcount
     return n
 
@@ -846,7 +797,7 @@ def unexpire_clusters(conn: sqlite3.Connection, today: Optional[str] = None) -> 
     """
     today = _check_day(today or _today())
     n = conn.execute(
-        "UPDATE clusters SET state='open' WHERE state='expired'"
+        "UPDATE dedup_clusters SET state='open' WHERE state='expired'"
         " AND expires_at>=?", (today,)).rowcount
     return n
 
@@ -864,7 +815,7 @@ def _recompute_cluster(conn: sqlite3.Connection, cid: int,
     first, last = min(days), max(days)
     exp = _plus_ttl(last)
     conn.execute(
-        "UPDATE clusters SET centroid=?, item_count=?, n_reissues=?, published=?,"
+        "UPDATE dedup_clusters SET centroid=?, item_count=?, n_reissues=?, published=?,"
         " first_seen=?, last_seen=?, expires_at=? WHERE cluster_id=?",
         (_v2b(_mean_unit(vecs)), len(members), n_re, pub,
          first, last, exp, cid))
@@ -889,16 +840,16 @@ def _purge_items(conn: sqlite3.Connection, item_ids: Iterable[int],
         return {"items": 0, "clusters_recomputed": 0, "clusters_deleted": 0}
     q = ",".join("?" * len(ids))
     cids = {r[0] for r in conn.execute(
-        f"SELECT DISTINCT cluster_id FROM items WHERE item_id IN ({q})", ids)}
-    conn.execute(f"DELETE FROM items WHERE item_id IN ({q})", ids)
+        f"SELECT DISTINCT cluster_id FROM dedup_items WHERE item_id IN ({q})", ids)}
+    conn.execute(f"DELETE FROM dedup_items WHERE item_id IN ({q})", ids)
     recomputed = deleted = 0
     for cid in cids:
-        if conn.execute("SELECT 1 FROM items WHERE cluster_id=? LIMIT 1",
+        if conn.execute("SELECT 1 FROM dedup_items WHERE cluster_id=? LIMIT 1",
                         (cid,)).fetchone():
             _recompute_cluster(conn, cid, cmpset=cmpset)
             recomputed += 1
         else:
-            conn.execute("DELETE FROM clusters WHERE cluster_id=?", (cid,))
+            conn.execute("DELETE FROM dedup_clusters WHERE cluster_id=?", (cid,))
             deleted += 1
     return {"items": len(ids), "clusters_recomputed": recomputed,
             "clusters_deleted": deleted}
@@ -916,7 +867,7 @@ def purge_episode(conn: sqlite3.Connection, day: str) -> dict:
     """
     day = _check_day(day)
     ids = [r[0] for r in conn.execute(
-        "SELECT item_id FROM items WHERE day=?", (day,))]
+        "SELECT item_id FROM dedup_items WHERE day=?", (day,))]
     out = _purge_items(conn, ids)
     out["day"] = day
     return out
@@ -929,8 +880,8 @@ def _dedupe_url_day(conn: sqlite3.Connection) -> dict:
     items 并污染 centroid。正常库上是单趟 GROUP BY 空转，开销可忽略。
     """
     ids = [r[0] for r in conn.execute(
-        "SELECT i.item_id FROM items i WHERE i.url_hash <> ?"
-        " AND EXISTS (SELECT 1 FROM items j WHERE j.url_hash=i.url_hash"
+        "SELECT i.item_id FROM dedup_items i WHERE i.url_hash <> ?"
+        " AND EXISTS (SELECT 1 FROM dedup_items j WHERE j.url_hash=i.url_hash"
         "            AND j.day=i.day AND j.item_id<i.item_id)",
         (_EMPTY_SHA1,))]
     return _purge_items(conn, ids)
@@ -972,7 +923,7 @@ def replay_row(conn: sqlite3.Connection, uh: str, day: str):
     row = conn.execute(
         "SELECT i.item_id, i.cluster_id, i.verdict, i.via, i.match_cos,"
         "       i.judge, c.canonical_title, c.published"
-        " FROM items i JOIN clusters c ON c.cluster_id=i.cluster_id"
+        " FROM dedup_items i JOIN dedup_clusters c ON c.cluster_id=i.cluster_id"
         " WHERE i.url_hash=? AND i.day=? ORDER BY i.item_id LIMIT 1",
         (uh, day)).fetchone()
     if row is None:
@@ -1005,7 +956,7 @@ def split_cluster(conn: sqlite3.Connection, cluster_id: int,
     if len(members) <= 1:
         return None
     if item_ids is None:
-        last = conn.execute("SELECT last_seen FROM clusters WHERE cluster_id=?",
+        last = conn.execute("SELECT last_seen FROM dedup_clusters WHERE cluster_id=?",
                             (cluster_id,)).fetchone()["last_seen"]
         item_ids = [m["item_id"] for m in members if m["day"] == last]
         if len(item_ids) >= len(members):      # 全部同天 -> 留最早一条其余拆出
@@ -1018,7 +969,7 @@ def split_cluster(conn: sqlite3.Connection, cluster_id: int,
     ncid = add_cluster(conn, title, min(m["day"] for m in moved),
                        _mean_unit([_b2v(m["embed"]) for m in moved]))
     conn.execute(
-        f"UPDATE items SET cluster_id=? WHERE item_id IN"
+        f"UPDATE dedup_items SET cluster_id=? WHERE item_id IN"
         f" ({','.join('?' * len(item_ids))})", (ncid, *item_ids))
     _recompute_cluster(conn, ncid)
     _recompute_cluster(conn, cluster_id)
@@ -1029,8 +980,8 @@ def merge_clusters(conn: sqlite3.Connection, a: int, b: int) -> int:
     """把 b 并进 a（a 存活，b.state='merged' 留痕）。成员、centroid、published 全并入。"""
     if a == b:
         return a
-    conn.execute("UPDATE items SET cluster_id=? WHERE cluster_id=?", (a, b))
-    conn.execute("UPDATE clusters SET state='merged' WHERE cluster_id=?", (b,))
+    conn.execute("UPDATE dedup_items SET cluster_id=? WHERE cluster_id=?", (a, b))
+    conn.execute("UPDATE dedup_clusters SET state='merged' WHERE cluster_id=?", (b,))
     _recompute_cluster(conn, a)
     return a
 
@@ -1071,7 +1022,7 @@ def _selftest() -> None:
     # cos>=0.85 且与成员 ham∈(4,8] -> dup_same（构造：成员 simhash 翻 6 bit，
     # 既过 dup_near 的 >4，又满足双保险的 <=8；措辞完全不同故天然 simhash 很远）
     m1_sh = conn.execute(
-        "SELECT simhash FROM items WHERE cluster_id=? LIMIT 1", (c1,)).fetchone()[0]
+        "SELECT simhash FROM dedup_items WHERE cluster_id=? LIMIT 1", (c1,)).fetchone()[0]
     it = mk("完全不同的措辞 某实验室新模型", "https://news.site/a2", v1b)
     it["simhash"] = (m1_sh & 0xFFFFFFFFFFFFFFFF) ^ 0x3F      # ham=6 vs m1
     r = check(conn, it)
@@ -1086,7 +1037,7 @@ def _selftest() -> None:
     it = mk("GPT-6 API 涨价 50%", "https://news.site/a4", vg)
     r = check(conn, it, judge_fn=lambda i, m: "B")
     assert r["verdict"] == "reissue" and r["update_of"] is None and r["cluster_id"] == c1, r
-    nre = conn.execute("SELECT n_reissues FROM clusters WHERE cluster_id=?", (c1,)).fetchone()[0]
+    nre = conn.execute("SELECT n_reissues FROM dedup_clusters WHERE cluster_id=?", (c1,)).fetchone()[0]
     assert nre == 1, nre
 
     # gray -> judge C -> fresh（新 cluster；用 vgc 避免后续 vg 条目误吸进它）
@@ -1106,11 +1057,11 @@ def _selftest() -> None:
     #（注意：dup_exact 条目与首条同 url_canon -> 同 item_key，会一起被标记；
     #  取 url 唯一的成员验证 n==1）
     ik = conn.execute(
-        "SELECT url_canon FROM items WHERE cluster_id=? AND title LIKE '%GPT-6。%'",
+        "SELECT url_canon FROM dedup_items WHERE cluster_id=? AND title LIKE '%GPT-6。%'",
         (c1,)).fetchone()[0]
     n = mark_reported(conn, D, [item_key(ik)])
     assert n == 1, n
-    pub = conn.execute("SELECT published FROM clusters WHERE cluster_id=?", (c1,)).fetchone()[0]
+    pub = conn.execute("SELECT published FROM dedup_clusters WHERE cluster_id=?", (c1,)).fetchone()[0]
     assert pub == 1, pub
     it = mk("某实验室官宣下一代训练框架", "https://news.site/a7", vg)
     r = check(conn, it, judge_fn=lambda i, m: "B")
@@ -1120,7 +1071,7 @@ def _selftest() -> None:
     c_new = add_cluster(conn, "独立故事", D, v2)
     add_item(conn, mk("独立故事 A", "https://news.site/b1", v2), c_new, verdict="candidate")
     merge_clusters(conn, c1, c_new)
-    st = conn.execute("SELECT state FROM clusters WHERE cluster_id=?", (c_new,)).fetchone()[0]
+    st = conn.execute("SELECT state FROM dedup_clusters WHERE cluster_id=?", (c_new,)).fetchone()[0]
     assert st == "merged", st
     ncid = split_cluster(conn, c1)          # 默认拆最近一天挂入批
     assert ncid is not None and ncid != c1
@@ -1128,16 +1079,16 @@ def _selftest() -> None:
     assert c1 in oc and ncid in oc and c_new not in oc
 
     # expire：把 last_seen 拨到 30 天前 -> 退出比对集
-    conn.execute("UPDATE clusters SET last_seen='2026-08-20' WHERE cluster_id=?", (ncid,))
+    conn.execute("UPDATE dedup_clusters SET last_seen='2026-08-20' WHERE cluster_id=?", (ncid,))
     conn.commit()
     n = expire_clusters(conn, today=D, ttl_days=TTL_DAYS)
     assert n >= 1
     assert ncid not in {c["cluster_id"] for c in open_clusters(conn, D)}
-    assert conn.execute("SELECT state FROM clusters WHERE cluster_id=?",
+    assert conn.execute("SELECT state FROM dedup_clusters WHERE cluster_id=?",
                         (ncid,)).fetchone()[0] == "expired"
 
     # gray_pending 成员确实在库（人工可 split 出）
-    assert conn.execute("SELECT verdict FROM items WHERE item_id=?",
+    assert conn.execute("SELECT verdict FROM dedup_items WHERE item_id=?",
                         (gid,)).fetchone()[0] == "gray_pending"
 
     # ---- rerun 幂等（dedup 的默认重放 + --rerun 重算两条路都走这里）----
@@ -1146,12 +1097,12 @@ def _selftest() -> None:
             day=D2)
     r1 = check(conn, it, today=D2)
     # via 落库：重放的逐字节复现依赖它
-    assert conn.execute("SELECT via FROM items WHERE item_id=?",
+    assert conn.execute("SELECT via FROM dedup_items WHERE item_id=?",
                         (r1["item_id"],)).fetchone()[0] == r1["via"]
-    n0 = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    n0 = conn.execute("SELECT COUNT(*) FROM dedup_items").fetchone()[0]
     # run_pipeline 同款 replay_uh（run 开始前当日已落库集）
     replay = {r[0] for r in conn.execute(
-        "SELECT url_hash FROM items WHERE day=? AND url_hash<>?",
+        "SELECT url_hash FROM dedup_items WHERE day=? AND url_hash<>?",
         (D2, _EMPTY_SHA1))}
     r2v = check(conn, dict(it), today=D2, replay_uh=replay)
     assert r2v["replayed"] and r2v["verdict"] == r1["verdict"] \
@@ -1162,13 +1113,13 @@ def _selftest() -> None:
     check(conn, itA, today=D2, replay_uh=replay)
     rA2 = check(conn, dict(itA), today=D2, replay_uh=replay)
     assert rA2["verdict"] == "suppressed" and rA2["via"] == "dup_exact", rA2
-    n1 = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    n1 = conn.execute("SELECT COUNT(*) FROM dedup_items").fetchone()[0]
     assert n1 == n0 + 1, (n0, n1)          # r2v/rA2 均未新增行
 
     # purge_episode：清掉 D2 全部痕迹，簇复原；幂等可重入
     st = purge_episode(conn, D2)
     assert st["items"] == 2, st            # r1 + rA 两行（rA2 复用未落行）
-    assert conn.execute("SELECT COUNT(*) FROM items WHERE day=?",
+    assert conn.execute("SELECT COUNT(*) FROM dedup_items WHERE day=?",
                         (D2,)).fetchone()[0] == 0
     assert replay_row(conn, url_hash(it["url_canon"]), D2) is None
     st = purge_episode(conn, D2)

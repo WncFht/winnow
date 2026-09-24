@@ -11,7 +11,7 @@ is kept only as a zero-credential fallback.
 Public API
 ----------
 fetch_sub(sub, cfg) -> list[dict]
-    Mint/load the anonymous token (cached in state/reddit_token.json), pull the
+    Mint/load the anonymous token (cached in state.sqlite kv:reddit_token), pull the
     subreddit listing via oauth.reddit.com JSON (`.rss` Atom fallback when
     OAuth is unreachable), and return raw_item/1-shaped dicts:
       url            = outbound link for link posts, comments permalink for
@@ -28,7 +28,7 @@ fetch_sub(sub, cfg) -> list[dict]
 
 cfg keys consulted (all optional): limit | max_items_per_source, sort
 (new|hot|top|rising), feed_url (fallback endpoint + sort/limit hints),
-proxy_url | proxy_http | proxy{http}|proxy-mode string, state_path | token_path,
+proxy_url | proxy_http | proxy{http}|proxy-mode string, state_db | state_path,
 run_dir, source_name | name, timeout, min_interval_s (default 2.0 = 30 rpm),
 rss_min_interval_s (default 60 per RESULTS.md), rss_fallback (default True),
 client_id, user_agent.
@@ -69,9 +69,9 @@ import httpx
 
 from stages.lib.normalize import title_norm
 from stages.lib import rawitem
+from stages.lib import state as state_lib
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-STATE_DEFAULT = REPO_ROOT / "state" / "reddit_token.json"
 FIXTURE = REPO_ROOT / "stages" / "lib" / "fixtures" / "reddit_oauth_hot.json"
 
 # --- loid OAuth constants (fetch_reddit.sh / RESULTS.md route A) --------------
@@ -159,9 +159,12 @@ def _proxy_url(cfg: dict) -> Optional[str]:
     return env or _repo_proxy()
 
 
-def _state_path(cfg: dict) -> Path:
-    p = _opt(cfg, "state_path", "token_path", "reddit_token_path")
-    return Path(p) if p else STATE_DEFAULT
+def _state_db(cfg: dict) -> Path:
+    """kv 所在 state.sqlite：state_db/state_path/token_path 等旧键兼容
+    > cfg.storage.state_db（items_db 兜底）> 默认库。"""
+    p = _opt(cfg, "state_db", "state_path", "token_path", "reddit_token_path",
+             "storage.state_db", "storage.items_db")
+    return Path(p) if p else state_lib.DEFAULT_DB
 
 
 def _timeout(cfg: dict) -> float:
@@ -201,21 +204,25 @@ def _limit_from(cfg: dict) -> int:
 
 # ---------------------------------------------------------- state / pace ----
 
-def _load_state(path: Path) -> dict:
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
+def _load_state(cfg: dict) -> dict:
+    conn = state_lib.open_ro(_state_db(cfg))
+    if conn is None:
         return {}
-
-
-def _save_state(path: Path, state: dict) -> None:
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1),
-                       encoding="utf-8")
-        os.replace(tmp, path)
-    except OSError:
+        return state_lib.kv_get(conn, state_lib.KV_REDDIT_TOKEN) or {}
+    finally:
+        conn.close()
+
+
+def _save_state(cfg: dict, tok: dict) -> None:
+    try:
+        conn = state_lib.open(_state_db(cfg))
+        try:
+            with conn:
+                state_lib.kv_set(conn, state_lib.KV_REDDIT_TOKEN, tok)
+        finally:
+            conn.close()
+    except Exception:
         pass  # cache loss is non-fatal; token just gets re-minted next run
 
 
@@ -320,14 +327,13 @@ def _mint_token(client: httpx.Client, cfg: dict, state: dict) -> dict:
         "loid": str(uuid.uuid4()),
         "minted_at": datetime.now(timezone.utc).isoformat(),
     })
-    _save_state(_state_path(cfg), state)
+    _save_state(cfg, state)
     return state
 
 
 def _ensure_token(client: httpx.Client, cfg: dict,
                   force: bool = False) -> dict:
-    path = _state_path(cfg)
-    state = _load_state(path)
+    state = _load_state(cfg)
     if (not force and state.get("access_token")
             and float(state.get("expiry_ts") or 0) > time.time()):
         return state
@@ -420,7 +426,7 @@ def _fetch_json_route(client: httpx.Client, sub: str, cfg: dict) -> list[dict]:
             "Authorization": f"Bearer {state['access_token']}",
             "x-reddit-loid": state.get("loid") or str(uuid.uuid4()),
         })
-        _save_state(_state_path(cfg), state)
+        _save_state(cfg, state)
         if r.status_code == 401 and attempt == 1:
             continue                        # expired early → re-mint once
         resp = r
@@ -534,7 +540,7 @@ def _fetch_rss_route(client: httpx.Client, sub: str, cfg: dict,
         feed = f"https://www.reddit.com/r/{sub}/new/.rss?limit={limit}"
     min_iv = float(_opt(cfg, "rss_min_interval_s", default=60.0 / RSS_RPM))
     r = _request(client, "GET", feed, state, min_iv)
-    _save_state(_state_path(cfg), state)
+    _save_state(cfg, state)
     if r.status_code != 200:
         raise RedditError(f"http_{r.status_code}",
                           f"rss {feed}: {r.text[:200]}", status=r.status_code)
@@ -586,7 +592,7 @@ def fetch_sub(sub: str, cfg: Optional[dict] = None) -> list[dict]:
         raise oauth_err
     # route B: anonymous .rss — heavily throttled, separate slower pacing;
     # reload state so its last_request_wall reflects the oauth attempt
-    state = _load_state(_state_path(cfg))
+    state = _load_state(cfg)
     with _client(cfg, BROWSER_UA) as client:
         try:
             return _fetch_rss_route(client, sub, cfg, state)

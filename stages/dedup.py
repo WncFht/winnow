@@ -3,7 +3,7 @@
 输入：runs/<date>/30_summaries.jsonl（必需，缺则 fail-fast 提示先跑 just filter）
       runs/<date>/10_raw_items.jsonl（可选 join：url/url_canon/_source）
       runs/<date>/20_filtered.jsonl（可选 join：news_value 选同日代表）
-      state/history.sqlite（跨天比对集，真源）
+      state/state.sqlite（dedup_items/dedup_clusters 跨天比对集，真源）
 
 处理顺序（与 §7.2 一致）：
   1) 同日聚类（跨天之前）：
@@ -24,7 +24,7 @@
 嵌入约定（校准自 experiments/dedup-history README：instruct 前缀显著
 扩大 keep/dup 间距，必须用）：
   - check() 用 instruct(query) 向量做 cos 比对；
-  - 入库 items.embed / centroid 一律 doc 向量（schema 注释"doc 侧无 instruct"）；
+  - 入库 dedup_items.embed / centroid 一律 doc 向量（schema 注释"doc 侧无 instruct"）；
   - check 之后把刚写入的 item 行 embed 改回 doc 向量并 _recompute_cluster，
     保持不变量 centroid = 成员 doc embed 均值。
 
@@ -43,12 +43,12 @@ CLI：
   uv run stages/dedup.py --backfill <raw_items.jsonl> [--db P|--state D]  # 冷启动回填
   uv run stages/dedup.py --selftest                     # 合成 fixture 端到端
 
-  --db P   直接给 history.sqlite 文件路径；
-  --state D 给跨天 state 目录（取 <D>/history.sqlite），与 --db 互斥。
-  --items-db P  条目池 items.sqlite（默认 config.storage.items_db > state/items.sqlite）；
+  --db P   直接给 state.sqlite 文件路径；
+  --state D 给跨天 state 目录（取 <D>/state.sqlite），与 --db 互斥。
+  --items-db P  条目池所在 state.sqlite（默认 config.storage.state_db）；
            cmd_run 写完 35_dedup.jsonl 后把 dedup 列投影进池（file-first，失败只告警）。
   --run-dir 的末级目录必须是期号 YYYY-MM-DD（episode/day 由它派生，
-  非日期名会 fail-fast exit 2，且不触碰 history.sqlite）。
+  非日期名会 fail-fast exit 2，且不触碰 state.sqlite）。
 """
 
 from __future__ import annotations
@@ -64,7 +64,7 @@ from pathlib import Path
 
 import numpy as np
 
-from stages.lib import meta, normalize, pool, prog, prompts, simhash, store
+from stages.lib import meta, normalize, pool, prog, prompts, simhash, state, store
 from stages.lib import embed as embedlib
 from adapters import llm_swe2max as llm
 from contracts import models as cm
@@ -155,7 +155,7 @@ def _norm_judge_out(out) -> dict:
 def _hist_for_ctx(conn, ctx: dict) -> dict:
     """把命中 cluster 的成员拼成判词的"已报道"侧（cross_day / 批量共用）。"""
     members = conn.execute(
-        "SELECT title, summary, source, day FROM items"
+        "SELECT title, summary, source, day FROM dedup_items"
         " WHERE cluster_id=? ORDER BY day, item_id LIMIT 6",
         (ctx["cluster_id"],)).fetchall()
     seen, sums = set(), []
@@ -257,26 +257,21 @@ def _resolve_run_dir(s: str) -> Path:
 
 
 def _resolve_db(cli_db: str | None, cli_state: str | None = None) -> Path:
-    """--db 文件 > --state 目录（其下 history.sqlite）> config.storage > state/。"""
+    """--db 文件 > --state 目录（其下 state.sqlite）> config.storage > state/。"""
     if cli_db:
         return Path(cli_db)
     if cli_state:
         p = Path(cli_state)
-        # 兼容直接给文件路径；目录则取其下 history.sqlite
+        # 兼容直接给文件路径；目录则取其下 state.sqlite
         if p.is_file() or p.suffix.lower() in (".sqlite", ".sqlite3", ".db"):
             return p
-        return p / "history.sqlite"
-    doc = meta.load_config()
-    hp = (doc.get("storage") or {}).get("history_db")
-    if hp:
-        q = Path(hp)
-        return q if q.is_absolute() else REPO / q
-    return REPO / "state" / "history.sqlite"
+        return p / "state.sqlite"
+    return state.resolve_path(None, meta.load_config())
 
 
 def _resolve_items_db(cli_arg: str | None) -> Path:
-    """--items-db > config.storage.items_db > state/items.sqlite（同 _resolve_db 约定）。"""
-    return pool.resolve_path(cli_arg, meta.load_config())
+    """--items-db > config.storage.state_db > state/state.sqlite。"""
+    return state.resolve_path(cli_arg, meta.load_config())
 
 
 def load_items(run_dir: Path) -> list[dict]:
@@ -491,7 +486,7 @@ def same_day_cluster(items: list[dict], judge: Judge,
 def _fix_stored_embed(conn, item_id: int, cluster_id: int, doc_vec,
                       cmpset: "store.CmpSet | None" = None) -> None:
     """check() 吃的是 instruct query 向量；落库改成 doc 并重算 centroid。"""
-    conn.execute("UPDATE items SET embed=? WHERE item_id=?",
+    conn.execute("UPDATE dedup_items SET embed=? WHERE item_id=?",
                  (store._v2b(np.asarray(doc_vec, dtype=np.float32).tolist()), item_id))
     store._recompute_cluster(conn, cluster_id, cmpset=cmpset)
 
@@ -575,7 +570,7 @@ def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
     # 不会被读），query embed 只给未见过 url 的条目算。跨天 rep 大多来自
     # 昨日 carryover，~46% 直接省掉。
     uh_hist = {r[0] for r in conn.execute(
-        "SELECT url_hash FROM items WHERE url_hash != ''")}
+        "SELECT url_hash FROM dedup_items WHERE url_hash != ''")}
     q_idx = [i for i, it in enumerate(items)
              if not it.get("url_hash") or it["url_hash"] not in uh_hist]
     log(f"[dedup] url 前置: {len(items) - len(q_idx)}/{len(items)} 条 url 已在库"
@@ -711,7 +706,7 @@ def cmd_run(args) -> int:
     run_dir = _resolve_run_dir(args.run_dir)
     episode = run_dir.name
     if not _DATE_RE.fullmatch(episode):
-        # episode/day 由 run-dir 末级派生并写进 history.sqlite（expires_at
+        # episode/day 由 run-dir 末级派生并写进 state.sqlite（expires_at
         # 比较/写库都依赖它是 ISO 日期）——非日期名必须在触碰 DB 前 fail-fast。
         print(f"[dedup] --run-dir 末级目录必须是期号 runs/<YYYY-MM-DD>"
               f"（得到 {episode!r}）；也可直接传期号：--run-dir <YYYY-MM-DD>",
@@ -734,7 +729,7 @@ def cmd_run(args) -> int:
                   f"删空簇 {st['clusters_deleted']}")
         else:
             replay_uh = {r[0] for r in conn.execute(
-                "SELECT url_hash FROM items WHERE day=? AND url_hash<>?",
+                "SELECT url_hash FROM dedup_items WHERE day=? AND url_hash<>?",
                 (episode, store._EMPTY_SHA1))}
         expired = store.expire_clusters(conn, today=episode)
         provs: list = []
@@ -773,12 +768,13 @@ def cmd_run(args) -> int:
                 items_db = _resolve_items_db(args.items_db)
                 pconn = pool.init_db(items_db)
                 try:
-                    n_pool = pool.write_dedup(pconn, rows)
+                    with pconn:
+                        n_pool = pool.write_dedup(pconn, rows)
                 finally:
                     pconn.close()
                 print(f"[dedup] pool: {n_pool} 行 dedup 列回写 → {items_db}")
             except Exception as e:
-                print(f"[dedup] WARN items.sqlite 回写失败（不影响文件管线）: "
+                print(f"[dedup] WARN state.sqlite 回写失败（不影响文件管线）: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
     vc = {}
     for r in rows:
@@ -858,7 +854,7 @@ def cmd_backfill(args) -> int:
     for idx, (it, vec) in enumerate(zip(items, E), 1):
         p.tick(idx, (it["title"] or "")[:28])
         uh = store.url_hash(it["url_canon"]) if it["url_canon"] else ""
-        if uh and conn.execute("SELECT 1 FROM items WHERE url_hash=? LIMIT 1",
+        if uh and conn.execute("SELECT 1 FROM dedup_items WHERE url_hash=? LIMIT 1",
                                (uh,)).fetchone():
             n_skip += 1
             continue
@@ -880,7 +876,7 @@ def cmd_backfill(args) -> int:
 def _selftest(args) -> int:
     work = REPO / "out" / "dedup_selftest"
     work.mkdir(parents=True, exist_ok=True)
-    db = work / "history.sqlite"
+    db = work / "state.sqlite"
     for p in (db, Path(str(db) + "-wal"), Path(str(db) + "-shm")):
         p.unlink(missing_ok=True)
 
@@ -1015,8 +1011,8 @@ def _selftest(args) -> int:
         bad = [x for x in fresh_v if x not in ("fresh", "gray")]
         assert not bad, f"fresh 组出现意外 verdict: {fresh_v}"
     assert len(set(cids[5:])) == len(cids[5:]), "fresh 应各自新 cluster"
-    n_clusters = conn.execute("SELECT COUNT(*) FROM clusters").fetchone()[0]
-    n_items = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    n_clusters = conn.execute("SELECT COUNT(*) FROM dedup_clusters").fetchone()[0]
+    n_items = conn.execute("SELECT COUNT(*) FROM dedup_items").fetchone()[0]
     print(f"\n[selftest] OK — verdicts={ {x: v.count(x) for x in set(v)} }, "
           f"db: {n_clusters} clusters/{n_items} items, judge_calls={judge.calls}")
     return 0
@@ -1027,11 +1023,11 @@ def _selftest(args) -> int:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="story-line dedup (PLAN §7.2)")
     ap.add_argument("--run-dir", help="runs/<date>")
-    ap.add_argument("--db", help="history.sqlite 路径（默认 config.storage 或 state/）")
+    ap.add_argument("--db", help="state.sqlite 路径（默认 config.storage.state_db 或 state/）")
     ap.add_argument("--state",
-                    help="跨天 state 目录（取 <dir>/history.sqlite；与 --db 互斥）")
+                    help="跨天 state 目录（取 <dir>/state.sqlite；与 --db 互斥）")
     ap.add_argument("--items-db",
-                    help="items.sqlite 路径（默认 config.storage.items_db 或 state/items.sqlite）")
+                    help="state.sqlite 路径（默认 config.storage.state_db 或 state/state.sqlite）")
     ap.add_argument("--no-judge", action="store_true",
                     help="禁用 LLM judge：灰区全落 gray_pending（离线/调试）")
     ap.add_argument("--rerun", action="store_true",

@@ -2,7 +2,7 @@
 """stages/collect.py — 采集层（docs/PLAN.md §5 + §4 契约）。
 
 输入  : sources.yaml（唯一人工维护源注册表）+ config.yaml|config.example.yaml
-        + state/seen.json + state/source_health.json
+        + state/state.sqlite:source_state（seen/health 双列）
 处理  : preflight(§5.4) → 每源 method 分派（rss|atom|youtube_rss → feedparser；
         json_api → 具名 adapter + 通用 JSON walker；sitemap_diff|changelog_diff
         → URL diff 产 signal 条目；x → 四路级联 lib.x_nitter→lib.x_ssr→
@@ -13,8 +13,8 @@
         归一 → 正文补抓 pass（content_text<200 字或 signal → trafilatura）→
         媒体 pass（防盗链图床本地化 runs/<date>/media/）
 输出  : 10_raw_items.jsonl (raw_item/1) + 11_raw_manifest.json (raw_manifest/1)
-        + state/seen.json + state/source_health.json + 00_meta 登记
-        + data/raw_cache/<date>/<src>/ 原文留档
+        + state/state.sqlite（source_state + items/item_runs 单事务）
+        + 00_meta 登记 + data/raw_cache/<date>/<src>/ 原文留档
 
 布局  : 本文件只做编排（preflight → 分派 → 归一 → 正文/媒体 pass → 落盘）。
         源形适配器在 stages/lib/sources/{feed,api,diff}.py；文本/构造 helper
@@ -42,8 +42,8 @@ feed_url 模板：sources.yaml 的 feed_url/failover 可写相对日期占位符
       uv run stages/collect.py --manual URL [--title T]
       其余 flag：--sources PATH（源注册表，缺省 repo 根 sources.yaml）、
       --config PATH、--max-content-fetches N（正文补抓全局预算，缺省 600）、
-      --items-db PATH（跨期条目池，缺省 config.storage.items_db →
-      state/items.sqlite；仅真·日期 run-dir 才写池）
+      --items-db PATH（持久态库 state.sqlite，缺省 config.storage.state_db →
+      state/state.sqlite；仅真·日期 run-dir 才写条目池）
 """
 from __future__ import annotations
 
@@ -68,7 +68,7 @@ import yaml  # noqa: E402
 
 from contracts.models import RawItem, RawManifest  # noqa: E402
 from stages.lib import http as lhttp  # noqa: E402
-from stages.lib import meta, normalize, pool, prog, rawitem  # noqa: E402
+from stages.lib import meta, normalize, pool, prog, rawitem, state  # noqa: E402
 from stages.lib.sources import api as src_api  # noqa: E402
 from stages.lib.sources import common as src_common  # noqa: E402
 from stages.lib.sources import diff as src_diff  # noqa: E402
@@ -80,8 +80,6 @@ UTC = timezone.utc
 
 ITEMS_NAME = "10_raw_items.jsonl"
 MANIFEST_NAME = "11_raw_manifest.json"
-SEEN_PATH = REPO / "state" / "seen.json"
-HEALTH_PATH = REPO / "state" / "source_health.json"
 
 CONTENT_MIN = 200                    # <200 字 → 正文补抓
 
@@ -132,13 +130,6 @@ def _is_walled_img(url: str) -> bool:
 
 
 # ============================================================= load state ===
-
-def _load_json(path: Path, default):
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return default
-
 
 def _save_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1001,30 +992,50 @@ def _update_health(health: dict, stat: dict, run_date: str) -> None:
               "updated_at": normalize.utcnow()})
 
 
-def _pool_upsert(args, cfg: dict, run_dir: Path, run_date: str,
+def _pool_upsert(conn, run_dir: Path, run_date: str,
                  items: list[dict], sources: list[dict]) -> None:
-    """采批 → 跨期条目池 state/items.sqlite（lib/pool.py）。
+    """采批 → 条目池 items/item_runs（lib/pool.py；调用方持事务）。
 
     仅真·日期目录（runs/YYYY-MM-DD）且日期 ≤ 今日(Asia/Shanghai) 才写池——
-    _doctor/手工目录与未来日期不污染。池写失败只记 warning，绝不炸 collect。
+    _doctor/手工目录与未来日期不污染。
     """
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", run_dir.name) \
             or run_dir.name > _today_sh():
         return
+    st = pool.upsert_items(
+        conn, items, run_date,
+        {s["name"]: bool(s.get("daily")) for s in sources})
+    log.info("pool_upserted episode=%s %s", run_date,
+             json.dumps(st, ensure_ascii=False))
+
+
+def _persist_state(args, cfg: dict, run_dir: Path, run_date: str,
+                   items: list[dict], sources: list[dict],
+                   seen: Optional[dict] = None,
+                   health: Optional[dict] = None) -> None:
+    """状态单事务落盘：source_state(seen+health) + 条目池 upsert。
+
+    在产物（_write_outputs）之后调用；seen/health 与池写同一 commit，
+    失败整体回滚→重跑整期重做（幂等）。seen/health 传 None 则跳过
+    （manual 分支不碰源状态）。池写单独 SAVEPOINT 兜底：数据问题
+    只回滚池写、记 warning，不炸 collect。
+    """
+    conn = state.open(state.resolve_path(getattr(args, "items_db", None), cfg))
     try:
-        conn = pool.init_db(pool.resolve_path(
-            getattr(args, "items_db", None), cfg))
-        try:
-            st = pool.upsert_items(
-                conn, items, run_date,
-                {s["name"]: bool(s.get("daily")) for s in sources})
-        finally:
-            conn.close()
-        log.info("pool_upserted episode=%s %s", run_date,
-                 json.dumps(st, ensure_ascii=False))
-    except Exception as e:
-        log.warning("pool upsert failed (non-fatal): %s: %s",
-                    type(e).__name__, e)
+        with conn:
+            if seen is not None or health is not None:
+                state.save_source_state(conn, seen, health)
+            conn.execute("SAVEPOINT pool_write")
+            try:
+                _pool_upsert(conn, run_dir, run_date, items, sources)
+            except Exception as e:
+                conn.execute("ROLLBACK TO pool_write")
+                log.warning("pool upsert failed (non-fatal): %s: %s",
+                            type(e).__name__, e)
+            finally:
+                conn.execute("RELEASE pool_write")
+    finally:
+        conn.close()
 
 
 def run(args) -> int:
@@ -1049,8 +1060,12 @@ def run(args) -> int:
         sources = sources[: args.max_sources]
 
     with meta.run_lock(run_dir):
-        seen = _load_json(SEEN_PATH, {})
-        health = _load_json(HEALTH_PATH, {})
+        sconn = state.open(state.resolve_path(
+            getattr(args, "items_db", None), cfg))
+        try:
+            seen, health = state.load_source_state(sconn)
+        finally:
+            sconn.close()
         win = _window(run_date)
         ctx = Ctx(args, cfg, run_dir, seen, win)
 
@@ -1068,7 +1083,7 @@ def run(args) -> int:
             old = [o for o in old if o.get("item_key") != v["item_key"]] + [v]
             _write_outputs(run_dir, old, _manifest(run_date, win, old, ctx,
                                                  note="manual"))
-            _pool_upsert(args, cfg, run_dir, run_date, old, sources)
+            _persist_state(args, cfg, run_dir, run_date, old, sources)
             print(json.dumps(v, ensure_ascii=False, indent=1)[:2000])
             return 0
 
@@ -1145,14 +1160,13 @@ def run(args) -> int:
                 ent["urls"] = list(dict.fromkeys(
                     list(merged_in) +
                     [u for u in (ent.get("urls") or []) if u]))[:src_common.SEEN_URL_CAP]
-        _save_json(SEEN_PATH, seen)
-        _save_json(HEALTH_PATH, health)
 
-        # ---------------- manifest + jsonl ----------------
+        # ---------------- manifest + jsonl（产物先于状态落盘） ----------------
         manifest = _manifest(run_date, win, deduped, ctx,
                              preflight=pre, degraded=degraded)
         _write_outputs(run_dir, deduped, manifest)
-        _pool_upsert(args, cfg, run_dir, run_date, deduped, sources)
+        _persist_state(args, cfg, run_dir, run_date, deduped, sources,
+                       seen, health)
         meta.stage_done(run_dir, "collect", ITEMS_NAME, status="done",
                         extra={"n_items": len(deduped)})
 
@@ -1173,7 +1187,15 @@ def run(args) -> int:
             if bad_sources:
                 for n in bad_sources:
                     health[n]["alerted"] = True
-                _save_json(HEALTH_PATH, health)
+                conn = state.open(state.resolve_path(
+                    getattr(args, "items_db", None), cfg))
+                try:
+                    with conn:
+                        state.save_source_state(
+                            conn,
+                            health={n: health[n] for n in bad_sources})
+                finally:
+                    conn.close()
                 _ntfy(cfg, "源连败告警",
                       f"连续失败≥3: {', '.join(bad_sources[:8])}",
                       tags=["warning"])
@@ -1291,8 +1313,15 @@ def selftest(args) -> int:
     cfg = load_cfg(args.config)
     (run_dir / "logs").mkdir(parents=True, exist_ok=True)
     win = _window(_today_sh())
-    # selftest 用独立 seen（不写真 state）—— clone 内存态，落盘到 run_dir
-    seen = _load_json(SEEN_PATH, {})
+    # selftest 只读借 seen（不写真 state）—— clone 内存态，落盘到 run_dir
+    seen = {}
+    sconn = state.open_ro(state.resolve_path(
+        getattr(args, "items_db", None), cfg))
+    if sconn is not None:
+        try:
+            seen, _ = state.load_source_state(sconn)
+        finally:
+            sconn.close()
     ctx = Ctx(args, cfg, run_dir, seen, win)
     pre = preflight(cfg, ctx.proxy_url)
     ctx.proxy_ok = bool(pre.get("proxy_ok"))
@@ -1352,8 +1381,8 @@ def main() -> int:
     p.add_argument("--max-content-fetches", type=int, default=600,
                    help="正文补抓全局上限（防高产源刷流量）")
     p.add_argument("--items-db", default=None,
-                   help="条目池 items.sqlite 路径"
-                        "（默认 config.storage.items_db > state/items.sqlite）")
+                   help="持久态库 state.sqlite 路径"
+                        "（默认 config.storage.state_db > state/state.sqlite）")
     p.add_argument("--manual", metavar="URL", default=None,
                    help="手工入口：抓单 URL 走同一管道")
     p.add_argument("--title", default=None, help="--manual 可选标题")

@@ -3,7 +3,7 @@
 斩断全仓唯一一条 stage→stage import 边（review_server 曾 `from stages import
 gate_select as gs` 拿它当工具箱）。这里是纯函数/常量层：候选/选定文件名、
 slug 化、selected/1 校验（lint + 可选 pydantic）、run_dir 解析、本阶段
-config、items.sqlite used 回写。候选构建/写盘/CLI 仍留在
+config、state.sqlite used 回写。候选构建/写盘/CLI 仍留在
 stages/gate_select.py。
 """
 from __future__ import annotations
@@ -61,7 +61,7 @@ def _daily_map() -> dict:
 
 def load_config(items_db: str | None = None) -> dict:
     """config.yaml > config.example.yaml；取本阶段需要的 schedule/storage/pool
-    字段 + sources.yaml 的 daily_map。--items-db CLI 覆盖 storage.items_db
+    字段 + sources.yaml 的 daily_map。--items-db CLI 覆盖 storage.state_db
     （与 collect/filter/dedup 的 --items-db 约定相同）。"""
     cfg = meta.load_config()
     sch = cfg.get("schedule") or {}
@@ -71,8 +71,8 @@ def load_config(items_db: str | None = None) -> dict:
         "topk_autopick": int(sch.get("topk_autopick") or 14),
         "max_items": int(sch.get("max_items") or 20),
         "gate1_deadline": str(sch.get("gate1_deadline") or "08:30"),
-        "items_db": str(items_db or sto.get("items_db") or "state/items.sqlite"),
-        "history_db": str(sto.get("history_db") or "state/history.sqlite"),
+        "state_db": str(items_db or sto.get("state_db") or sto.get("items_db")
+                        or "state/state.sqlite"),
         "arrival_grace_days": int(pcfg.get("arrival_grace_days") or 2),
         # None 缺省→14；显式 0 保留（=wfrom 下限，子句 C 整体关闭）
         "carry_stale_max_days": int(pcfg["carry_stale_max_days"])
@@ -179,7 +179,7 @@ def pydantic_validate(doc: dict) -> list[str]:
 
 def mark_used(run_dir: Path, episode: str, keys,
               items_db: str | None = None) -> "int | None":
-    """出片标记：kept keys -> items.sqlite used_in_episode=episode（只标记不清除，
+    """出片标记：kept keys -> items.used_in_episode=episode（只标记不清除，
     force 重提交不会抹掉既有标记）。
 
     items_db 直给时跳过 config 读取（--items-db 覆盖路径，同 build_candidates
@@ -193,7 +193,7 @@ def mark_used(run_dir: Path, episode: str, keys,
     try:
         if items_db is None:
             try:
-                items_db = load_config().get("items_db")
+                items_db = load_config().get("state_db")
             except ImportError:
                 items_db = None     # review_server 环境无 yaml：退默认池路径
         db = pool.resolve_path(items_db)
@@ -201,6 +201,6 @@ def mark_used(run_dir: Path, episode: str, keys,
             return 0                    # 池未启用：无物可标
         return pool.mark_used(db, str(episode), ks)
     except Exception as e:
-        eprint(f"[gate_select] WARN items.sqlite used 标记失败（{SEL_NAME} 已写，"
+        eprint(f"[gate_select] WARN state.sqlite used 标记失败（{SEL_NAME} 已写，"
                f"权威不受影响）: {type(e).__name__}: {e}")
         return None

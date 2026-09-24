@@ -2,7 +2,7 @@
 """x_nitter.py — X/Twitter 采集路①：nitter 实例池（docs/PLAN.md §5.3）。
 
 fetch_user(handle, cfg, *, diag=None, run_dir=None) -> list[raw_item dict]
-    按持久化健康分（state/x_nitter_health.json：成功 +1 / 失败 -2）排序并
+    按持久化健康分（state.sqlite kv:x_nitter_health：成功 +1 / 失败 -2）排序并
     在 top 实例间轮换，经代理抓 https://<inst>/<handle>/rss，把 nitter RSS
     解析为 raw_item/1 契约 dict；link/guid 中的 status id 重写回
     https://x.com/<user>/status/<id> —— 跨实例去重身份不依赖实例域名。
@@ -58,10 +58,10 @@ from stages.lib import fetchloop             # noqa: E402
 from stages.lib import http as _http          # noqa: E402
 from stages.lib import normalize as _norm     # noqa: E402
 from stages.lib import rawitem               # noqa: E402
+from stages.lib import state                 # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EXP_DIR = REPO_ROOT / "stages" / "lib" / "seeds" / "x_nitter"
-HEALTH_PATH = REPO_ROOT / "state" / "x_nitter_health.json"
 
 # 2026-09-21 实测验证（notes.md）：meowing.monster 主、jaydenha.uk 备、
 # thepixora 慢备（nitter.thepixora.com 307 → shitter.thepixora.com）。
@@ -195,32 +195,37 @@ def instance_pool(cfg: Any) -> list[str]:
 
 # --------------------------------------------------------------- health ----
 
-def _health_path(cfg: Any = None) -> Path:
-    p = _cfg_get(cfg, "x_collector.health_file") if cfg is not None else None
-    p = p or os.environ.get("X_NITTER_HEALTH")
-    return Path(p) if p else HEALTH_PATH
+def _state_db(cfg: Any = None) -> Path:
+    """kv 所在 state.sqlite：x_collector.state_db > X_NITTER_STATE_DB env
+    > cfg.storage.state_db（旧键 items_db 兜底）> 默认库。"""
+    p = _cfg_get(cfg, "x_collector.state_db") if cfg is not None else None
+    p = p or os.environ.get("X_NITTER_STATE_DB")
+    if not p and cfg is not None:
+        p = _cfg_get(cfg, "storage.state_db") or _cfg_get(cfg, "storage.items_db")
+    return Path(p) if p else state.DEFAULT_DB
 
 
 def _load_health(cfg: Any = None) -> dict:
-    p = _health_path(cfg)
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(data, dict) and isinstance(
-                data.get("instances"), dict):
-            data.setdefault("rr", 0)
-            return data
-    except (OSError, json.JSONDecodeError):
-        pass
+    conn = state.open_ro(_state_db(cfg))
+    data = None
+    if conn is not None:
+        try:
+            data = state.kv_get(conn, state.KV_NITTER_HEALTH)
+        finally:
+            conn.close()
+    if isinstance(data, dict) and isinstance(data.get("instances"), dict):
+        data.setdefault("rr", 0)
+        return data
     return {"schema": "x_nitter_health/1", "rr": 0, "instances": {}}
 
 
 def _save_health(health: dict, cfg: Any = None) -> None:
-    p = _health_path(cfg)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(json.dumps(health, ensure_ascii=False, indent=1) + "\n",
-                   encoding="utf-8")
-    os.replace(tmp, p)
+    conn = state.open(_state_db(cfg))
+    try:
+        with conn:
+            state.kv_set(conn, state.KV_NITTER_HEALTH, health)
+    finally:
+        conn.close()
 
 
 def _utcnow() -> str:
@@ -502,11 +507,11 @@ if __name__ == "__main__":
 
     # --- 离线：健康分/轮换/全灭 ---------------------------------------------
     tmp_state = (Path.home() / ".cache" / "winnow_xnitter_selftest"
-                 / "x_nitter_health.json")
+                 / "x_nitter_state.sqlite")
     tmp_state.parent.mkdir(parents=True, exist_ok=True)
     if tmp_state.exists():
         tmp_state.unlink()
-    os.environ["X_NITTER_HEALTH"] = str(tmp_state)
+    os.environ["X_NITTER_STATE_DB"] = str(tmp_state)
     cfg_off = {"x_collector": {"nitter_instances": ["nitter.jaydenha.uk",
                                                     "nitter.meowing.monster"],
                              "max_attempts": 2},
@@ -535,7 +540,7 @@ if __name__ == "__main__":
     finally:
         globals()["instance_pool"] = _orig_pool
     print("offline: health scoring + rotation + AllRoutesDead OK")
-    os.environ.pop("X_NITTER_HEALTH")
+    os.environ.pop("X_NITTER_STATE_DB")
 
     # --- live：≥4 实例经代理逐探测 + fetch_user 端到端 -----------------------
     if not offline:
@@ -567,7 +572,7 @@ if __name__ == "__main__":
         if probe_n < 4:
             fails.append(f"only {probe_n} instances probed")
         # 端到端（用临时 health，不污染真实 state）
-        os.environ["X_NITTER_HEALTH"] = str(tmp_state)
+        os.environ["X_NITTER_STATE_DB"] = str(tmp_state)
         try:
             d: dict = {}
             out = fetch_user("OpenAI", cfg_live, diag=d)
@@ -581,7 +586,7 @@ if __name__ == "__main__":
         except AllRoutesDead as e:
             print(f"fetch_user AllRoutesDead: {e}")
         finally:
-            os.environ.pop("X_NITTER_HEALTH")
+            os.environ.pop("X_NITTER_STATE_DB")
         if probe_n >= 4:
             print(f"live probe done: {probe_n} instances attempted")
     else:

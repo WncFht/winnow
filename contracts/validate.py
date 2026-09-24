@@ -55,8 +55,8 @@ def _sha256_file(p: Path) -> str:
 #   frames-manifest 62.overlays 每 (item,kind) ∈ 64.files（src 存在）∪ missing
 #   manifest-hash   63_cards/64_frames/61_audio manifest 所列文件 sha256 复验
 #   hash-chain      80.inputs.* == "sha256:"+上游文件当前哈希（陈旧=上游改了没重建）
-#   db-consistency  items_db（validate_run 参数 > config.storage.items_db >
-#                   state/items.sqlite，与 stages 各 --items-db 约定同）在场且
+#   db-consistency  state_db（validate_run 参数 > config.storage.state_db >
+#                   state/state.sqlite，与 stages 各 --items-db 约定同）在场且
 #                   run_dir 为日期名才查：kept 条目 items.used_in_episode==episode
 #                   [error]；>20% 10_raw key 缺席 items 表 → collect-upsert
 #                   健康度告警 [warn]
@@ -161,14 +161,14 @@ def _load_jsonl(run, name, V):
     return rows, ok
 
 
-def _resolve_items_db(items_db=None) -> Path:
-    """显式参数 > config.storage.items_db（config.yaml > config.example.yaml）
-    > state/items.sqlite；相对路径基于 repo 根（stages --items-db 同约定）。
+def _resolve_state_db(state_db=None) -> Path:
+    """显式参数 > config.storage.state_db > storage.items_db（旧键兜底）
+    > state/state.sqlite；相对路径基于 repo 根（stages --items-db 同约定）。
 
     yaml 惰性 import 且全 try 兜底——contracts 只硬依赖 pydantic，无 yaml /
-    无配置文件时安静落到默认池路径。"""
-    if items_db:
-        p = Path(items_db)
+    无配置文件时安静落到默认库路径。"""
+    if state_db:
+        p = Path(state_db)
         return p if p.is_absolute() else REPO_ROOT / p
     for name in ("config.yaml", "config.example.yaml"):
         f = REPO_ROOT / name
@@ -178,19 +178,20 @@ def _resolve_items_db(items_db=None) -> Path:
         try:
             import yaml
             doc = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-            rel = (doc.get("storage") or {}).get("items_db")
+            sto = doc.get("storage") or {}
+            rel = sto.get("state_db") or sto.get("items_db")
         except Exception:
             rel = None
         if rel:
             p = Path(str(rel))
             return p if p.is_absolute() else REPO_ROOT / p
         break
-    return REPO_ROOT / "state" / "items.sqlite"
+    return REPO_ROOT / "state" / "state.sqlite"
 
 
-def validate_run(run_dir, items_db=None):
-    """run 级跨字段校验。items_db 显式给定时 db-consistency 查该池
-    （scratch 池/非默认配置用），否则按 _resolve_items_db 解析。"""
+def validate_run(run_dir, state_db=None):
+    """run 级跨字段校验。state_db 显式给定时 db-consistency 查该库
+    （scratch 库/非默认配置用），否则按 _resolve_state_db 解析。"""
     run = Path(run_dir)
     violations, checked, skipped = [], [], []
     if not run.is_dir():
@@ -582,7 +583,7 @@ def validate_run(run_dir, items_db=None):
 
     # ---------- db-consistency（条目池在场才查；只读连接） ----------
     episode = run.name
-    db = _resolve_items_db(items_db)
+    db = _resolve_state_db(state_db)
     if re.fullmatch(r"\d{4}-\d{2}-\d{2}", episode) and db.is_file():
         try:
             conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True,
@@ -641,9 +642,9 @@ if __name__ == "__main__":
         description="run 级跨字段校验器（PLAN §4）")
     _ap.add_argument("run_dir", help="runs/<date> 目录")
     _ap.add_argument("--items-db", default=None, metavar="P",
-                     help="条目池 items.sqlite 路径"
-                          "（默认 config.storage.items_db > state/items.sqlite）")
+                     help="持久态库 state.sqlite 路径"
+                          "（默认 config.storage.state_db > state/state.sqlite）")
     _args = _ap.parse_args()
-    _rep = validate_run(_args.run_dir, items_db=_args.items_db)
+    _rep = validate_run(_args.run_dir, state_db=_args.items_db)
     _print_report(_args.run_dir, _rep)
     sys.exit(0 if _rep["ok"] else 1)

@@ -6,7 +6,7 @@ Lifts the verified flow from experiments/weibo-monitor + weibo-stability-probe:
 - Visitor cookie minted via POST https://visitor.passport.weibo.cn/visitor/genvisitor2
   (body ``cb=visitor_gray_callback&tid=&from=weibo&webdriver=false``, mobile UA,
   Referer weibo.com) → ``{"sub","subp"}`` → Cookie header ``SUB=..; SUBP=..``.
-- Cached at ``state/weibo_cookie.json`` (mint time + last request ts inside the
+- Cached at ``state/state.sqlite`` kv:weibo_cookie (mint time + last request ts inside the
   same file). Re-minted automatically when a call returns any 4xx or body
   ``"ok":-100`` (sso signin sentinel) — one remint+retry per call.
 - Timeline: GET m.weibo.cn/api/container/getIndex?type=uid&value=<uid> →
@@ -25,7 +25,7 @@ API:
     fetch_source(src, cfg)      -> routes a sources.yaml method:weibo entry
 
 cfg (dict, all optional):
-    state_dir      default <repo>/state        (cookie + ratelimit file)
+    state_db       default <repo>/state/state.sqlite (cookie kv:weibo_cookie)
     min_interval   default 3.0 s               (≤20rpm)
     timeout        default 20
     max_items      default 30
@@ -74,6 +74,7 @@ import httpx  # noqa: E402
 from stages.lib.http import get as http_get, save_raw  # noqa: E402
 from stages.lib.normalize import title_norm  # noqa: E402
 from stages.lib import rawitem  # noqa: E402
+from stages.lib import state  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -102,14 +103,35 @@ _OK_NEG = re.compile(r'"ok"\s*:\s*(-?\d+)')
 
 # ------------------------------------------------------------------ cfg ----
 
-def _state_dir(cfg) -> Path:
-    d = Path(cfg.get("state_dir") or (REPO_ROOT / "state"))
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+def _state_db(cfg) -> Path:
+    """kv 所在 state.sqlite：cfg.state_db/state_path > cfg.storage.* > 默认库。"""
+    p = (cfg.get("state_db") or cfg.get("state_path")
+         or (cfg.get("storage") or {}).get("state_db")
+         or (cfg.get("storage") or {}).get("items_db"))
+    return Path(p) if p else state.DEFAULT_DB
 
 
-def _cookie_path(cfg) -> Path:
-    return _state_dir(cfg) / "weibo_cookie.json"
+def _kv_read(cfg) -> dict:
+    conn = state.open_ro(_state_db(cfg))
+    if conn is None:
+        return {}
+    try:
+        d = state.kv_get(conn, state.KV_WEIBO_COOKIE)
+        return d if isinstance(d, dict) else {}
+    finally:
+        conn.close()
+
+
+def _kv_write(cfg, st: dict) -> None:
+    try:
+        conn = state.open(_state_db(cfg))
+        try:
+            with conn:
+                state.kv_set(conn, state.KV_WEIBO_COOKIE, st)
+        finally:
+            conn.close()
+    except Exception:
+        pass  # cookie cache loss is non-fatal; visitor re-mints next run
 
 
 def _min_interval(cfg) -> float:
@@ -120,21 +142,18 @@ def _min_interval(cfg) -> float:
 
 def _throttle(cfg):
     """Enforce ≥min_interval between weibo requests; persists across runs."""
-    p = _cookie_path(cfg)
     last = 0.0
     try:
-        last = float(json.loads(p.read_text()).get("last_req_at") or 0)
+        last = float(_kv_read(cfg).get("last_req_at") or 0)
     except Exception:
         pass
     wait = _min_interval(cfg) - (time.time() - last)
     if wait > 0:
         time.sleep(wait)
     try:
-        st = json.loads(p.read_text()) if p.is_file() else {}
-        if not isinstance(st, dict):
-            st = {}
+        st = _kv_read(cfg)
         st["last_req_at"] = time.time()
-        p.write_text(json.dumps(st, ensure_ascii=False, indent=1))
+        _kv_write(cfg, st)
     except Exception:
         pass
 
@@ -186,11 +205,10 @@ def _login_cookie(cfg) -> dict | None:
 
 def _ensure_cookie(cfg, *, force=False) -> dict | None:
     """Load cached visitor cookie (fresh < COOKIE_MAX_AGE), else mint; final
-    fallback is a logged-in cookie from cfg/env (never cached to disk)."""
-    p = _cookie_path(cfg)
-    if not force and p.is_file():
+    fallback is a logged-in cookie from cfg/env (never cached)."""
+    if not force:
+        st = _kv_read(cfg)
         try:
-            st = json.loads(p.read_text())
             if st.get("sub") and time.time() - float(st.get("minted_at", 0)) \
                     < COOKIE_MAX_AGE:
                 st["kind"] = "visitor"
@@ -200,12 +218,10 @@ def _ensure_cookie(cfg, *, force=False) -> dict | None:
     ck = _mint_visitor(cfg)
     if ck:
         try:
-            prev = json.loads(p.read_text()) if p.is_file() else {}
-            if not isinstance(prev, dict):
-                prev = {}
+            prev = _kv_read(cfg)
             ck["last_req_at"] = max(time.time(),
                                     float(prev.get("last_req_at") or 0))
-            p.write_text(json.dumps(ck, ensure_ascii=False, indent=1))
+            _kv_write(cfg, ck)
         except Exception:
             pass
         return ck

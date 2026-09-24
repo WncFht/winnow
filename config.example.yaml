@@ -47,8 +47,7 @@ render:
   subtitle_xy: "(main_w-overlay_w)/2:930"   # 字幕 pill 叠加位（render_plan SUB_XY）
   chrome_xy: "0:0"        # 全幅 chrome/sticker 叠加位（render_plan FULL_XY）
 storage:
-  history_db: state/history.sqlite
-  items_db: state/items.sqlite  # 跨期条目池：verdict/summary/used 缓存 + 结转候选源
+  state_db: state/state.sqlite  # 跨期持久态单库：条目池+去重历史+源状态+kv
   raw_cache_days: 30      # 保留位：当前无消费者——实际 GC 是 just gc-cache（文件 mtime 7 天）
 pool:
   # undated/backlog 条目按 first_seen 给的到达宽限天数；daily 源不走此宽限（陈旧不结转）

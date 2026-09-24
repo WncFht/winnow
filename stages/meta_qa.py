@@ -28,8 +28,8 @@
   （ASR round-trip 属对齐后备路径，PLAN §7.9 列为审计项；edge-tts 档未启用
     ——deferred，见 checks.asr。）
 
-回写：store.mark_reported(episode, kept item_keys) → items.verdict='reported'
-  + cluster.published=1；再 expire_clusters 保鲜维护。40_selected 缺失时按
+回写：store.mark_reported(episode, kept item_keys) → dedup_items.verdict='reported'
+  + dedup_clusters.published=1；再 expire_clusters 保鲜维护。40_selected 缺失时按
   sources[].url→raw item_key 兜底映射。
 
 告警（§9 分级）：stage 全成功且零 flags → deadman.ping()；任何 flags →
@@ -58,7 +58,7 @@ from urllib.parse import quote, urlencode
 
 from adapters import alert_ntfy, deadman  # noqa: E402
 from adapters import llm_swe2max as llm  # noqa: E402
-from stages.lib import meta, pool, prog, prompts, store  # noqa: E402
+from stages.lib import meta, pool, prog, prompts, state, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -235,11 +235,8 @@ def _proxy_env(cfg: dict) -> dict:
     return env
 
 
-def _history_db_path(cfg: dict) -> Path:
-    p = str((((cfg or {}).get("storage") or {}).get("history_db"))
-            or "state/history.sqlite")
-    pp = Path(p)
-    return pp if pp.is_absolute() else REPO / pp
+def _state_db_path(cfg: dict) -> Path:
+    return state.resolve_path(None, cfg)
 
 
 # ---------------------------------------------------------------------------
@@ -602,11 +599,12 @@ def link_audit(run_dir: Path, issue: dict, cfg: dict, flags: list,
 # ---------------------------------------------------------------------------
 
 def validate_audit(run_dir: Path, flags: list, cfg: dict | None = None) -> dict:
-    """contracts.validate_run 包装；cfg.storage.items_db 透传给 db-consistency
+    """contracts.validate_run 包装；cfg.storage.state_db 透传给 db-consistency
     （--config 指向 scratch 配置时查的是同一个池，与 writeback 口径一致）。"""
     from contracts.validate import validate_run
-    items_db = (((cfg or {}).get("storage") or {}).get("items_db"))
-    rep = validate_run(run_dir, items_db=items_db)
+    sto = (cfg or {}).get("storage") or {}
+    rep = validate_run(run_dir,
+                       state_db=sto.get("state_db") or sto.get("items_db"))
     for v in rep.get("violations", []):
         flags.append(_flag(v.get("where", "?"),
                            f"validate_{v.get('rule', 'rule')}",
@@ -731,7 +729,7 @@ def _kept_maps(run_dir: Path, issue: dict) -> tuple[list, dict]:
 def writeback(run_dir: Path, issue: dict, cfg: dict, keys: list,
               flags: list) -> dict:
     episode = str(issue.get("date") or issue.get("episode") or run_dir.name)
-    db = _history_db_path(cfg)
+    db = _state_db_path(cfg)
     check = {"db": str(db), "marked": 0, "expired": 0, "skipped": not keys}
     if not keys:
         return check
@@ -743,10 +741,10 @@ def writeback(run_dir: Path, issue: dict, cfg: dict, keys: list,
         conn.close()
     except Exception as e:
         flags.append(_flag("_writeback", "history_writeback_failed", "medium",
-                           str(e)[:80], f"history.sqlite 回写失败: {db}"))
+                           str(e)[:80], f"state.sqlite 回写失败: {db}"))
         check["error"] = str(e)[:120]
         return check
-    # items.sqlite 池回写（独立 try：历史库成功后池失败不拖累主回写）
+    # items 池回写（独立 try：历史侧成功后池失败不拖累主回写）
     try:
         check["pool_marked"] = pool.mark_used(
             pool.resolve_path(None, cfg), episode, keys)
@@ -754,10 +752,10 @@ def writeback(run_dir: Path, issue: dict, cfg: dict, keys: list,
         check["pool_marked"] = 0
         check["pool_error"] = str(e)[:120]
         flags.append(_flag("_writeback", "pool_mark_used_failed", "low",
-                           str(e)[:80], "items.sqlite used_in_episode 回写失败"))
+                           str(e)[:80], "state.sqlite used_in_episode 回写失败"))
     if keys and check["marked"] == 0:
         flags.append(_flag("_writeback", "history_writeback_empty", "medium",
-                           f"{len(keys)} kept keys", "kept 条目不在 history.sqlite（dedup 未跑？）"))
+                           f"{len(keys)} kept keys", "kept 条目不在 state.sqlite dedup_items（dedup 未跑？）"))
     print(f"writeback: marked={check['marked']}/{len(keys)} "
           f"expired={check['expired']} pool_marked={check['pool_marked']} db={db}")
     return check

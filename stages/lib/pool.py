@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""stages/lib/pool.py — 跨期条目池 state/items.sqlite（单文件 WAL，行永不删）。
+"""stages/lib/pool.py — 跨期条目池（state/state.sqlite 的 items/item_runs 表，行永不删）。
 
 一行 = 一条新闻的机械身份（item_key = sha256(url_canon)[:16]），跨 episode
 累积生命周期：collect 每期 upsert 原文列；filter 回写 verdict 列；summary
@@ -29,7 +29,7 @@ stdlib only —— 与 lib/meta.py 同级约定，PEP723 stage 脚本可安全 i
 用法::
     uv run stages/lib/pool.py --selftest              # :memory: 全量自测
     uv run stages/lib/pool.py --import runs/ [--sources sources.yaml] [--model M]
-    uv run stages/lib/pool.py --db state/items.sqlite --stats
+    uv run stages/lib/pool.py --db state/state.sqlite --stats
 """
 
 from __future__ import annotations
@@ -47,10 +47,10 @@ from typing import Callable, Iterable, Optional
 from zoneinfo import ZoneInfo
 
 
-from stages.lib import meta, normalize, rawitem  # noqa: E402
+from stages.lib import meta, normalize, rawitem, state  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_DB = REPO_ROOT / "state" / "items.sqlite"
+DEFAULT_DB = state.DEFAULT_DB
 TZ = ZoneInfo("Asia/Shanghai")
 UTC = timezone.utc
 
@@ -69,48 +69,9 @@ _PLACEHOLDER_REASON = ("coverage-miss", "no-llm")
 
 log = logging.getLogger("pool")
 
-# ---------------------------------------------------------------------------
-# schema（DDL 逐字；user_version=1）
-# ---------------------------------------------------------------------------
+# DDL 已收口 stages/lib/state.py（items/item_runs 表名不变，
+# 与 dedup_* 家族同库）。
 
-SCHEMA = """
-PRAGMA user_version = 1;
-CREATE TABLE IF NOT EXISTS items (
-  item_key TEXT PRIMARY KEY,            -- sha256(url_canon)[:16]
-  url TEXT NOT NULL, url_canon TEXT NOT NULL, title TEXT NOT NULL,
-  content_text TEXT,                     -- <=8000 chars, capped by collect
-  date_published TEXT,                   -- RFC3339 UTC seconds or NULL
-  date_fetched TEXT NOT NULL,
-  language TEXT, image TEXT, raw_ref TEXT,
-  source_name TEXT NOT NULL, source_feed_url TEXT, source_kind TEXT, item_guid TEXT,
-  tags_json TEXT NOT NULL DEFAULT '[]',
-  signal INTEGER NOT NULL DEFAULT 0,     -- sticky MAX(tags has 'signal')
-  daily INTEGER NOT NULL DEFAULT 0,      -- sources.yaml daily: snapshot at collect
-  content_sha TEXT NOT NULL,             -- sha256(title (date_published||'') (content_text||'') source_name)[:16]
-  first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,   -- episode dates 'YYYY-MM-DD'
-  seen_count INTEGER NOT NULL DEFAULT 1,
-  filter_verdict TEXT,                   -- 'keep'|'drop'|'review'; NULL = unjudged
-  ai_relevance REAL, news_value REAL, reasons_json TEXT,
-  verdict_prompt TEXT,                   -- 'filter-v2'|'injection-guard-v1'
-  verdict_model TEXT, verdict_at TEXT,
-  judged_content_sha TEXT,
-  title_zh TEXT, summary TEXT, entities_json TEXT, facts_json TEXT, section_guess TEXT,
-  summary_sha TEXT,                    -- 被概要内容的 content_sha（缓存命中键，非概要指纹）
-  summary_prompt TEXT, summary_model TEXT, summary_at TEXT,
-  dedup_verdict TEXT, dedup_cluster_id INTEGER, dedup_match_cos REAL, dedup_judge TEXT, dedup_at TEXT,
-  used_in_episode TEXT, used_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_items_verdict ON items(filter_verdict);
-CREATE INDEX IF NOT EXISTS idx_items_used ON items(used_in_episode);
-CREATE INDEX IF NOT EXISTS idx_items_pub ON items(date_published);
-CREATE INDEX IF NOT EXISTS idx_items_first ON items(first_seen);
-CREATE INDEX IF NOT EXISTS idx_items_source ON items(source_name);
-CREATE TABLE IF NOT EXISTS item_runs (
-  item_key TEXT NOT NULL REFERENCES items(item_key),
-  episode TEXT NOT NULL,
-  PRIMARY KEY (item_key, episode)
-);
-"""
 
 _BASE_COLS = ("item_key", "url", "url_canon", "title", "content_text",
               "date_published", "date_fetched", "language", "image", "raw_ref",
@@ -227,29 +188,14 @@ def _decoded(d: dict) -> dict:
 # 连接 / 路径 / 窗口
 # ---------------------------------------------------------------------------
 
-def init_db(path) -> sqlite3.Connection:
-    """打开/创建 items.sqlite：WAL + busy_timeout + schema。':memory:' 跑自测。"""
-    p = str(path)
-    if p != ":memory:":
-        Path(p).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(p, timeout=5)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL")
-    except sqlite3.OperationalError:
-        pass  # :memory: 不支持 WAL，忽略
-    conn.execute("PRAGMA foreign_keys=ON")
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.executescript(SCHEMA)
-    conn.commit()
-    return conn
+def init_db(path=None) -> sqlite3.Connection:
+    """打开/创建 state.sqlite 的 items/item_runs 表侧（':memory:' 跑自测）。"""
+    return state.open(path if path is not None else state.DEFAULT_DB)
 
 
-def resolve_path(cli_arg, cfg_doc: Optional[dict] = None) -> Path:
-    """--db > cfg_doc['storage']['items_db'] > state/items.sqlite（相对路径基于 repo 根）。"""
-    rel = ((cfg_doc or {}).get("storage") or {}).get("items_db")
-    p = Path(cli_arg) if cli_arg else (Path(rel) if rel else DEFAULT_DB)
-    return p if p.is_absolute() else REPO_ROOT / p
+def resolve_path(cli_arg=None, cfg_doc: Optional[dict] = None) -> Path:
+    """--db/--items-db > storage.state_db > storage.items_db（旧键）> state/state.sqlite。"""
+    return state.resolve_path(cli_arg, cfg_doc)
 
 
 def window_bounds(episode: str) -> tuple[str, str]:
@@ -354,17 +300,16 @@ def upsert_items(conn: sqlite3.Connection, items: Iterable[dict],
     stats["updated"] = len(keys) - stats["inserted"]
     stats["rejudged"] = sum(1 for c in cols if c["item_key"] in old
                             and old[c["item_key"]] != c["content_sha"])
-    with conn:
-        conn.executemany(_UPSERT_ITEM, cols)
-        conn.executemany(
-            "INSERT OR IGNORE INTO item_runs(item_key,episode) VALUES(?,?)",
-            [(k, episode) for k in keys])
-        for ch in _chunks(keys):
-            q = ",".join("?" * len(ch))
-            conn.execute(
-                "UPDATE items SET seen_count=(SELECT COUNT(*) FROM item_runs r"
-                " WHERE r.item_key=items.item_key)"
-                f" WHERE item_key IN ({q})", ch)
+    conn.executemany(_UPSERT_ITEM, cols)
+    conn.executemany(
+        "INSERT OR IGNORE INTO item_runs(item_key,episode) VALUES(?,?)",
+        [(k, episode) for k in keys])
+    for ch in _chunks(keys):
+        q = ",".join("?" * len(ch))
+        conn.execute(
+            "UPDATE items SET seen_count=(SELECT COUNT(*) FROM item_runs r"
+            " WHERE r.item_key=items.item_key)"
+            f" WHERE item_key IN ({q})", ch)
     return stats
 
 
@@ -395,8 +340,7 @@ def _upsert_judged(conn, items_by_key, rows, extra: dict, sql: str,
         c.update(extra(row, it, k))
         params.append(c)
     if params:
-        with conn:
-            conn.executemany(sql, params)
+        conn.executemany(sql, params)
     return len(params)
 
 
@@ -491,8 +435,7 @@ def write_dedup(conn: sqlite3.Connection, dedup_rows: Iterable[dict]) -> int:
     'fresh'/'reissue'）。
     """
     n = 0
-    with conn:
-        for r in dedup_rows or []:
+    for r in dedup_rows or []:
             k = r.get("item_key")
             if not k:
                 continue
@@ -525,13 +468,21 @@ def mark_used(conn_or_path, episode: str, keys: Iterable[str]) -> int:
     try:
         ks = [k for k in dict.fromkeys(keys or []) if k]
         n, now = 0, _utcnow()
-        with conn:
+
+        def _do():
+            nonlocal n
             for ch in _chunks(ks):
                 q = ",".join("?" * len(ch))
                 n += conn.execute(
                     "UPDATE items SET used_in_episode=?, used_at=?"
                     " WHERE used_in_episode IS NULL"
                     f" AND item_key IN ({q})", (episode, now, *ch)).rowcount
+
+        if own:
+            with conn:
+                _do()
+        else:
+            _do()          # 事务由调用方持有（同 store.py 约定）
         return n
     finally:
         if own:
@@ -857,9 +808,9 @@ def _print_stats(conn: sqlite3.Connection) -> None:
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="跨期条目池 state/items.sqlite")
+    ap = argparse.ArgumentParser(description="跨期条目池 state/state.sqlite")
     ap.add_argument("--db", default=None,
-                    help="items.sqlite 路径（默认 config.storage.items_db > state/）")
+                    help="state.sqlite 路径（默认 config.storage.state_db > state/）")
     ap.add_argument("--import", dest="import_dir", metavar="RUNS_DIR",
                     help="回填 runs/ 下全部 YYYY-MM-DD 目录")
     ap.add_argument("--sources", default=None,

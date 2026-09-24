@@ -615,12 +615,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                         [k["item_key"] for k in doc["kept"]],
                                         items_db=self.server.items_db)
                     if n_mu is None:
-                        errs.append("items.sqlite used 标记失败"
+                        errs.append("state.sqlite used 标记失败"
                                     "（40_selected 已写，权威不受影响）")
                 except Exception as e:
                     print(f"[review_server] WARN mark_used: {e}",
                           file=sys.stderr)
-                    errs.append(f"items.sqlite used 标记异常: {e}")
+                    errs.append(f"state.sqlite used 标记异常: {e}")
         except Exception as e:
             self._send_json(500, {"ok": False, "error": f"write failed: {e}"})
             return
@@ -692,8 +692,8 @@ def main(argv=None) -> int:
     ap.add_argument("--port", type=int,
                     default=int(environ.get("REVIEW_PORT", "8923")))
     ap.add_argument("--items-db", default=None,
-                    help="items.sqlite 路径（used 回写目标；默认 "
-                         "config.storage.items_db > state/items.sqlite）")
+                    help="state.sqlite 路径（used 回写目标；默认 "
+                         "config.storage.state_db > state/state.sqlite）")
     args = ap.parse_args(argv)
     run_dir = sk.resolve_run_dir(args.run_dir)
     # 运行态登记放在 serve_forever 前一刻：serve 期间存活条目即"等人工勾选"

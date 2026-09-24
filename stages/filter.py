@@ -5,7 +5,7 @@
         rulebook.md + aliases.json + config.yaml(llm/storage 段)
 处理  :
   1) normalize: url_canon/item_key 重算（机械身份）+ title_norm
-  2) L0: store.url_hash 命中 state/history.sqlite → 跳过 LLM，
+  2) L0: store.url_hash 命中 state/state.sqlite(dedup_items) → 跳过 LLM，
      20 行记 verdict=drop（理由注明 dedup 将标 suppressed/dup_exact），
      同时写一条本地兜底概要进 30（不烧 LLM，保证 35 可审计留痕）
   3) 批式相关性门: prompts.FILTER_PROMPT(rulebook 全文, <item_data> 包裹)
@@ -15,7 +15,7 @@
   4) keep|review 逐条 SUMMARY_PROMPT（线程池并发，默认 4 路）→
      title_zh/summary/entities/facts/section_guess；别名归一后未命中
      实体回流 state/alias_suggestions.jsonl
-  5) 条目池缓存（state/items.sqlite，--no-llm/--no-pool 时完全断开）：
+  5) 条目池缓存（state/state.sqlite items 表，--no-llm/--no-pool 时完全断开）：
      判定命中条件 judged_content_sha==content_sha 且 prompt/model 未变；
      概要命中条件 summary_sha（被概要内容的 content_sha）+prompt+model。
      判定/概要回写先于文件落盘——池是主记录，20/30 是可重放投影；
@@ -24,8 +24,8 @@
         30_summaries.jsonl (summary/1)
 
 用法: uv run stages/filter.py --run-dir runs/2026-09-22 [--limit N]
-      [--config config.yaml] [--db state/history.sqlite] [--jobs 4] [--no-llm]
-      [--items-db state/items.sqlite] [--no-pool]
+      [--config config.yaml] [--db state/state.sqlite] [--jobs 4] [--no-llm]
+      [--items-db state/state.sqlite] [--no-pool]
 """
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ from pathlib import Path
 
 from adapters import llm_swe2max as llm  # noqa: E402
 from contracts.models import FilterVerdict, RawItem, Summary  # noqa: E402
-from stages.lib import meta, normalize, pool, prog, prompts, store  # noqa: E402
+from stages.lib import meta, normalize, pool, prog, prompts, state, store  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 RULEBOOK_PATH = REPO / "rulebook.md"
@@ -259,17 +259,19 @@ def load_items(run_dir: Path, limit: int | None) -> tuple[list[dict], list]:
 
 
 def l0_lookup(items: list[dict], db_path: Path | None) -> dict:
-    """url_hash 精确命中 history → {item_key: 命中行标题}。库不存在 → 空集。"""
+    """url_hash 精确命中 dedup_items → {item_key: 命中行标题}。库缺席 → 空集。"""
     if not db_path or not Path(db_path).exists():
         return {}
-    conn = store.init_db(str(db_path))
+    conn = state.open_ro(db_path)
+    if conn is None:
+        return {}
     for it in items:
         it["_url_hash"] = store.url_hash(it["url_canon"])
     hashes = sorted({it["_url_hash"] for it in items if it["_url_hash"]})
     found: dict[str, str] = {}
     for i in range(0, len(hashes), 500):       # SQLite 变量上限 999，留余量
         chunk = hashes[i:i + 500]
-        q = ("SELECT url_hash, title FROM items WHERE url_hash IN ("
+        q = ("SELECT url_hash, title FROM dedup_items WHERE url_hash IN ("
              + ",".join("?" * len(chunk)) + ")")
         for r in conn.execute(q, chunk):
             found.setdefault(r["url_hash"], r["title"])
@@ -532,7 +534,7 @@ def run_summaries(items: list[dict], verdicts: dict, l0: dict, cfg: dict,
 
     aux: summary_hits = 池概要缓存命中数（summary_sha==content_sha 且
     prompt/model 未变，命中行重跑别名归一后原样放出）；
-    fresh_rows = 本轮真 LLM 概要行（调用方回写 items.sqlite 用——本地
+    fresh_rows = 本轮真 LLM 概要行（调用方回写 state.sqlite 用——本地
     兜底/no-llm 行不在其列）。
     sum_batch=1 退回逐条路径（调试用）。
     """
@@ -603,7 +605,7 @@ def _repair_summaries(pconn, episode: str, cfg: dict, aliases: dict,
                       p: prog.Prog | None = None,
                       sum_batch: int = _SUM_BATCH) -> int:
     """结转条目补概要：池内 keep|review + 窗口超集 + summary 缺席的行，
-    走同一条 LLM 概要路径写回 items.sqlite——pool-only，不进
+    走同一条 LLM 概要路径写回 state.sqlite——pool-only，不进
     30_summaries（那些键不在当期批）。返回实际写入行数。"""
     wfrom, wto = pool.window_bounds(episode)
     grace_days = int((cfg_doc.get("pool") or {}).get("arrival_grace_days") or 2)
@@ -652,13 +654,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="PLAN §7.1 filter stage")
     ap.add_argument("--run-dir", required=True, help="runs/<date>")
     ap.add_argument("--config", default=None, help="config.yaml 路径")
-    ap.add_argument("--db", default=None, help="history.sqlite（默认 config.storage.history_db）")
+    ap.add_argument("--db", default=None,
+                    help="state.sqlite（默认 config.storage.state_db）")
     ap.add_argument("--limit", type=int, default=0, help="只处理前 N 条（测试用）")
     ap.add_argument("--batch-size", type=int, default=0, help="覆盖 llm.batch_size")
     ap.add_argument("--jobs", type=int, default=4, help="LLM 并发数（判定批/概要/修复共用）")
     ap.add_argument("--no-llm", action="store_true", help="不调网关：全部 review（冒烟用）")
     ap.add_argument("--items-db", default=None,
-                    help="items.sqlite 路径（默认 config.storage.items_db > state/）")
+                    help="state.sqlite 路径（默认 config.storage.state_db）")
     ap.add_argument("--no-pool", action="store_true",
                     help="禁用条目池读写（池缓存完全断开，同 --no-llm 的池行为）")
     ap.add_argument("--summary-batch", type=int, default=_SUM_BATCH,
@@ -680,11 +683,7 @@ def main() -> int:
         batch_size = args.batch_size or int(cfg.get("batch_size") or 24)
 
         cfg_doc = meta.load_config(args.config)
-        if args.db:
-            db_path = Path(args.db)
-        else:
-            db_path = REPO / ((cfg_doc.get("storage") or {}).get("history_db")
-                              or "state/history.sqlite")
+        db_path = state.resolve_path(args.db, cfg_doc)
 
         episode = run_dir.name
         is_date = bool(_DATE_RE.fullmatch(episode))
@@ -695,7 +694,7 @@ def main() -> int:
             try:
                 pconn = pool.init_db(pool.resolve_path(args.items_db, cfg_doc))
             except Exception as e:
-                print(f"[filter] WARN items.sqlite 打开失败，池缓存停用: "
+                print(f"[filter] WARN state.sqlite 打开失败，池缓存停用: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
         pool_rows = (pool.get_many(pconn, [it["item_key"] for it in items])
                      if pconn is not None else {})
@@ -728,15 +727,16 @@ def main() -> int:
                         r = {**r, "prov": {**r["prov"],
                                            "prompt": "injection-guard-v1"}}
                     vrows.append(r)
-                n_v = pool.write_verdicts(
-                    pconn, by_key, vrows,
-                    lambda k: ("injection-guard-v1" if k in guarded
-                               else prompts.PROMPT_VERSIONS["filter"]),
-                    episode=episode)
+                with pconn:
+                    n_v = pool.write_verdicts(
+                        pconn, by_key, vrows,
+                        lambda k: ("injection-guard-v1" if k in guarded
+                                   else prompts.PROMPT_VERSIONS["filter"]),
+                        episode=episode)
                 if n_v:
                     print(f"[filter] pool: {n_v} 行判定回写")
             except Exception as e:
-                print(f"[filter] WARN items.sqlite 判定回写失败（不影响文件管线）: "
+                print(f"[filter] WARN state.sqlite 判定回写失败（不影响文件管线）: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
         meta.atomic_write(run_dir / OUT_FILTER, _jsonl(ordered))
         meta.stage_done(run_dir, "filter", OUT_FILTER,
@@ -762,21 +762,24 @@ def main() -> int:
         # 概要回写先于 30_summaries 落盘（同上：池是主记录）；只写真 LLM 行。
         if pconn is not None and is_date and saux["fresh_rows"]:
             try:
-                n_s = pool.write_summaries(pconn, by_key, saux["fresh_rows"],
-                                           episode=episode)
+                with pconn:
+                    n_s = pool.write_summaries(pconn, by_key,
+                                               saux["fresh_rows"],
+                                               episode=episode)
                 if n_s:
                     print(f"[filter] pool: {n_s} 行概要回写")
             except Exception as e:
-                print(f"[filter] WARN items.sqlite 概要回写失败（不影响文件管线）: "
+                print(f"[filter] WARN state.sqlite 概要回写失败（不影响文件管线）: "
                       f"{type(e).__name__}: {e}", file=sys.stderr)
         meta.atomic_write(run_dir / OUT_SUMMARY, _jsonl(summaries))
         # 结转修补：池内 keep|review 无概要的条目补概要（pool-only，不进 30）
         repair_n = 0
         if pconn is not None and is_date:
             try:
-                repair_n = _repair_summaries(
-                    pconn, episode, cfg, aliases, args.jobs, set(by_key),
-                    cfg_doc, p=sp, sum_batch=args.summary_batch)
+                with pconn:
+                    repair_n = _repair_summaries(
+                        pconn, episode, cfg, aliases, args.jobs, set(by_key),
+                        cfg_doc, p=sp, sum_batch=args.summary_batch)
                 if repair_n:
                     print(f"[filter] pool: repair {repair_n} 行结转概要")
             except Exception as e:

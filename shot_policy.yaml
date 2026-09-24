@@ -1,0 +1,41 @@
+# shot_policy.yaml — 来源页截图域名策略表（PLAN.md §7.6）
+#
+# shotlib 按 URL host 做后缀匹配："x.com" 命中 x.com / www.x.com / mobile.x.com。
+# action ∈ screenshot | placeholder | x_embed：
+#   placeholder → 不发起页面导航，直接渲染 1920×1080 品牌占位卡；
+#   x_embed     → 不导航 x.com 本体，走 cdn.syndication.twimg.com
+#                 tweet-result JSON 自绘品牌推文卡（页面本体是硬 403 墙，
+#                 但官方 embed 端点直连可达）；
+#   screenshot  → 默认路径，途中再遇墙（HTTP≥400 / captcha 文案 / 空白图 /
+#                 浏览器错误页）仍自动降级占位卡，不阻塞流水线
+#                （失败记录进 cards 阶段 missing[]）。
+# rules 可选 proxy 键："direct" 或显式代理 URL——作为首次尝试的路由
+# （重试仍回落 env→config 默认链，两条出口各抽几次签）。
+default: screenshot
+
+rules:
+  - match: x.com
+    action: x_embed
+    reason: "403 botwall — 改走 syndication 推文卡（2026-09-24 实测直连可达）"
+  - match: twitter.com
+    action: x_embed
+    reason: "重定向至 x.com → 同上走 syndication 推文卡"
+  - match: reuters.com
+    action: placeholder
+    reason: "TLS 层全路被重置（直连/代理/浏览器均 000，2026-09-24 实测）——直接占位省空转"
+  - match: openai.com
+    action: screenshot
+    proxy: direct
+    reason: "clash 出口吃 Vercel chunk 403 / CF 挑战页；直连干净（2026-09-24 实测 4/4）"
+  - match: mp.weixin.qq.com
+    action: placeholder
+    reason: "风控墙 flake — 截图常落到环境异常/验证页"
+
+# Cloudflare cf-chl 前置域：headless chromium 基本必拍到 "Just a moment" 挑战页。
+# 种子为 matrix 实测命中项；新域名确认 walled 后追加于此。
+cloudflare_fronted:
+  action: placeholder
+  reason: "cf-chl 挑战页会被烤进截图"
+  domains:
+    - science.org
+    - www.science.org
