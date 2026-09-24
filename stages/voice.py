@@ -63,7 +63,7 @@ F_VTT = "62_episode.vtt"
 FULL_WAV = f"{AUDIO_DIR}/voice_full.wav"
 WORDS_SUFFIX = ".words.json"          # boundaries sidecar：断点续跑保留 words
 SHA_SUFFIX = ".textsha"               # text_sha sidecar：manifest 缺失时裸 mp3 也能续跑
-TTS_DICT = REPO / "state" / "tts_dict.yaml"
+TTS_DICT = REPO / "tts_dict.yaml"
 
 # §7.5 校准值；config.yaml `timeline:` 段或 CLI 可覆盖
 D_LEAD_IN, D_TAIL = 0.6, 0.8
@@ -706,7 +706,7 @@ def main() -> int:
     ap.add_argument("--voice", default=None, help="覆盖 config.tts.voice")
     ap.add_argument("--rate", default=None, help="edge-tts rate，如 +15%")
     ap.add_argument("--tts-dict", type=Path, default=None,
-                    help="发音词典，缺省 state/tts_dict.yaml")
+                    help="发音词典，缺省 tts_dict.yaml（仓库根）")
     ap.add_argument("--lead-in", type=float, default=None)
     ap.add_argument("--tail", type=float, default=None)
     ap.add_argument("--gap-sentence", type=float, default=None)
