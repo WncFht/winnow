@@ -493,7 +493,6 @@ def _fix_stored_embed(conn, item_id: int, cluster_id: int, doc_vec,
     """check() 吃的是 instruct query 向量；落库改成 doc 并重算 centroid。"""
     conn.execute("UPDATE items SET embed=? WHERE item_id=?",
                  (store._v2b(np.asarray(doc_vec, dtype=np.float32).tolist()), item_id))
-    conn.commit()
     store._recompute_cluster(conn, cluster_id, cmpset=cmpset)
 
 
@@ -565,8 +564,13 @@ def _batch_prejudge(conn, items: list[dict], groups: list, judge: Judge,
 def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
                  emb: embedlib.Embedder,
                  log=print, p: prog.Prog | None = None,
-                 judge_batch: int = 0) -> list[dict]:
-    """同日聚类 → 跨天级联 → 35 行（输入序）。返回 rows。"""
+                 judge_batch: int = 0,
+                 replay_uh: "set | None" = None) -> list[dict]:
+    """同日聚类 → 跨天级联 → 35 行（输入序）。返回 rows。
+
+    replay_uh：本 run 开始前 day 已落库的 url_hash 集（rerun 幂等——
+    rep/sib 命中即重放行内 verdict，不判不写）。None=不重放。
+    """
     # url_hash 前置：url 已在库的条目走 check() 的 dup_exact 短路（向量根本
     # 不会被读），query embed 只给未见过 url 的条目算。跨天 rep 大多来自
     # 昨日 carryover，~46% 直接省掉。
@@ -635,9 +639,10 @@ def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
             return judge.cross_day(conn, it, ctx)   # 漂移/漏拍 -> 单条兜底
 
         r = store.check(conn, chk_item, judge_fn=_jfn,
-                        today=day, cmpset=cmpset)
-        _fix_stored_embed(conn, r["item_id"], r["cluster_id"], rep["embed_doc"],
-                          cmpset=cmpset)
+                        today=day, cmpset=cmpset, replay_uh=replay_uh)
+        if not r.get("replayed"):
+            _fix_stored_embed(conn, r["item_id"], r["cluster_id"],
+                              rep["embed_doc"], cmpset=cmpset)
         jdict = r.get("judge")
         if not isinstance(jdict, dict):
             jdict = {"via": r["via"],
@@ -649,7 +654,9 @@ def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
         rows[rep_i] = _row(rep["item_key"], r["verdict"], r["cluster_id"],
                            r.get("cos"), jdict)
         log(f"  rep  {rep['item_key'][:8]} {r['verdict']:10s} via={r['via']:9s}"
-            f" cos={r.get('cos')} cid={r['cluster_id']} «{rep['title_zh'][:30]}»")
+            f" cos={r.get('cos')} cid={r['cluster_id']}"
+            f"{' [replay]' if r.get('replayed') else ''}"
+            f" «{rep['title_zh'][:30]}»")
 
         # 同日 sibling：并入 rep 的 cluster，suppressed（可审计）
         for si in g[1:]:
@@ -661,18 +668,30 @@ def run_pipeline(conn, items: list[dict], judge: Judge, day: str,
                 cos = float(np.asarray(rep["embed_doc"], dtype=np.float64) @
                             np.asarray(sib["embed_doc"], dtype=np.float64))
             cos = round(float(cos), 4)
+            # rerun 重放：sib 当日行已存在 → 直接重放行内 verdict/judge
+            sib_uh = sib.get("url_hash")
+            rep_row = (store.replay_row(conn, sib_uh, day)
+                       if replay_uh and sib_uh and sib_uh in replay_uh
+                       else None)
+            if rep_row is not None:
+                rj = rep_row["judge"] if isinstance(rep_row["judge"], dict) \
+                    else {"via": rep_row["via"]}
+                rows[si] = _row(sib["item_key"], rep_row["verdict"],
+                                rep_row["cluster_id"], rep_row.get("cos"), rj)
+                log(f"  sib  {sib['item_key'][:8]} {rep_row['verdict']:10s}"
+                    f" via={rep_row['via']:9s} [replay]"
+                    f" cid={rep_row['cluster_id']} «{sib['title_zh'][:30]}»")
+                continue
             sib_item = dict(sib)
             sib_item["embed"] = sib["embed_doc"]      # doc 侧入库
+            sib_judge = {"via": "same_day", "rep": rep["item_key"],
+                         "label": d.get("label"), "ham": d.get("ham")}
             store.add_item(conn, sib_item, r["cluster_id"],
-                                 verdict="suppressed",
-                                 judge={"via": "same_day", "rep": rep["item_key"],
-                                        "label": d.get("label"),
-                                        "cos": cos, "ham": d.get("ham")},
-                                 match_cos=cos, cmpset=cmpset)
+                           verdict="suppressed", judge=sib_judge,
+                           match_cos=cos, via="same_day", cmpset=cmpset)
             store._recompute_cluster(conn, r["cluster_id"], cmpset=cmpset)
             rows[si] = _row(sib["item_key"], "suppressed", r["cluster_id"], cos,
-                            {"via": "same_day", "rep": rep["item_key"],
-                             "label": d.get("label"), "ham": d.get("ham")})
+                            sib_judge)
             log(f"  sib  {sib['item_key'][:8]} suppressed via=same_day "
                 f"cos={cos} cid={r['cluster_id']} «{sib['title_zh'][:30]}»")
         if p:
@@ -704,6 +723,19 @@ def cmd_run(args) -> int:
     with meta.run_lock(run_dir):
         meta.stage_begin(run_dir)    # 锁内登记：RMW 串行化 + running==持锁语义
         conn = store.init_db(db)
+        # rerun 幂等两层：--rerun 显式重算先 purge 当日痕迹；否则默认同日
+        # 重放——replay_uh=run 开始前当日已落库 url_hash 集，命中的 rep/sib
+        # 直接重放行内 verdict（零写零 LLM，35_dedup.jsonl 逐字节复现）。
+        if args.rerun:
+            st = store.purge_episode(conn, episode)
+            replay_uh = None
+            print(f"[dedup] --rerun: purge_episode({episode}) → "
+                  f"删 {st['items']} 行，重算 {st['clusters_recomputed']} 簇，"
+                  f"删空簇 {st['clusters_deleted']}")
+        else:
+            replay_uh = {r[0] for r in conn.execute(
+                "SELECT url_hash FROM items WHERE day=? AND url_hash<>?",
+                (episode, store._EMPTY_SHA1))}
         expired = store.expire_clusters(conn, today=episode)
         provs: list = []
         cfg = None
@@ -720,10 +752,13 @@ def cmd_run(args) -> int:
                       interval=30.0)
         prepare_features(items, emb, episode, p=p)
         print(f"[dedup] run_dir={run_dir} db={db} items={len(items)}"
-              f" expired={expired} judge={'on' if judge.ok else 'OFF'}")
+              f" expired={expired} judge={'on' if judge.ok else 'OFF'}"
+              f" replay={len(replay_uh) if replay_uh else 0}")
         rows = run_pipeline(conn, items, judge, episode, emb, p=p,
-                            judge_batch=args.judge_batch)
+                            judge_batch=args.judge_batch,
+                            replay_uh=replay_uh)
         p.close()
+        conn.commit()   # 整期写相位单事务：expire/purge/级联/兄弟挂全部原子
         meta.atomic_write(run_dir / "35_dedup.jsonl", _dump_jsonl(rows))
         meta.stage_done(run_dir, "dedup", "35_dedup.jsonl", status="done",
                         extra={"n_items": len(items),
@@ -755,6 +790,7 @@ def cmd_run(args) -> int:
 def cmd_split(args) -> int:
     conn = store.init_db(_resolve_db(args.db, args.state))
     ncid = store.split_cluster(conn, int(args.split))
+    conn.commit()
     print(json.dumps({"op": "split", "cluster_id": int(args.split),
                       "new_cluster_id": ncid}, ensure_ascii=False))
     return 0 if ncid is not None else 1
@@ -764,6 +800,7 @@ def cmd_merge(args) -> int:
     conn = store.init_db(_resolve_db(args.db, args.state))
     a, b = int(args.merge[0]), int(args.merge[1])
     cid = store.merge_clusters(conn, a, b)
+    conn.commit()
     print(json.dumps({"op": "merge", "surviving": cid, "merged": b},
                      ensure_ascii=False))
     return 0
@@ -773,6 +810,7 @@ def cmd_unexpire(args) -> int:
     """expire 的逆操作：误跑 expire（或非日期 today 污染）后恢复比对集。"""
     conn = store.init_db(_resolve_db(args.db, args.state))
     n = store.unexpire_clusters(conn, today=args.day)
+    conn.commit()
     print(json.dumps({"op": "unexpire", "restored": n, "today":
                       args.day or date.today().isoformat()},
                      ensure_ascii=False))
@@ -826,7 +864,7 @@ def cmd_backfill(args) -> int:
             continue
         it["embed"] = vec
         cid = store.add_cluster(conn, it["title"], it["day"], vec)
-        store.add_item(conn, it, cid, verdict="reported")
+        store.add_item(conn, it, cid, verdict="reported", via="backfill")
         store._recompute_cluster(conn, cid)   # → published=1 + doc centroid
         n_add += 1
     p.close()
@@ -996,6 +1034,9 @@ def main(argv=None) -> int:
                     help="items.sqlite 路径（默认 config.storage.items_db 或 state/items.sqlite）")
     ap.add_argument("--no-judge", action="store_true",
                     help="禁用 LLM judge：灰区全落 gray_pending（离线/调试）")
+    ap.add_argument("--rerun", action="store_true",
+                    help="显式重算本期：先 purge 当日判重痕迹再全量重跑"
+                    "（默认 rerun 走同日重放，零写零 judge 逐字节复现）")
     ap.add_argument("--judge-batch", type=int, default=0, metavar="K",
                     help="跨天灰区批量预判：先只读扫描出待判对，K 对/call 并发"
                     "判完再逐 rep apply（写序不变、漂移回落单条 judge）；"

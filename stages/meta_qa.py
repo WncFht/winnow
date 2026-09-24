@@ -726,6 +726,7 @@ def writeback(run_dir: Path, issue: dict, cfg: dict, keys: list,
         conn = store.init_db(db)
         check["marked"] = store.mark_reported(conn, episode, keys)
         check["expired"] = store.expire_clusters(conn, today=episode)
+        conn.commit()
         conn.close()
     except Exception as e:
         flags.append(_flag("_writeback", "history_writeback_failed", "medium",
