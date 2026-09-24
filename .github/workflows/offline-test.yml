@@ -26,5 +26,8 @@ jobs:
       - name: playwright chromium
         run: uv run playwright install --with-deps chromium
 
+      - name: upstream card renderer deps
+        run: npm ci --prefix upstream/juya-news-card
+
       - name: offline regression matrix
         run: just test
