@@ -61,7 +61,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from stages.lib import meta, pool, prog  # stages/lib/{meta,pool,prog}.py（stages.lib 包）
+from stages.lib import meta, pool, prog, rawitem  # stages/lib/{meta,pool,prog}.py（stages.lib 包）
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -748,17 +748,13 @@ def _run_lock(run_dir: Path):
 
 
 def _fixture_item(i: int, url_suffix: str = "") -> dict:
-    import hashlib
     url = f"https://example.com/news/{i}{url_suffix}"
-    key = hashlib.sha256(url.encode()).hexdigest()[:16]
-    return key, {
-        "schema": "raw_item/1", "item_key": key, "id": key, "url": url,
-        "url_canon": url, "title": f"GPT-{i} released with benchmark {10+i}%",
-        "content_text": f"fixture body {i}", "date_published": None,
-        "date_fetched": "2099-01-01T01:00:00+08:00",
-        "_source": {"name": f"Src{i}", "feed_url": "https://example.com/feed", "kind": "rss"},
-        "_fetch": {"status": 200, "via": "direct", "reachable": True},
-    }
+    it = rawitem.build(
+        url, source_name=f"Src{i}", feed_url="https://example.com/feed",
+        kind="rss", date_fetched="2099-01-01T01:00:00+08:00",
+        title=f"GPT-{i} released with benchmark {10+i}%",
+        content_text=f"fixture body {i}")
+    return it["item_key"], it
 
 
 def _prov() -> dict:
