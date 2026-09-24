@@ -25,6 +25,7 @@ import json
 import re
 import secrets
 import socketserver
+import subprocess
 import sys
 import threading
 from collections import Counter
@@ -676,6 +677,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
         }
 
 
+def _iface_urls(port: int, token: str) -> list[str]:
+    """每张全局 IPv4 网卡一条带 token 的 URL —— firewalld 各 zone 放通不同
+    （本机 eno1=public 拦 8923、tailscale0=trusted 直通），全列出让用户挑能通的。"""
+    try:
+        out = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show", "scope", "global"],
+            capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return []
+    urls = []
+    for line in out.splitlines():
+        cols = line.split()
+        if len(cols) >= 4 and cols[2] == "inet":
+            urls.append(f"http://{cols[3].split('/')[0]}:{port}/?t={token}"
+                        f" ({cols[1]})")
+    return urls
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="人工闸 1 勾选 UI（PLAN §7.3）")
     ap.add_argument("--run-dir", required=True)
@@ -733,8 +752,9 @@ def main(argv=None) -> int:
         srv.items_db = args.items_db
         srv.prog = p
         n_cand = len(env.get("candidates")) if env else 0
-        print(f"[review_server] http://127.0.0.1:{args.port}/?t={token} "
-              f"(局域网 http://<本机IP>:{args.port}/?t={token}) — {run_dir}",
+        urls = [f"http://127.0.0.1:{args.port}/?t={token} (本机)"]
+        urls += _iface_urls(args.port, token)
+        print(f"[review_server] {run_dir}\n  " + "\n  ".join(urls),
               file=sys.stderr)
         p.say(f"serving :{args.port} — {n_cand} candidates，等人工勾选")
         meta.stage_begin(run_dir, "review_server")
