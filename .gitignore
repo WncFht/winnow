@@ -1,11 +1,25 @@
 # secrets / runtime state
 secrets.env
+# 凭据兜底：env/key/pem/cookies/netrc 一律不入库（*.env.example 模板除外）。
+# 已跟踪的历史 probe 档案（experiments/*/cookies.txt、cacert.pem 等）不受
+# 影响——ignore 只管 untracked；确需新增请 git add -f 显式放行。
+.env
+*.env
+!*.env.example
+*.key
+*.pem
+.netrc
+cookies*.txt
 # 本地覆盖（engine 切换等）；模板走 config.example.yaml
 config.yaml
 state/
 data/
 runs/
+# …但 artifact-contracts 的 golden run 是 selftest fixture（测试资产）。
+# 注意 git 不重入被排目录：豁免须连 runs/ 目录本体一起否定。
+!experiments/artifact-contracts/runs/
 .claude/
+.vscode/
 
 # python / node
 node_modules/
