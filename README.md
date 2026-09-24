@@ -15,6 +15,8 @@ Winnow turns the daily AI-news firehose into a finished, narrated mp4 — while 
 - **Single-file state** — `state/state.sqlite` carries the cross-episode item pool, dedup history, source health and kv in one WAL file.
 - **Offline-tested end to end** — a `just test` suite of selftests plus a golden-run fixture gates every commit in CI; no network needed.
 
+![One real episode winnowed — 150 sources → 3,273 items → 20 picked → 1 narrated video](docs/assets/winnow-funnel-en.png)
+
 Everything is driven by `just`. `docs/PLAN.md` is the single source of truth for design decisions; `docs/deploy.md` walks through setup and which services to configure. Document output is planned next.
 
 ## Pipeline overview

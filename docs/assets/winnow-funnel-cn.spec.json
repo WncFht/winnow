@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "theme": "paper",
+  "rc": {
+    "font": "sans",
+    "base": 8.4
+  },
+  "size": {
+    "slot": "full",
+    "height": 2.7
+  },
+  "meta": {
+    "ledger": "sankey dir:h 4列；节点=条目集合的终局去向，缎带宽∝条数(守恒 3273=1610+1663, 1610=461+143+995+11, 461=20+441)；raw=vink 全部抓取；evaluated=vteal 过判存活(含池内 standing keep/review 的 L0 复活条目)；candidates=vteal_edge 浓缩候选；selected=vgold 人选；dropped=vcoral 过滤判弃；suppressed=vgray 去重压制；window=vorange 日期出窗；aired=vorange_edge 已播出；pool=vmist 回池。单位只到条；20→编辑→47段→mp4 是变换非分流，走 note 不走缎带。数据源 runs/2026-09-23/{10_raw_items,20_filtered,40_candidates,40_selected,60_voice_script,80_build_manifest}",
+    "caption": "Winnow · 2026-09-23 真实一期 · 缎带宽 ∝ 条数 · 未选候选回池明天再评"
+  },
+  "title": "150 源 → 3,273 条 → 20 入选 → 1 期成片",
+  "xaxis": {
+    "lim": [
+      -0.7,
+      4.4
+    ]
+  },
+  "series": [
+    {
+      "kind": "sankey",
+      "dir": "h",
+      "gap": 0.04,
+      "width": 0.11,
+      "flows": [
+        {
+          "source": "raw",
+          "target": "evaluated",
+          "value": 1610
+        },
+        {
+          "source": "raw",
+          "target": "dropped",
+          "value": 1663
+        },
+        {
+          "source": "evaluated",
+          "target": "cand",
+          "value": 461
+        },
+        {
+          "source": "evaluated",
+          "target": "window",
+          "value": 995
+        },
+        {
+          "source": "evaluated",
+          "target": "supp",
+          "value": 143
+        },
+        {
+          "source": "evaluated",
+          "target": "aired",
+          "value": 11
+        },
+        {
+          "source": "cand",
+          "target": "sel",
+          "value": 20
+        },
+        {
+          "source": "cand",
+          "target": "pool",
+          "value": 441
+        }
+      ],
+      "nodes": [
+        {
+          "id": "raw",
+          "stage": 0,
+          "label": "原始条目",
+          "color": "vink"
+        },
+        {
+          "id": "evaluated",
+          "stage": 1,
+          "label": "通过初筛",
+          "order": 0,
+          "color": "vteal"
+        },
+        {
+          "id": "dropped",
+          "stage": 1,
+          "label": "过滤判弃",
+          "order": 1,
+          "color": "vcoral"
+        },
+        {
+          "id": "cand",
+          "stage": 2,
+          "label": "候选",
+          "order": 0,
+          "color": "vteal_edge"
+        },
+        {
+          "id": "window",
+          "stage": 2,
+          "label": "日期出窗",
+          "order": 1,
+          "color": "vorange"
+        },
+        {
+          "id": "supp",
+          "stage": 2,
+          "label": "去重压制",
+          "order": 2,
+          "color": "vgray"
+        },
+        {
+          "id": "aired",
+          "stage": 2,
+          "label": "已播出",
+          "order": 3,
+          "color": "vorange_edge"
+        },
+        {
+          "id": "sel",
+          "stage": 3,
+          "label": "入选",
+          "order": 0,
+          "color": "vgold"
+        },
+        {
+          "id": "pool",
+          "stage": 3,
+          "label": "回池",
+          "order": 1,
+          "color": "vmist"
+        }
+      ],
+      "heads": [
+        "06:30 抓取",
+        "过滤判定",
+        "gate-1 资格",
+        "人选·08:30 截止"
+      ],
+      "labels": {
+        "template": "{l} {v}",
+        "vfmt": "{:,.0f}",
+        "fontsize": 6.4
+      }
+    },
+    {
+      "kind": "note",
+      "at": [
+        0.415,
+        0.545
+      ],
+      "units": "axes",
+      "text": "含昨日结转 213",
+      "props": {
+        "fontsize": 6.0,
+        "color": "vgray",
+        "ha": "center",
+        "va": "top",
+        "bbox": {
+          "facecolor": "white",
+          "alpha": 0.72,
+          "edgecolor": "none",
+          "pad": 1.2
+        }
+      }
+    },
+    {
+      "kind": "note",
+      "at": [
+        2.35,
+        420
+      ],
+      "units": "data",
+      "text": "→ 编辑润色 → 47 段配音 → 1 期 mp4（296 s）",
+      "props": {
+        "fontsize": 7.0,
+        "color": "vgold_edge",
+        "ha": "left",
+        "va": "center"
+      }
+    }
+  ],
+  "output": {
+    "path": "winnow-funnel-cn.png",
+    "formats": [
+      "png",
+      "svg",
+      "pdf"
+    ],
+    "dpi": 300
+  }
+}

@@ -13,6 +13,8 @@
 - **单文件状态库**——`state/state.sqlite` 一个 WAL 文件装下跨期条目池、去重历史、源健康与 kv；
 - **全链路离线测试**——`just test` 自测套件 + golden-run fixture 守住每次提交，无需联网。
 
+![真实一期的风选漏斗——150 源 → 3,273 条 → 20 入选 → 1 期成片](docs/assets/winnow-funnel-cn.png)
+
 全部经 justfile 驱动。设计/实施唯一真源是 `docs/PLAN.md`；部署与服务配置见 `docs/deploy.md`。
 
 ## Pipeline 概览

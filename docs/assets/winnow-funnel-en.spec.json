@@ -1,0 +1,193 @@
+{
+  "version": 1,
+  "theme": "paper",
+  "rc": {
+    "font": "sans",
+    "base": 8.4
+  },
+  "size": {
+    "slot": "full",
+    "height": 2.7
+  },
+  "meta": {
+    "ledger": "sankey dir:h 4 cols; node = terminal disposition of an item cohort, ribbon width ∝ items (conserved 3273=1610+1663, 1610=461+143+995+11, 461=20+441); raw=vink fetched; evaluated=vteal survived machine screens (incl. pool-standing keep/review resurrected via L0 url-hash); candidates=vteal_edge; selected=vgold human pick; dropped=vcoral filter judgment; supp=vgray dedup-suppressed; window=vorange out-of-window dates; aired=vorange_edge already aired; pool=vmist returns to pool. Units are items only; 20→edit→47 segs→mp4 is a transform not a split, drawn as note not ribbon. Source: runs/2026-09-23/{10_raw_items,20_filtered,40_candidates,40_selected,60_voice_script,80_build_manifest}",
+    "caption": "Winnow · real 2026-09-23 run · ribbon width ∝ items · unpicked candidates return to the pool"
+  },
+  "title": "150 sources → 3,273 items → 20 picked → 1 video",
+  "xaxis": {
+    "lim": [
+      -1.05,
+      4.9
+    ]
+  },
+  "series": [
+    {
+      "kind": "sankey",
+      "dir": "h",
+      "gap": 0.04,
+      "width": 0.11,
+      "flows": [
+        {
+          "source": "raw",
+          "target": "evaluated",
+          "value": 1610
+        },
+        {
+          "source": "raw",
+          "target": "dropped",
+          "value": 1663
+        },
+        {
+          "source": "evaluated",
+          "target": "cand",
+          "value": 461
+        },
+        {
+          "source": "evaluated",
+          "target": "window",
+          "value": 995
+        },
+        {
+          "source": "evaluated",
+          "target": "supp",
+          "value": 143
+        },
+        {
+          "source": "evaluated",
+          "target": "aired",
+          "value": 11
+        },
+        {
+          "source": "cand",
+          "target": "sel",
+          "value": 20
+        },
+        {
+          "source": "cand",
+          "target": "pool",
+          "value": 441
+        }
+      ],
+      "nodes": [
+        {
+          "id": "raw",
+          "stage": 0,
+          "label": "fetched",
+          "color": "vink"
+        },
+        {
+          "id": "evaluated",
+          "stage": 1,
+          "label": "kept",
+          "order": 0,
+          "color": "vteal"
+        },
+        {
+          "id": "dropped",
+          "stage": 1,
+          "label": "dropped",
+          "order": 1,
+          "color": "vcoral"
+        },
+        {
+          "id": "cand",
+          "stage": 2,
+          "label": "candidates",
+          "order": 0,
+          "color": "vteal_edge"
+        },
+        {
+          "id": "window",
+          "stage": 2,
+          "label": "out of window",
+          "order": 1,
+          "color": "vorange"
+        },
+        {
+          "id": "supp",
+          "stage": 2,
+          "label": "suppressed",
+          "order": 2,
+          "color": "vgray"
+        },
+        {
+          "id": "aired",
+          "stage": 2,
+          "label": "aired",
+          "order": 3,
+          "color": "vorange_edge"
+        },
+        {
+          "id": "sel",
+          "stage": 3,
+          "label": "selected",
+          "order": 0,
+          "color": "vgold"
+        },
+        {
+          "id": "pool",
+          "stage": 3,
+          "label": "unpicked",
+          "order": 1,
+          "color": "vmist"
+        }
+      ],
+      "heads": [
+        "collect 06:30",
+        "filter",
+        "gate-1",
+        "pick ≤08:30"
+      ],
+      "labels": {
+        "template": "{l} {v}",
+        "vfmt": "{:,.0f}",
+        "fontsize": 6.2
+      }
+    },
+    {
+      "kind": "note",
+      "at": [
+        0.415,
+        0.545
+      ],
+      "units": "axes",
+      "text": "incl. 213 carried over",
+      "props": {
+        "fontsize": 6.0,
+        "color": "vgray",
+        "ha": "center",
+        "va": "top",
+        "bbox": {
+          "facecolor": "white",
+          "alpha": 0.72,
+          "edgecolor": "none",
+          "pad": 1.2
+        }
+      }
+    },
+    {
+      "kind": "note",
+      "at": [
+        2.2,
+        420
+      ],
+      "units": "data",
+      "text": "→ human edit → 47 voice segs → 1 mp4 (296 s)",
+      "props": {
+        "fontsize": 6.8,
+        "color": "vgold_edge",
+        "ha": "left",
+        "va": "center"
+      }
+    }
+  ],
+  "output": {
+    "path": "winnow-funnel-en.png",
+    "formats": [
+      "png",
+      "svg",
+      "pdf"
+    ],
+    "dpi": 300
+  }
+}
