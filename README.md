@@ -1,6 +1,7 @@
 # ai-news-pipeline
 
-[中文版 README → README.zh-CN.md](README.zh-CN.md)
+[中文版 README → README.zh-CN.md](README.zh-CN.md) ·
+[Contributing](CONTRIBUTING.md)
 
 A daily "AI Morning News" production line — from ~160 sources to a finished
 mp4 plus title/cover/QA, with two automated blocks sandwiching two human
@@ -100,7 +101,7 @@ repro/ evidence/   original-pipeline teardown artifacts (see below)
 | `repro/README.md` | replica pipeline: stage↔original mapping + re-run flow |
 | `upstream/VENDORED.md` | juya-news-card pinned SHA, local patches, re-sync procedure |
 | `composer/NOTES.md` | Remotion composer usage + feasibility notes |
-| `adapters/sami-tts.md` | SAMI TTS reverse-engineered API (alt TTS channel) |
+| `experiments/tts-bakeoff/sami-tts.md` | SAMI TTS reverse-engineered API (alt channel, research archive) |
 
 ## Research background
 
@@ -108,9 +109,10 @@ This repo began as a teardown & full re-implementation of 橘鸦Juya's daily
 《AI早报》production line (BV1NqeY6dEPP, 2026-09-20 episode); the current
 repo is the productionized form. Teardown artifacts kept for provenance:
 
-- `evidence/` — original episode video + srt + frames; workflow-reveal video
-  BV1JmdhYqEoy + transcript; tooling intro BV199AUzHE8q; daily.juya.uk RSS /
-  text daily / GitHub Pages archives under `web/`.
+- `evidence/` — teardown notes, transcripts (`.srt`), and reference frames.
+  The source videos themselves are *not* redistributed — fetch them by BV
+  number: original episode BV1NqeY6dEPP, workflow-reveal BV1JmdhYqEoy,
+  tooling intro BV199AUzHE8q. `web/` holds feed/page availability captures.
 - `upstream/juya-news-card` — the author's open-sourced card renderer
   (MIT fork `Mappedinfo/juya-news-card`; original imjuya repo deleted).
   Next.js+React+TS, 174 templates; driven by `scripts/render-batch.ts`.

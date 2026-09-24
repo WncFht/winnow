@@ -1,5 +1,7 @@
 # ai-news-pipeline
 
+> 中文快照（2026-09-24）；最新以英文 README.md 为准。
+
 每日《AI 早报》生产线 —— 从 161 个信息源到成片 mp4 + 标题/封面/QA。
 2 段自动块夹 2 个人工闸（各带死线自动放行），全部经 justfile 驱动。
 设计/实施唯一真源是 `PLAN.md`，本文件只做门面。
@@ -97,7 +99,7 @@ repro/ evidence/   复刻调研产物（见「调研背景」）
 | `repro/README.md` | 复刻 pipeline：各环节 ↔ 原版环节对应表 + 复跑流程 |
 | `upstream/VENDORED.md` | juya-news-card 定格 SHA、本地 patch 清单、重新同步上游方法 |
 | `composer/NOTES.md` | Remotion 合成器用法（plan 输入优先级、字幕 live-text 约定）+ 可行性实验记录 |
-| `adapters/sami-tts.md` | 剪映 SAMI TTS 逆向接口说明（备选 TTS 通道） |
+| `experiments/tts-bakeoff/sami-tts.md` | 剪映 SAMI TTS 逆向接口说明（备选通道，调研档案） |
 
 ## 调研背景
 

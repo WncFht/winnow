@@ -1,13 +1,13 @@
 # AI 早报 Pipeline — 实施方案（2026-09-21 定稿 v2，含 toolchain + 全阶段详设）
 
-本文件是实现的唯一依据。调研过程与实测证据见 `experiments/research_result.json`
+本文件是实现的唯一依据。调研过程与实测证据见 `experiments/source-seeds/research_result.json`
 及各实验目录；本文只写"做什么、怎么验"。实现时照 §10 阶段顺序做，每个阶段
 按"输入 → 处理 → 输出 → 复用 → 验收"五段落地。
 
 ## 0. 范围与原则
 
 - **范围**：信息收集 → 成品 mp4 + 标题/封面/QA。不做分发自动化。
-- **形态**：12 个 PEP 723 自含阶段脚本（stages/*.py 共 13 个文件：12 阶段 + 空 `__init__.py`；lib/ 模块与 tools/watch.py 同为 PEP 723 可 uv run 自检），`uv run stages/xx.py --run-dir runs/<date>`，依赖隔离、可局部换实现。
+- **形态**：12 个 PEP 723 自含阶段脚本（stages/*.py 共 13 个文件：12 阶段 + 空 `__init__.py`；tools/watch.py 同为 PEP 723；lib/ 共享模块多数带 `__main__` 自检入口可 `uv run`——联网型用 `--offline` 跳 live 断言，chrome/composite/meta 为纯导入件无入口），`uv run stages/xx.py --run-dir runs/<date>`，依赖隔离、可局部换实现。
 - **每期产出** `runs/YYYY-MM-DD/`（日期桶按 **Asia/Shanghai** 切；采集窗口 = 前一日 06:30 → 当日 06:30）。
 - **2 段自动块 + 2 个人工闸**：block A `gather`（collect→filter→dedup）与 block B `produce`（digest→callb→voice→…→meta）；40 勾选闸、50 编辑闸夹中间，各带死线自动放行（默认放行 top-K / 锁现状稿，可事后改）。
 - **组件接口隔离**：`llm.chat` / `tts.synth` / `renderer.render` / `embed` / `store`。vendor 决策局部后置。
@@ -40,7 +40,7 @@ ai-news-pipeline/
 │   ├── models.py        #   全部 artifact pydantic 定义 + "schema":"<name>/<v>"
 │   ├── validate.py      #   跨字段校验（coverage、id 引用、数字白名单、link membership）
 │   └── schemas/         #   发射出的 JSON Schema（供 TS/Remotion 侧消费）
-├── sources.yaml         # 唯一人工维护的源注册表（种子：experiments/domains.json）
+├── sources.yaml         # 唯一人工维护的源注册表（种子：experiments/source-seeds/domains.json）
 ├── config.example.yaml  # 开源模板：llm/tts/alert/proxy/schedule/storage
 ├── secrets.env.example  # SWE2MAX_API_KEY 等（dotenvx 加密可选，experiments/secrets-mgmt-fht）
 ├── rulebook.md          # 编辑口径（种子：experiments/filter-eval/rulebook.md）
@@ -49,7 +49,9 @@ ai-news-pipeline/
 │   ├── collect.py  filter.py  dedup.py  gate_select.py  digest.py
 │   ├── voice.py    cards.py   subs.py   render_plan.py  compose.py  meta_qa.py
 │   ├── review_server.py #   人工闸 UI（种子：experiments/manual-filter-ui/serve_review.py）
-│   └── lib/             #   19 个共享模块（均带 --selftest/--offline 自检入口）
+│   └── lib/             #   20 个 .py = 19 共享模块 + 空 __init__.py；16 个带
+│                        #   __main__ 自检（联网型 --offline 跳 live 断言），
+│                        #   chrome/composite/meta 纯导入件无自检入口
 │       ├── http.py        # httpx 封装：cond GET、proxy 感知、retry 钩子、raw_cache 落盘
 │       ├── meta.py        # run 目录基件：00_meta/00_running/00_stage_stats、run_lock(.lock)、atomic_write、iter_jsonl
 │       ├── prog.py        # 进度协议：stderr 人类行 + logs/<stage>.prog.jsonl（§9.1）
@@ -113,7 +115,7 @@ ai-news-pipeline/
 | tsx | devDep of upstream | `cd upstream/juya-news-card && npx tsx -v` | render-batch.ts |
 | ffmpeg | 带 libx264 | `ffmpeg -encoders \| grep libx264` | compose 兜底 + loudnorm + 音频装配 |
 | just | latest | `just -V` | 驱动 |
-| sqlite3 | stdlib 即可 | — | history.db |
+| sqlite3 | stdlib 即可 | — | state/history.sqlite（+items.sqlite） |
 | lychee | x86_64 二进制已在 `experiments/factcheck-layer/lychee-*/` | 复制到 `adapters/bin/lychee` | link-check |
 | playwright(py) | pip + `playwright install chromium` | `python -c "import playwright"` | shotlib/chrome/composite |
 | git | — | — | raw_cache/上游版本钉 |
@@ -135,7 +137,7 @@ ai-news-pipeline/
 
 | 资产 | 来源 | 落到 | 用途 |
 |---|---|---|---|
-| Qwen3-Embedding-0.6B-ONNX（int8） | modelscope | `~/.cache/embed/` | embed.py（CPU ~12/s；非 LLM，不受 D1 约束） |
+| Qwen3-Embedding-0.6B-ONNX（int8） | hf-mirror.com/onnx-community（`just fetch-embed` 拉两文件） | `~/.cache/embed/` | embed.py（CPU ~12/s；非 LLM，不受 D1 约束） |
 | tailwind JIT + googleapis 字体 + Material Symbols woff2 | 见 §7.6 自托管清单 | `upstream/juya-news-card/public/vendor/` | 卡片渲染 CDN 自托管 |
 | Alibaba PuHuiTi（字幕/live-text 字体） | composer 已有或 fonts 站 | `composer/public/fonts/` | Remotion live-text pill |
 
@@ -154,7 +156,7 @@ ai-news-pipeline/
 - [ ] `adapters/bin/lychee --version`
 - [ ] playwright 截 1 张 `example.com` → png 非空
 - [ ] embed.py：embed("测试") 返回 1024d 向量
-- [ ] edge-tts：`tts_edge.synth("测试")` 出 mp3 且头尾静音已裁
+- [ ] edge-tts：CLI 冒烟 `edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --write-media tts.mp3` 出非空 mp3（直连失败自动带 `--proxy` 重试一次）
 - [ ] ffmpeg：`ffmpeg -f lavfi -i anullsrc -t 1 -c:a aac -y /dev/null 2>&1` 无错
 - [ ] `curl -x http://127.0.0.1:7890 https://api.ipify.org` 通（proxy_ok）
 - [ ] ntfy 测试推送 + healthchecks ping 各发一次
@@ -215,7 +217,7 @@ kept 条目原始 url 集合，回填后可达性由 link-check 填 `reachable`�
 
 `just lint-sources`：schema 校验、重复 domain/feed_url、method∈枚举、failover 目标存在、
 freshness_sla 0<x≤168、max_items≤200、`daily` 非 bool→warn、enabled 源的 feed_url 可达性抽样。
-种子数据：`experiments/domains.json`（135 域，含 method 判定结果）+ `rss_titles.json`。
+种子数据：`experiments/source-seeds/domains.json`（135 个裸域名清单，无 method 判定字段）+ `rss_titles.json`（143 条真实标题样本）。
 
 ### 5.2 抓取流程（每源）
 
@@ -381,7 +383,7 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 - **CDN 自托管**（上生产前必做，否则被墙静默退化）：抓 4 个外部依赖落 `upstream/juya-news-card/public/vendor/`——cdn.tailwindcss.com JIT 脚本、fonts.googleapis css+woff2、Material Symbols Rounded woff2、（模板内其余外联，渲染时 `--dump-dom` diff 找全）→ patch ssr-runtime 引用到 `/vendor/...`。
 - **D2 自适应**：`layout_d2.py` 闭式解（种子 experiments/adaptive-card-layout、card-density）——渲染后 probe 读 wrapperScale/minCardTop/clipped 三指标，不满足→重排重渲最多 2 次→仍失败进 missing[]+flag（上游 1px 递减实测 n=5-6 切字，不沿用）。
 - **chrome 叠加层**：移植 `repro/render_chrome.py`——nav pill/面包屑/截图弹卡透明 1920×1080 PNG（pg.goto(file.as_uri())+omit_background；`set_content` 无法加载 file:// 图，这是已踩过的坑）。
-- **shotlib**：`experiments/webshot-hardening/shotlib.py`——按 `video.shot_sentences` 指定的源 URL 截图；**域名策略表** `state/shot_policy.yaml`：x.com→品牌占位卡（403）、mp.weixin→占位、cloudflare 域→占位、其余→Playwright `--lang=en-US`+`locale=en-US` 截图（防 Google Translate 弹窗烤进图，已踩过）；**浏览器错误页检测**：`chrome-error://` URL 或页面文本命中 ERR_* / "can't be reached" 等模式即判 error_page，不采纳该截图；截图失败/错误页→missing[]+降级占位卡不阻塞（错误页烤进正片已踩过，2026-09-23 openai shot）。
+- **shotlib**：`stages/lib/shotlib.py`（种子 `experiments/webshot-hardening/shotlib.py`）按 `video.shot_sentences` 指定的源 URL 截图，处理链三级：① `news.google.*` 中转链先经 googlenewsdecoder 解出出版方真链（可选依赖，缺失/失败照原链走，命中记 `rec.resolved`）；② **域名策略表** `state/shot_policy.yaml`（`rules[].match→action` + 可选 `proxy` 键 + `cloudflare_fronted` 兜底）分派——`placeholder` 直接渲品牌占位卡不导航（reuters/mp.weixin 等）、`x_embed`（x.com/twitter.com 本体 403 硬墙）走 `cdn.syndication.twimg.com` tweet-result JSON 自绘品牌推文卡（**真实推文卡，非占位**）、`screenshot` 导航截图（规则可钉路由，如 openai.com→`proxy:direct`）；③ 默认 Playwright chromium 截图：`--lang=en-US`+`locale=en-US`+Accept-Language（防 Google Translate 弹窗烤进图，已踩过）。**降级面**：HTTP≥400 / 墙文本 WALL_PAT（CF Turnstile、captcha、机器人验证）/ 浏览器错误页（`chrome-error://` 或 ERR_*、"can't be reached" 模式，判 `error_page`）/ 空白图 stddev<8 / PNG<min_shot_kb / 导航异常 → reload 抽签+换代理路由重试，粘性 CF 墙可升 Xvfb headful 一搏；仍败 → missing[]+占位卡不阻塞（占位卡 playwright html→png，browser 不可用 PIL 兜底；错误页烤进正片已踩过，2026-09-23 openai shot）。
 - **合成**：移植 `repro/composite_frames.py` img.layer 栈 → `64_frames/`。
 - **输出**：63_cards.json + 63_cards_manifest.json + 64_frames_manifest.json（含 missing[]）+ `64_frames/` 帧目录。
 - **验收**：14 条 fixture 全出图且 probe 三指标全过；任一 shot 失败时 missing[] 有记录且正片用占位卡。
@@ -573,12 +575,37 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 | failmodes-ops/failure-matrix.md | 告警分级/死线规则 | 失败矩阵实测 |
 | idempotent-resume/、orchestration-sched/ | justfile/systemd | 幂等断点 + 调度 |
 | secrets-mgmt-fht/ | secrets.env/dotenvx | secrets 管理 |
-| domains.json、rss_titles.json | sources.yaml 种子 | 135 域清单 +143 真实标题 |
+| source-seeds/{domains.json,rss_titles.json,research_result.json} | sources.yaml 种子 | 135 域清单 +143 真实标题 +逐源实测笔记 |
 | swe2max-sufficiency-refute/、swe2max-refute/ | llm 适配层约束 | 429/空响应/max_tokens 实测 |
 | tts-local-eval/、tts-landscape-2026/、tts-fallback-chain/ | TTS 选型（后置） | IndexTTS-2.5/F5/Qwen3-TTS/CosyVoice3 实测 |
+| tts-bakeoff/ | adapters/tts_local.py + breeze | 本地引擎 bakeoff：Breeze TTS 2 胜出已接线 |
 | cost-budget-2026/、daily-llm-cost/ | 成本参考 | ~65k in/14k out 每日量级 |
 | news-images/ | media pass | og:image+ 截图兜底 |
 | bili-spec-2026/ | meta/输出规格 | B 站分辨率/码率/标题长度 |
+| e2e-ref-arch/、upgrade-synthesis-2026/ | PLAN 架构/选型总表 | 阶段 DAG、组件边界、2025→2026 升级判定 |
+| cfg-layout/ | lib/meta.py::load_config | 分层配置加载原型 |
+| storage-audit-fht/ | state/*.sqlite SoT | sqlite vs jsonl vs obsidian 30 天 replay 实测 |
+| history-schema/、event-cluster-fht/、dedup-minhash/ | dedup 设计证据 | schema 前身/两级架构/词面方法负证据 |
+| llm-filter-layer/、filter-demo/、llm-filter-demo/、news-value-scoring/ | filter 两级判定 | 筛选设计 + verdicts 判定集 + FILTER_PROMPT rubric |
+| news-summary-strategy/、longctx-digest-llm/、multi-output-consistency/、sectioning-stability/、gen-gateway/ | digest 选型与稳定性 | 8 模型同 fixture 横评 + swe-2-max 约束 |
+| llm-abstraction-2026/ | adapters/llm_*.py | 薄适配层选型（litellm/openai 对照） |
+| link-fidelity/、multi-format-derivation/ | prompts + 投影派生 | URL 保真约束 + issue→md/feed/wechat 口径 |
+| gemini-refute/、adv-gemini-cn-news/ | 模型选型证伪 | 不押 Gemini（前沿掉队+CN 直连不可用） |
+| pause-eng/、ssml-edge-azure/ | voice 时间轴/spec | edge padding/停顿实测 + 无自定义 SSML 结论 |
+| edge-tts-verify/、tts-voice-news/、tts-mixed-pron/ | tts_edge/voice | 突发可行性 + 音色横评 + 中英混读方法 |
+| audio-concat/ | compose.py 音频链 | adelay/amix 逐句拼接选型 |
+| xfade-test/、transitions-fht/ | compose.py xfade 链 | fade 0.3s 交叠定型（slide/push 备选实测） |
+| subtitle-overlay/、subtitle-options/ | compose.py 字幕链 | -loop 暴毙→noloop 修复 + PNG 链 OOM 证据 |
+| card-motion-fht/ | compose 运动上限证据 | WAAPI 逐帧手搓证伪 → 静态卡+xfade |
+| videng-2026/、encode-bench/、nvenc-x264-bench/ | compose 引擎/编码 | ffmpeg/moviepy/remotion 对比 + x264/nvenc 参数 |
+| synth-determinism/ | 渲染确定性约束 | 字体可得性/浏览器版本/x264 -threads |
+| icon-system-fht/、juya-card-eval/、overview-list-card/、tpl-audit/、font-cards-zh/ | cards 图标/模板/字体 | Material Symbols 选型 + 模板评审 + 字体链 |
+| whisper-zh-150ms-refute/ | 对齐选型证伪 | whisper 系 159-419ms 超 ±0.15s 规格 |
+| test-strategy-fht/ | eval harness | eval_filter/eval_judge + promptfoo 雏形 |
+| x-rss-nologin/、wechat-rss-claim-check/ | X/微信通道证据 | 免登录反证 + adapter enabled:false 决策 |
+| trust-anthropic-monitor/、aimeta-feed-probe/、deepseek-verify/、xiaoyuzhoufm/ | collect 运维钩子 | capture_gql/probe_graphql/banner/poll 脚本（sources.yaml note 引用） |
+| hard-youtube.com-*/、hard-bilibili.com-*/、hard-linux.do-*/、hard-news.ycombinator.com-*/、hard-weibo.com-*/、hard-mp.weixin.qq.com-*/ | sources.yaml 各硬骨源 | 三分支路线对比存档（胜者见 §5.3） |
+| timeline-format/、news-window/ | 快照留存 | 时间轴格式/日期桶调研（结论进 compose/collect 口径） |
 
 ## 13. 跟进项登记（2026-09-24 审计遗留）
 
@@ -588,4 +615,4 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 | meta_qa ASR 校验未启用 | `checks.asr` 恒 `{skipped:true}`（§7.9）：对齐后备 ForcedAligner 未接线，breeze `boundaries=[]` 无词级锚点 | breeze 档下补 ASR round-trip（抽样转写对 text_display），或先接 zh-forced-align |
 | `validate_run` 对 50_issue 只浅校验 | issue/1 无 pydantic 模型定义，validate.py 只做 JSON 结构 lint + schema tag + id 引用，字段级校验缺位 | 补 issue 模型或加深字段校验（sources/media/voice/cards 引用闭环） |
 | git 缩包 | 2.2GB 生成物出库后，历史包仍大；filter-repo 缩包需 force-push 窗口 | 暂缓，待无协作者窗口期执行 |
-| shotlib 字体路径 | `/usr/share/fonts/noto-sans-cjk/` 本机不存在（实为 `noto-cjk/`），shot 占位卡标题字体回落 DejaVu | 并入 shot-rescue 分支一并修 |
+| ~~shotlib 字体路径~~ 已修 | `_placeholder_pil` 候选首位已改 `noto-cjk/NotoSansCJK-Bold.ttc` + 发行版路径矩阵注释（Arch=noto-cjk / Debian=opentype / Fedora=noto-sans-cjk） | —— |
