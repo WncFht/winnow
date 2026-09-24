@@ -278,35 +278,17 @@ def _resolve_db(cli_db: str | None, cli_state: str | None = None) -> Path:
         if p.is_file() or p.suffix.lower() in (".sqlite", ".sqlite3", ".db"):
             return p
         return p / "history.sqlite"
-    for name in ("config.yaml", "config.example.yaml"):
-        p = REPO / name
-        if p.exists():
-            try:
-                import yaml
-                doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-                hp = (doc.get("storage") or {}).get("history_db")
-                if hp:
-                    q = Path(hp)
-                    return q if q.is_absolute() else REPO / q
-            except Exception:
-                pass
-            break
+    doc = meta.load_config()
+    hp = (doc.get("storage") or {}).get("history_db")
+    if hp:
+        q = Path(hp)
+        return q if q.is_absolute() else REPO / q
     return REPO / "state" / "history.sqlite"
 
 
 def _resolve_items_db(cli_arg: str | None) -> Path:
     """--items-db > config.storage.items_db > state/items.sqlite（同 _resolve_db 约定）。"""
-    cfg_doc: dict = {}
-    for name in ("config.yaml", "config.example.yaml"):
-        p = REPO / name
-        if p.exists():
-            try:
-                import yaml
-                cfg_doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-            except Exception:
-                pass
-            break
-    return pool.resolve_path(cli_arg, cfg_doc)
+    return pool.resolve_path(cli_arg, meta.load_config())
 
 
 def load_items(run_dir: Path) -> list[dict]:

@@ -51,7 +51,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
-import yaml  # noqa: E402
 
 from adapters import tts_edge  # noqa: E402
 from contracts.models import AudioManifest, Timeline, VoiceSeg  # noqa: E402
@@ -112,13 +111,7 @@ def _sha_key(engine_id: str, text: str) -> str:
 
 def _load_cfg(path: str | Path | None) -> dict:
     """config.yaml > config.example.yaml（与 collect/justfile 规则一致）。"""
-    p = Path(path) if path else REPO / "config.yaml"
-    if not p.exists():
-        p = REPO / "config.example.yaml"
-    try:
-        return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    except Exception:
-        return {}
+    return meta.load_config(path)
 
 
 def _timeline_cfg(cfg: dict, args) -> dict:

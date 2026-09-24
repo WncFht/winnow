@@ -96,17 +96,7 @@ def resolve_run_dir(s: str) -> Path:
 
 def load_config() -> dict:
     """config.yaml > config.example.yaml 的 render 节 + 默认值。"""
-    import yaml
-
-    cfg = {}
-    for name in ("config.yaml", "config.example.yaml"):
-        f = REPO / name
-        if f.exists():
-            try:
-                cfg = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-            except Exception as e:
-                eprint(f"[render_plan] warn: {name} 解析失败 {e} — 用默认值")
-            break
+    cfg = meta.load_config()
     r = cfg.get("render") or {}
     out = dict(DEFAULTS)
     for k in ("engine", "fps", "size", "aspect", "concurrency",

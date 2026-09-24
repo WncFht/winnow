@@ -209,13 +209,7 @@ def _save_json(path: Path, data) -> None:
 
 def load_cfg(path: str | Path | None = None) -> dict:
     """config.yaml > config.example.yaml；与 justfile cfg 规则一致。"""
-    if path:
-        return yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
-    for name in ("config.yaml", "config.example.yaml"):
-        p = REPO / name
-        if p.is_file():
-            return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    return {}
+    return meta.load_config(path)
 
 
 def _cfg(cfg: dict, dotted: str, default=None):
@@ -2099,8 +2093,9 @@ def _pool_upsert(args, cfg: dict, run_dir: Path, run_date: str,
 
 def run(args) -> int:
     cfg = load_cfg(args.config)
-    run_dir = meta.ensure_run(Path(args.run_dir)
-                              if args.run_dir else _today_sh())
+    rd_arg = str(args.run_dir) if args.run_dir else _today_sh()
+    run_dir = meta.ensure_run(rd_arg if re.fullmatch(r"\d{4}-\d{2}-\d{2}", rd_arg)
+                              else Path(rd_arg))
     run_date = run_dir.name if re.fullmatch(r"\d{4}-\d{2}-\d{2}", run_dir.name) \
         else _today_sh()
     (run_dir / "logs").mkdir(parents=True, exist_ok=True)

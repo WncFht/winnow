@@ -142,37 +142,40 @@ def main(argv=None) -> int:
     segs = (json.loads(tl_path.read_text("utf-8")).get("segs")) or []
 
     out_dir = run_dir / SUBS_DIR
-    if out_dir.is_dir() and any(out_dir.glob("*.png")) and not args.force:
-        print(f"[subs] {SUBS_DIR}/ 已存在（--force 重渲）")
-        return 0
-    out_dir.mkdir(parents=True, exist_ok=True)
+    # run_lock 包住 跳过判定+渲染+登记：并发重入时第二个实例在锁内看到
+    # 已产出的 65_subs/ 走幂等早退，不会双渲染。
+    with meta.run_lock(run_dir):
+        if out_dir.is_dir() and any(out_dir.glob("*.png")) and not args.force:
+            print(f"[subs] {SUBS_DIR}/ 已存在（--force 重渲）")
+            return 0
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    meta.stage_begin(run_dir)
-    p = prog.Prog(run_dir, "subs", total=len(segs),
-                  step=min(100, max(10, len(segs) // 40)), interval=30)
+        meta.stage_begin(run_dir)
+        p = prog.Prog(run_dir, "subs", total=len(segs),
+                      step=min(100, max(10, len(segs) // 40)), interval=30)
 
-    font = load_font(repo, FONT_SIZE)
-    probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
+        font = load_font(repo, FONT_SIZE)
+        probe = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
 
-    made = skipped = 0
-    for i, s in enumerate(segs, 1):
-        p.tick(i, "pill")
-        n, text = s.get("n"), \
-            (s.get("text_display") or s.get("text") or "").strip()
-        if not isinstance(n, int) or not text:
-            skipped += 1
-            print(f"[subs] 跳过 seg n={n}（无 text）", file=sys.stderr)
-            continue
-        render_pill(text, font, probe).save(out_dir / f"{n:03d}.png")
-        (out_dir / f"{n:03d}.txt").write_text(text, encoding="utf-8")
-        made += 1
+        made = skipped = 0
+        for i, s in enumerate(segs, 1):
+            p.tick(i, "pill")
+            n, text = s.get("n"), \
+                (s.get("text_display") or s.get("text") or "").strip()
+            if not isinstance(n, int) or not text:
+                skipped += 1
+                print(f"[subs] 跳过 seg n={n}（无 text）", file=sys.stderr)
+                continue
+            render_pill(text, font, probe).save(out_dir / f"{n:03d}.png")
+            (out_dir / f"{n:03d}.txt").write_text(text, encoding="utf-8")
+            made += 1
 
-    p.say(f"{made}/{len(segs)} pill 完成（skipped {skipped}）")
-    p.close()
+        p.say(f"{made}/{len(segs)} pill 完成（skipped {skipped}）")
+        p.close()
 
-    meta.stage_done(run_dir, "subs", SUBS_DIR, status="done",
-                    producer="stages/subs.py",
-                    extra={"segs": len(segs), "made": made, "skipped": skipped})
+        meta.stage_done(run_dir, "subs", SUBS_DIR, status="done",
+                        producer="stages/subs.py",
+                        extra={"segs": len(segs), "made": made, "skipped": skipped})
     print(f"[subs] {made}/{len(segs)} pill → {SUBS_DIR}/（skipped {skipped}）")
     return 0
 

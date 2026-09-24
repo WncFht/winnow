@@ -263,6 +263,38 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
+def load_config(path: Union[str, Path, None] = None) -> dict:
+    """config.yaml > config.example.yaml 统一入口（各 stage 共用）。
+
+    显式 path：必须存在且可解析，否则 SystemExit——静默回退曾让
+    --config 打错路径时吃默认配置跑完全程。缺省：REPO_ROOT 下首个
+    存在的文件，解析失败 warn 后返回 {}（yaml 缺失等同）。"""
+    try:
+        import yaml
+    except ImportError:
+        if path:
+            raise SystemExit(f"[config] --config {path} 指定但 PyYAML 不可用")
+        return {}
+    if path:
+        p = Path(path)
+        if not p.is_file():
+            raise SystemExit(f"[config] --config 路径不存在: {p}")
+        try:
+            return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        except Exception as e:
+            raise SystemExit(f"[config] {p} 解析失败: {e}")
+    for name in ("config.yaml", "config.example.yaml"):
+        f = REPO_ROOT / name
+        if f.is_file():
+            try:
+                return yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+            except Exception as e:
+                print(f"[config] warn: {name} 解析失败 {e} — 用默认值",
+                      file=sys.stderr)
+                return {}
+    return {}
+
+
 def _meta_path(run_dir: Union[str, Path]) -> Path:
     return Path(run_dir) / META_NAME
 

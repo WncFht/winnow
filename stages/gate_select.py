@@ -144,17 +144,7 @@ def load_config(items_db: str | None = None) -> dict:
     """config.yaml > config.example.yaml；取本阶段需要的 schedule/storage/pool
     字段 + sources.yaml 的 daily_map。--items-db CLI 覆盖 storage.items_db
     （与 collect/filter/dedup 的 --items-db 约定相同）。"""
-    import yaml  # lazy：review_server import 本模块时无 yaml 也能跑
-
-    cfg = {}
-    for name in ("config.yaml", "config.example.yaml"):
-        f = REPO / name
-        if f.exists():
-            try:
-                cfg = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
-            except Exception as e:
-                eprint(f"[gate_select] warn: {name} 解析失败 {e} — 用默认值")
-            break
+    cfg = meta.load_config()
     sch = cfg.get("schedule") or {}
     sto = cfg.get("storage") or {}
     pcfg = cfg.get("pool") or {}

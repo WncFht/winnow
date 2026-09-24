@@ -44,7 +44,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root
 
-import yaml  # noqa: E402
 
 from adapters import llm_swe2max as llm  # noqa: E402
 from contracts.models import FilterVerdict, RawItem, Summary  # noqa: E402
@@ -685,10 +684,7 @@ def main() -> int:
                else llm.load_cfg(args.config))
         batch_size = args.batch_size or int(cfg.get("batch_size") or 24)
 
-        cfg_path = Path(args.config) if args.config else REPO / "config.yaml"
-        if not cfg_path.exists():
-            cfg_path = REPO / "config.example.yaml"
-        cfg_doc = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        cfg_doc = meta.load_config(args.config)
         if args.db:
             db_path = Path(args.db)
         else:

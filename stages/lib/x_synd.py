@@ -73,9 +73,8 @@ sys.path[:] = [p for p in sys.path
                if str(Path(p or ".").resolve()) != _SELF_DIR]
 
 import httpx  # noqa: E402
-import yaml  # noqa: E402
 
-from lib import normalize  # noqa: E402
+from lib import meta, normalize  # noqa: E402
 from lib import http as lib_http  # noqa: E402  (save_raw 复用)
 
 REPO = Path(__file__).resolve().parents[2]
@@ -125,11 +124,7 @@ class RateLimited(XSyndError):
 
 def load_cfg(path: str | Path | None = None) -> dict:
     """读 config.yaml（缺省 config.example.yaml）→ 扁平化 syndication 配置。"""
-    p = Path(path) if path else REPO / "config.yaml"
-    if not p.exists():
-        p = REPO / "config.example.yaml"
-    doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    return resolve_cfg(doc)
+    return resolve_cfg(meta.load_config(path))
 
 
 def resolve_cfg(cfg: Any) -> dict:

@@ -829,18 +829,7 @@ def import_run_dir(conn: sqlite3.Connection, dir_path, daily_map=None,
 # ---------------------------------------------------------------------------
 
 def _load_cfg_doc() -> dict:
-    try:
-        import yaml
-    except ImportError:
-        return {}
-    for name in ("config.yaml", "config.example.yaml"):
-        p = REPO_ROOT / name
-        if p.is_file():
-            try:
-                return yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-            except Exception:
-                return {}
-    return {}
+    return meta.load_config()
 
 
 def _daily_map(sources_path) -> dict:
