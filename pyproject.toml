@@ -16,6 +16,8 @@ dependencies = [
     "rich>=13",
     "onnxruntime>=1.17",
     "tokenizers>=0.20",
+    "feedparser>=6",
+    "trafilatura>=1.12",
     "urllib3>=2",
 ]
 

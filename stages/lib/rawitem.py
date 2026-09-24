@@ -68,3 +68,37 @@ def build(
     }
     RawItem.model_validate(item)
     return item
+
+
+CONTENT_TEXT_CAP = 8000  # content_text 上限（对齐 trafilatura 回填 8000）
+
+
+def mk_item(*, url: str, title: str, src: dict, kind: str,
+            date: str | None = None, summary: str | None = None,
+            image: str | None = None,
+            tags: list[str] | None = None, guid: str | None = None,
+            fetch_status: int = 200, via: str = "direct",
+            etag: str | None = None, content_sha: str | None = None,
+            raw_ref: str | None = None, reachable: bool = True,
+            fetched: str | None = None, lang: str | None = None) -> dict:
+    """collect 侧构造口：sources.yaml 源 dict + 文本归一 + via 强制 → build()。
+
+    via 非契约枚举值（平台路由串等）一律压成 "mirror"——契约只允许
+    direct|mirror|cache|manual；真实路由记 tags 'via:<route>'。
+    """
+    return build(
+        url, source_name=src.get("name", "?"),
+        feed_url=src.get("feed_url", ""),
+        kind=kind, item_guid=guid,
+        date_fetched=fetched or normalize.utcnow(),
+        title=normalize.title_norm(title or "") or normalize.slug_title(url),
+        content_text=normalize.bounded_text(summary, CONTENT_TEXT_CAP),
+        date_published=date,
+        language=(lang if lang is not None
+                  else normalize.guess_lang(title or "", summary or "")),
+        tags=tags or [], image=image,
+        status=fetch_status,
+        via=(via if via in ("direct", "mirror", "cache", "manual")
+             else "mirror"),
+        reachable=reachable, etag=etag, content_sha256=content_sha,
+        raw_ref=raw_ref)

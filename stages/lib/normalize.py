@@ -27,6 +27,7 @@ Smoke:  uv run stages/lib/normalize.py
 from __future__ import annotations
 
 import hashlib
+import html as htmlmod
 import json
 import re
 import time
@@ -35,7 +36,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 
@@ -227,6 +228,76 @@ def parse_date_utc(v) -> str | None:
         except ValueError:
             pass
     return None
+
+
+# -------------------------------------------------- collect 文本/构造助手 --
+
+def utcnow() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+def sha16(b: bytes | str) -> str:
+    h = b if isinstance(b, bytes) else b.encode("utf-8")
+    return hashlib.sha256(h).hexdigest()[:16]
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def strip_html(s: str | None, limit: int = 4000) -> str:
+    if not s:
+        return ""
+    txt = _WS.sub(" ", _TAG_RE.sub(" ", htmlmod.unescape(s))).strip()
+    return txt[:limit]
+
+
+_CJK = re.compile(r"[一-鿿]")
+
+
+def guess_lang(*texts: str) -> str | None:
+    t = "".join(texts)[:600]
+    if not t.strip():
+        return None
+    cjk = len(_CJK.findall(t))
+    if cjk >= 8 and cjk / max(len(t), 1) > 0.08:
+        return "zh"
+    return "en"
+
+
+def slug_title(url: str) -> str:
+    """URL 末段 → 人读标题（sitemap/changelog signal 的占位题）。"""
+    seg = [s for s in urlsplit(url).path.split("/") if s]
+    last = unquote(seg[-1] if seg else urlsplit(url).netloc)
+    last = re.sub(r"\.(html?|php|aspx?|md)$", "", last, flags=re.I)
+    return re.sub(r"[-_+]+", " ", last).strip() or urlsplit(url).netloc
+
+
+def url_host(url: str) -> str:
+    return urlsplit(url).hostname or ""
+
+
+# str.splitlines() 会断行、而 json.dumps 不转义的字符（C1 NEL + Unicode
+# 段落分隔符 + VT/FF）。写盘侧 meta.dumps_jsonl 已转义，这里再把字段值
+# 归一成空格做纵深防御——内容字段是事故字符的主要来源（2026-09-22
+# ben_evans 两条 content_html 即含 U+2028，切碎了下游 splitlines 读者）。
+LINE_SEPS = str.maketrans({c: " " for c in "\x85\x0b\x0c\u2028\u2029"})
+
+TRUNC_MARK = "…[截断]"
+
+
+def bounded_text(s, cap: int):
+    """内容字段归一：行分隔符族字符 → 空格 + 字符硬上限截断（留痕 marker）。
+
+    content_text 是唯一落 JSONL 的正文字段；content_html 已整体退役——整页
+    原文始终可从 _raw_ref 落盘响应回放，不需要进 JSONL（qwen_blog 曾单条
+    849KB HTML 把 10_raw_items.jsonl 撑到 21.5MB）。非 str 原样放行交契约拒。
+    """
+    if not isinstance(s, str):
+        return s or None
+    if not s:
+        return None
+    s = s.translate(LINE_SEPS)
+    return s if len(s) <= cap else s[:cap] + TRUNC_MARK
 
 
 # ------------------------------------------------------------- self test ----

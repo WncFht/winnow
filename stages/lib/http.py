@@ -360,6 +360,40 @@ def get(
     return res
 
 
+# ----------------------------------------------------------------- post ----
+
+def post_json(url: str, payload, headers: dict, proxy,
+              timeout: float = 20) -> FetchResult:
+    """少数 json_api 需要 POST（juejin/infoq/bloomberglaw）。复用 FetchResult。"""
+    res = FetchResult(via="proxy" if proxy not in (None, "direct") else "direct")
+    try:
+        with httpx.Client(proxy=None if proxy in (None, "direct") else proxy,
+                          trust_env=proxy is None, timeout=timeout,
+                          follow_redirects=True) as cli:
+            t0 = time.monotonic()
+            hdrs = {"User-Agent": UA, "Content-Type": "application/json",
+                    "Accept": "application/json"}
+            hdrs.update(headers or {})
+            r = cli.post(url, content=json.dumps(payload), headers=hdrs)
+            res.latency_ms = int((time.monotonic() - t0) * 1000)
+            res.status = r.status_code
+            res.etag = r.headers.get("etag")
+            res.final_url = str(r.url)
+            res.content_type = r.headers.get("content-type")
+            res.body = r.content
+            res.error = "ok" if 200 <= r.status_code < 300 else f"http_{r.status_code}"
+    except httpx.TimeoutException as e:
+        res.error, res.detail = "timeout", str(e)
+    except httpx.HTTPError as e:
+        res.error, res.detail = "http_0", f"{type(e).__name__}: {e}"
+    return res
+
+
+def fetch_via(res: FetchResult) -> str:
+    """FetchResult.via(direct|proxy) → raw_item._fetch.via(direct|mirror)。"""
+    return "mirror" if res.via == "proxy" else "direct"
+
+
 # -------------------------------------------------------------- save_raw ----
 
 def _repo_root_for(run_dir: Path) -> Path:

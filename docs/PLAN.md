@@ -55,13 +55,15 @@ winnow/
 │   ├── collect.py  filter.py  dedup.py  gate_select.py  digest.py
 │   ├── voice.py    cards.py   subs.py   render_plan.py  compose.py  meta_qa.py
 │   ├── review_server.py #   人工闸 UI（种子：experiments/manual-filter-ui/serve_review.py）
-│   └── lib/             #   20 个 .py = 19 共享模块 + 空 __init__.py；16 个带
+│   └── lib/             #   21 个 .py = 20 共享模块 + 空 __init__.py；16 个带
 │                        #   __main__ 自检（联网型 --offline 跳 live 断言），
 │                        #   chrome/composite/meta 纯导入件无自检入口
-│       ├── http.py        # httpx 封装：cond GET、proxy 感知、retry 钩子、raw_cache 落盘
+│       ├── http.py        # httpx 封装：cond GET、proxy 感知、retry 钩子、post_json、raw_cache 落盘
 │       ├── meta.py        # run 目录基件：00_meta/00_running/00_stage_stats、run_lock(.lock)、atomic_write、iter_jsonl
 │       ├── prog.py        # 进度协议：stderr 人类行 + logs/<stage>.prog.jsonl（§9.1）
-│       ├── normalize.py   # url_canon/title_norm/实体别名归一
+│       ├── normalize.py   # url_canon/title_norm/parse_date/实体别名 + collect 文本 helper（strip_html/bounded_text/slug_title/guess_lang）
+│       ├── rawitem.py     # raw_item/1 构造收口：build() 契约校验 + mk_item() collect 侧封装
+│       ├── sources/       #   collect 源形适配器：feed.py(RSS/Atom)、api.py(22 具名 adapter+通用 walker)、diff.py(sitemap/changelog signal)、common.py
 │       ├── simhash.py     # 64-bit simhash(title+summary)
 │       ├── embed.py       # Qwen3-Embedding-0.6B-ONNX（CPU，instruct/doc 双模式；EMBED_THREADS）
 │       ├── store.py       # history.sqlite 读写（种子：experiments/dedup-history/store.py）
