@@ -1,54 +1,342 @@
 {
-  "OpenAI": ["Open AI", "OAI", "OpenAI公司", "OPENAI"],
-  "Anthropic": ["Anthropic公司", "Anthropic AI"],
-  "Claude": ["Claude模型", "Anthropic Claude", "克劳德", "Claude Code", "ClaudeCode"],
-  "GPT": ["GPT系列", "GPT模型", "OpenAI GPT"],
-  "ChatGPT": ["chatgpt", "ChatGPT应用", "OpenAI ChatGPT"],
-  "Sora": ["OpenAI Sora", "Sora视频", "Sora视频生成"],
-  "DeepSeek": ["深度求索", "Deepseek", "deepseek", "幻方DeepSeek", "深度求索DeepSeek"],
-  "Moonshot AI": ["月之暗面", "Moonshot", "MoonshotAI", "月之暗面科技", "北京月之暗面"],
-  "Kimi": ["Kimi Chat", "Kimi智能助手", "kimi", "月之暗面Kimi"],
-  "智谱AI": ["智谱", "智谱华章", "Zhipu AI", "ZhipuAI", "Zhipu", "Z.AI", "z.ai", "智谱公司"],
-  "GLM": ["ChatGLM", "智谱清言", "清言", "GLM系列", "GLM模型", "AutoGLM"],
-  "MiniMax": ["稀宇科技", "MiniMax稀宇", "Minimax", "MINIMAX", "MiniMax公司"],
-  "海螺AI": ["海螺", "Hailuo", "Hailuo AI", "MiniMax海螺", "海螺视频"],
-  "阶跃星辰": ["阶跃", "StepFun", "StepFun公司", "跃问", "Step系列"],
-  "百川智能": ["百川", "Baichuan", "Baichuan AI", "百川大模型"],
-  "零一万物": ["01.AI", "01AI", "零一", "Yi", "Yi系列", "万知"],
-  "面壁智能": ["面壁", "ModelBest", "MiniCPM", "面壁小钢炮"],
-  "昆仑万维": ["昆仑", "Kunlun", "Kunlun Tech", "天工", "Skywork", "SkyWork", "天工大模型"],
-  "商汤科技": ["商汤", "SenseTime", "Sense Time", "SenseNova", "日日新", "商汤日日新"],
-  "科大讯飞": ["讯飞", "iFlytek", "iFLYTEK", "讯飞公司"],
-  "讯飞星火": ["星火大模型", "讯飞星火大模型", "SparkDesk", "讯飞星火认知大模型", "星火"],
-  "Google": ["谷歌", "Alphabet", "Google公司", "谷歌公司", "谷歌母公司"],
-  "DeepMind": ["Google DeepMind", "谷歌DeepMind", "DeepMind公司"],
-  "Gemini": ["Google Gemini", "谷歌Gemini", "Gemini模型", "双子星"],
-  "Microsoft": ["微软", "MSFT", "Microsoft公司", "微软公司"],
-  "Copilot": ["Microsoft Copilot", "微软Copilot", "GitHub Copilot", "微软副驾驶"],
-  "Meta": ["Meta Platforms", "Facebook", "脸书", "Meta公司"],
-  "Llama": ["LLaMA", "Llama模型", "Llama系列", "羊驼", "Meta Llama", "开源羊驼"],
-  "xAI": ["X.AI", "x.AI", "xAI公司", "马斯克xAI"],
-  "Grok": ["Grok模型", "xAI Grok", "grok"],
-  "Mistral AI": ["Mistral", "MistralAI", "Mistral公司", "Mistral AI公司"],
-  "字节跳动": ["字节", "ByteDance", "Bytedance", "抖音集团", "字节跳动公司"],
-  "豆包": ["Doubao", "DouBao", "豆包AI", "字节豆包", "豆包大模型", "豆包助手"],
-  "即梦": ["即梦AI", "Jimeng", "Jimeng AI", "字节即梦", "Dreamina", "即梦Dreamina"],
-  "快手": ["快手科技", "Kuaishou", "Kuaishou公司"],
-  "可灵": ["可灵AI", "Kling", "Kling AI", "快手可灵", "可灵大模型"],
-  "百度": ["Baidu", "百度公司", "Baidu公司"],
-  "文心": ["文心一言", "文心大模型", "ERNIE", "ERNIE Bot", "Ernie", "Wenxin", "百度文心"],
-  "阿里巴巴": ["阿里", "Alibaba", "Alibaba Group", "阿里云", "Alibaba Cloud", "阿里巴巴集团"],
-  "Qwen": ["通义千问", "通义", "Tongyi", "Tongyi Qianwen", "千问", "Qwen系列", "阿里通义千问", "通义大模型"],
-  "腾讯": ["Tencent", "腾讯公司", "Tencent公司", "Tencent Holdings"],
-  "混元": ["腾讯混元", "混元大模型", "Hunyuan", "hunyuan", "腾讯Hunyuan"],
-  "元宝": ["腾讯元宝", "Yuanbao", "元宝App", "腾讯元宝App"],
-  "华为": ["Huawei", "华为公司", "Huawei公司"],
-  "盘古": ["盘古大模型", "Pangu", "华为盘古", "华为盘古大模型"],
-  "NVIDIA": ["英伟达", "Nvidia", "NVDA", "NVIDIA公司"],
-  "AMD": ["AMD公司", "超威半导体", "超威", "Advanced Micro Devices"],
-  "Intel": ["英特尔", "Intel公司", "英特尔公司", "INTC"],
-  "Apple": ["苹果", "Apple公司", "苹果公司", "AAPL"],
-  "台积电": ["TSMC", "TSMC公司", "台湾积体电路", "台湾积体电路制造"],
-  "Manus": ["Manus AI", "Manus公司", "蝴蝶效应", "Monica"],
-  "Cursor": ["Anysphere", "Cursor AI", "Cursor编辑器"]
+  "OpenAI": [
+    "Open AI",
+    "OAI",
+    "OpenAI 公司",
+    "OPENAI"
+  ],
+  "Anthropic": [
+    "Anthropic 公司",
+    "Anthropic AI"
+  ],
+  "Claude": [
+    "Claude 模型",
+    "Anthropic Claude",
+    "克劳德",
+    "Claude Code",
+    "ClaudeCode"
+  ],
+  "GPT": [
+    "GPT 系列",
+    "GPT 模型",
+    "OpenAI GPT"
+  ],
+  "ChatGPT": [
+    "chatgpt",
+    "ChatGPT 应用",
+    "OpenAI ChatGPT"
+  ],
+  "Sora": [
+    "OpenAI Sora",
+    "Sora 视频",
+    "Sora 视频生成"
+  ],
+  "DeepSeek": [
+    "深度求索",
+    "Deepseek",
+    "deepseek",
+    "幻方 DeepSeek",
+    "深度求索 DeepSeek"
+  ],
+  "Moonshot AI": [
+    "月之暗面",
+    "Moonshot",
+    "MoonshotAI",
+    "月之暗面科技",
+    "北京月之暗面"
+  ],
+  "Kimi": [
+    "Kimi Chat",
+    "Kimi 智能助手",
+    "kimi",
+    "月之暗面 Kimi"
+  ],
+  "智谱AI": [
+    "智谱",
+    "智谱华章",
+    "Zhipu AI",
+    "ZhipuAI",
+    "Zhipu",
+    "Z.AI",
+    "z.ai",
+    "智谱公司"
+  ],
+  "GLM": [
+    "ChatGLM",
+    "智谱清言",
+    "清言",
+    "GLM 系列",
+    "GLM 模型",
+    "AutoGLM"
+  ],
+  "MiniMax": [
+    "稀宇科技",
+    "MiniMax 稀宇",
+    "Minimax",
+    "MINIMAX",
+    "MiniMax 公司"
+  ],
+  "海螺AI": [
+    "海螺",
+    "Hailuo",
+    "Hailuo AI",
+    "MiniMax 海螺",
+    "海螺视频"
+  ],
+  "阶跃星辰": [
+    "阶跃",
+    "StepFun",
+    "StepFun 公司",
+    "跃问",
+    "Step 系列"
+  ],
+  "百川智能": [
+    "百川",
+    "Baichuan",
+    "Baichuan AI",
+    "百川大模型"
+  ],
+  "零一万物": [
+    "01.AI",
+    "01AI",
+    "零一",
+    "Yi",
+    "Yi 系列",
+    "万知"
+  ],
+  "面壁智能": [
+    "面壁",
+    "ModelBest",
+    "MiniCPM",
+    "面壁小钢炮"
+  ],
+  "昆仑万维": [
+    "昆仑",
+    "Kunlun",
+    "Kunlun Tech",
+    "天工",
+    "Skywork",
+    "SkyWork",
+    "天工大模型"
+  ],
+  "商汤科技": [
+    "商汤",
+    "SenseTime",
+    "Sense Time",
+    "SenseNova",
+    "日日新",
+    "商汤日日新"
+  ],
+  "科大讯飞": [
+    "讯飞",
+    "iFlytek",
+    "iFLYTEK",
+    "讯飞公司"
+  ],
+  "讯飞星火": [
+    "星火大模型",
+    "讯飞星火大模型",
+    "SparkDesk",
+    "讯飞星火认知大模型",
+    "星火"
+  ],
+  "Google": [
+    "谷歌",
+    "Alphabet",
+    "Google 公司",
+    "谷歌公司",
+    "谷歌母公司"
+  ],
+  "DeepMind": [
+    "Google DeepMind",
+    "谷歌 DeepMind",
+    "DeepMind 公司"
+  ],
+  "Gemini": [
+    "Google Gemini",
+    "谷歌 Gemini",
+    "Gemini 模型",
+    "双子星"
+  ],
+  "Microsoft": [
+    "微软",
+    "MSFT",
+    "Microsoft 公司",
+    "微软公司"
+  ],
+  "Copilot": [
+    "Microsoft Copilot",
+    "微软 Copilot",
+    "GitHub Copilot",
+    "微软副驾驶"
+  ],
+  "Meta": [
+    "Meta Platforms",
+    "Facebook",
+    "脸书",
+    "Meta 公司"
+  ],
+  "Llama": [
+    "LLaMA",
+    "Llama 模型",
+    "Llama 系列",
+    "羊驼",
+    "Meta Llama",
+    "开源羊驼"
+  ],
+  "xAI": [
+    "X.AI",
+    "x.AI",
+    "xAI 公司",
+    "马斯克 xAI"
+  ],
+  "Grok": [
+    "Grok 模型",
+    "xAI Grok",
+    "grok"
+  ],
+  "Mistral AI": [
+    "Mistral",
+    "MistralAI",
+    "Mistral 公司",
+    "Mistral AI 公司"
+  ],
+  "字节跳动": [
+    "字节",
+    "ByteDance",
+    "Bytedance",
+    "抖音集团",
+    "字节跳动公司"
+  ],
+  "豆包": [
+    "Doubao",
+    "DouBao",
+    "豆包 AI",
+    "字节豆包",
+    "豆包大模型",
+    "豆包助手"
+  ],
+  "即梦": [
+    "即梦 AI",
+    "Jimeng",
+    "Jimeng AI",
+    "字节即梦",
+    "Dreamina",
+    "即梦 Dreamina"
+  ],
+  "快手": [
+    "快手科技",
+    "Kuaishou",
+    "Kuaishou 公司"
+  ],
+  "可灵": [
+    "可灵 AI",
+    "Kling",
+    "Kling AI",
+    "快手可灵",
+    "可灵大模型"
+  ],
+  "百度": [
+    "Baidu",
+    "百度公司",
+    "Baidu 公司"
+  ],
+  "文心": [
+    "文心一言",
+    "文心大模型",
+    "ERNIE",
+    "ERNIE Bot",
+    "Ernie",
+    "Wenxin",
+    "百度文心"
+  ],
+  "阿里巴巴": [
+    "阿里",
+    "Alibaba",
+    "Alibaba Group",
+    "阿里云",
+    "Alibaba Cloud",
+    "阿里巴巴集团"
+  ],
+  "Qwen": [
+    "通义千问",
+    "通义",
+    "Tongyi",
+    "Tongyi Qianwen",
+    "千问",
+    "Qwen 系列",
+    "阿里通义千问",
+    "通义大模型"
+  ],
+  "腾讯": [
+    "Tencent",
+    "腾讯公司",
+    "Tencent 公司",
+    "Tencent Holdings"
+  ],
+  "混元": [
+    "腾讯混元",
+    "混元大模型",
+    "Hunyuan",
+    "hunyuan",
+    "腾讯 Hunyuan"
+  ],
+  "元宝": [
+    "腾讯元宝",
+    "Yuanbao",
+    "元宝 App",
+    "腾讯元宝 App"
+  ],
+  "华为": [
+    "Huawei",
+    "华为公司",
+    "Huawei 公司"
+  ],
+  "盘古": [
+    "盘古大模型",
+    "Pangu",
+    "华为盘古",
+    "华为盘古大模型"
+  ],
+  "NVIDIA": [
+    "英伟达",
+    "Nvidia",
+    "NVDA",
+    "NVIDIA 公司"
+  ],
+  "AMD": [
+    "AMD 公司",
+    "超威半导体",
+    "超威",
+    "Advanced Micro Devices"
+  ],
+  "Intel": [
+    "英特尔",
+    "Intel 公司",
+    "英特尔公司",
+    "INTC"
+  ],
+  "Apple": [
+    "苹果",
+    "Apple 公司",
+    "苹果公司",
+    "AAPL"
+  ],
+  "台积电": [
+    "TSMC",
+    "TSMC 公司",
+    "台湾积体电路",
+    "台湾积体电路制造"
+  ],
+  "Manus": [
+    "Manus AI",
+    "Manus 公司",
+    "蝴蝶效应",
+    "Monica"
+  ],
+  "Cursor": [
+    "Anysphere",
+    "Cursor AI",
+    "Cursor 编辑器"
+  ]
 }

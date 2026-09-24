@@ -137,7 +137,9 @@ def load_aliases(path=None) -> dict:
 
 def _edge(term: str) -> str:
     """Word-boundary guards on the ASCII edges of a term."""
-    esc = re.escape(term)
+    # 词内空格按 \s* 匹配：中文语境 "OpenAI公司" 与 "OpenAI 公司" 同指，
+    # aliases.json 里带不带空格的写法都能命中（re.escape 把空格转义成 "\ "）。
+    esc = re.escape(term).replace("\\ ", r"\s*")
     left = r"(?<![0-9A-Za-z])" if term[0].isascii() and term[0].isalnum() else ""
     right = r"(?![0-9A-Za-z])" if term[-1].isascii() and term[-1].isalnum() else ""
     return left + esc + right
@@ -158,7 +160,7 @@ def _compiled(frozen):
                 pairs.append((t, canon))
     pairs.sort(key=lambda p: -len(p[0]))  # longest alias wins at a position
     pat = re.compile("|".join(_edge(t) for t, _ in pairs), re.I)
-    table = {t.casefold(): c for t, c in pairs}
+    table = {re.sub(r"\s+", "", t).casefold(): c for t, c in pairs}
     return pat, table
 
 
@@ -171,7 +173,8 @@ def apply_aliases(text: str, aliases: dict) -> str:
     if not text or not aliases:
         return text or ""
     pat, table = _compiled(_freeze(aliases))
-    return pat.sub(lambda m: table[m.group(0).casefold()], text)
+    return pat.sub(
+        lambda m: table[re.sub(r"\s+", "", m.group(0)).casefold()], text)
 
 
 # ------------------------------------------------------------- dates --------
@@ -337,9 +340,10 @@ if __name__ == "__main__":
     assert "OpenAI" in al and "DeepSeek" in al
     t = apply_aliases("deepseek 与 OpenAI公司 发布新模型", al)
     assert t == "DeepSeek 与 OpenAI 发布新模型", t
-    # ASCII word-boundary: 'Yi' must not touch 'yield'/'metadata'
+    # ASCII word-boundary: 'Yi' must not touch 'yield'/'metadata'；
+    # 同时 "Yi 系列" 整条命中别名（空格按 \s* 匹配）→ 零一万物
     t2 = apply_aliases("yield metadata Yi 系列", al)
-    assert t2 == "yield metadata 零一万物 系列", t2
+    assert t2 == "yield metadata 零一万物", t2
     # longest-alias-first: 'OpenAI ChatGPT' -> ChatGPT, not 'OpenAI ChatGPT'
     t3 = apply_aliases("OpenAI ChatGPT 发布", al)
     assert t3 == "ChatGPT 发布", t3
