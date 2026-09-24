@@ -105,7 +105,7 @@ TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.S | re.I)
 # 兜底——确定性渲染。字体走本机 fontconfig：Alibaba PuHuiTi 3.0 / Smiley Sans /
 # DingTalk JinBuTi 均已装）
 # ---------------------------------------------------------------------------
-COVER_HTML = """<!DOCTYPE html>
+COVER_HTML = r"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"><style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#edf0ff;--blue:#486efd;--ink:#000}
@@ -139,44 +139,110 @@ body{width:2560px;height:1440px;background:var(--bg);font-family:"Alibaba PuHuiT
 <script>
 const P = new URLSearchParams(location.search);
 const logos = (P.get('logos')||'').split(',').filter(Boolean);
+const names = JSON.parse(P.get('names')||'[]');
 const hero  = P.get('hero')||logos[0]||'';
 document.getElementById('brand').textContent = P.get('brand')||hero||'AI';
-document.getElementById('big').textContent   = P.get('big')||'AI 早报';
+const big = document.getElementById('big');
+big.textContent = P.get('big')||'AI 早报';
+// 字数自适应：>4 字缩字号避免孤字换行（"GPT-6双模型" 7 字在 400px 下必断行）
+big.style.fontSize = big.textContent.length<=4?'400px':big.textContent.length<=6?'300px':'220px';
 document.getElementById('sub').textContent   = P.get('sub')||'';
 document.getElementById('date').textContent  = P.get('date')||'';
+// 无 icon 兜底：显实体名缩写而非 slug 前4字符（simple-icons 已下架
+// openai/microsoft/xai 等商标，字标兜底是常态路径）
+function abbrev(n){
+  n = String(n||'');
+  if(/[一-鿿]/.test(n)) return n.slice(0,4);
+  const w = n.split(/[\s\-]+/).filter(Boolean);
+  let a;
+  if(w.length>1) a = w.map(x=>x[0]).join('').slice(0,4).toUpperCase();
+  else a = n.slice(0,8).toUpperCase();
+  // 同族多版本缩写会撞车（Hy Image3.5/3.0→HI）：把版本尾巴带上区分
+  const ver = (n.match(/[\d][\d.]*$/)||[''])[0];
+  if(ver && !a.includes(ver)) a = (a + ver).slice(0,8);
+  return a;
+}
 const grid = document.getElementById('grid');
-logos.slice(0,9).forEach(s=>{
+logos.slice(0,9).forEach((s,ix)=>{
   const d=document.createElement('div'); d.className='cell'+(s===hero?' hero':'');
   const i=document.createElement('img'); i.src=`https://cdn.simpleicons.org/${encodeURIComponent(s)}`; i.alt=s;
-  const f=document.createElement('span'); f.className='fb'; f.textContent=s.slice(0,4).toUpperCase();
+  const f=document.createElement('span'); f.className='fb'; f.textContent=abbrev(names[ix]||s);
+  f.style.fontSize = f.textContent.length<=4?'64px':f.textContent.length<=6?'48px':'36px';
   i.onerror=()=>{i.style.display='none';f.style.display='block'};
   d.appendChild(i); d.appendChild(f); grid.appendChild(d);
 });
 </script></body></html>
 """
 
-# 实体/品牌名 → simpleicons slug（icon 404 时模板有文本兜底，映射是锦上添花）
+# 实体/品牌名 → simpleicons slug。slug 值兼作归并键：产品/人名归所属公司
+# （GPT-6 Sol→openai、Sam Altman→openai），同 slug 在封面只占一格。
+# 注意 simple-icons 已因商标下架 openai/microsoft/xai/amazon/zhipu 等——
+# 归并后兜底格显实体名缩写（见模板 abbrev），仍远好于每个变体各烂一格。
 _ICON_SLUG = {
+    # OpenAI 系（slug 下架 → "OpenAI" 字标）
     "openai": "openai", "chatgpt": "openai", "gpt": "openai",
+    "codex": "openai", "sora": "openai", "dall-e": "openai", "dalle": "openai",
+    "sam altman": "openai", "altman": "openai",
+    # Anthropic / Google / Meta
+    "anthropic": "anthropic", "claude": "anthropic", "mythos": "anthropic",
+    "google": "google", "deepmind": "google", "google deepmind": "google",
+    "tunix": "google", "android": "android",
+    "gemini": "googlegemini", "googlegemini": "googlegemini",
+    "gemma": "googlegemini", "nano banana": "googlegemini",
+    "google cloud": "googlecloud", "cloud tpu": "googlecloud", "tpu": "googlecloud",
+    "youtube": "youtube", "gmail": "gmail",
+    "meta": "meta", "llama": "meta", "facebook": "facebook",
+    "instagram": "instagram", "whatsapp": "whatsapp",
+    # Microsoft / Amazon / xAI（slug 全下架 → 字标；grok/x 归 X 真图标）
+    "microsoft": "microsoft", "微软": "microsoft", "windows": "microsoft",
+    "azure": "microsoft", "xbox": "microsoft", "office": "microsoft",
+    "copilot": "githubcopilot",
+    "amazon": "amazon", "亚马逊": "amazon", "aws": "amazon",
+    "xai": "x", "grok": "x", "x": "x", "twitter": "x",
+    # Apple
+    "apple": "apple", "苹果": "apple", "mac": "apple", "iphone": "apple",
+    "ipad": "apple", "macbook": "apple", "ios": "apple",
+    # 国产厂
     "deepseek": "deepseek",
-    "google": "google", "gemini": "googlegemini", "googlegemini": "googlegemini",
-    "anthropic": "anthropic", "claude": "anthropic",
-    "meta": "meta", "llama": "meta", "facebook": "meta",
     "qwen": "qwen", "千问": "qwen", "通义千问": "qwen", "通义": "qwen",
     "kimi": "kimi", "月之暗面": "kimi", "moonshot": "kimi",
-    "alibaba": "alibabacloud", "阿里巴巴": "alibabacloud", "阿里云": "alibabacloud",
-    "达摩院": "alibabacloud", "mistral": "mistralai", "mistralai": "mistralai",
-    "xai": "xai", "grok": "xai", "x": "x",
-    "huggingface": "huggingface", "hugging face": "huggingface",
-    "github": "github", "microsoft": "microsoft", "微软": "microsoft",
-    "nvidia": "nvidia", "英伟达": "nvidia", "apple": "apple", "苹果": "apple",
+    "alibaba": "alibabacloud", "阿里巴巴": "alibabacloud", "阿里": "alibabacloud",
+    "阿里云": "alibabacloud", "达摩院": "alibabacloud",
+    "t-head": "alibabacloud", "平头哥": "alibabacloud", "倚天": "alibabacloud",
+    "磐久": "alibabacloud",
     "bytedance": "bytedance", "字节跳动": "bytedance", "字节": "bytedance",
-    "perplexity": "perplexity", "ollama": "ollama", "stability": "stabilityai",
-    "midjourney": "midjourney", "minimax": "minimax",
-    "阶跃星辰": "stepfun", "stepfun": "stepfun", "step": "stepfun",
-    "智谱": "zhipu", "zhipu": "zhipu", "chatglm": "zhipu",
+    "seedream": "bytedance", "doubao": "bytedance", "豆包": "bytedance",
+    "trae": "bytedance", "tiktok": "bytedance", "火山引擎": "bytedance",
+    "xiaomi": "xiaomi", "小米": "xiaomi", "mimo": "xiaomi",
+    "huawei": "huawei", "华为": "huawei", "盘古": "huawei",
+    "智谱": "zhipu", "zhipu": "zhipu", "chatglm": "zhipu", "glm": "zhipu",
+    "minimax": "minimax", "阶跃星辰": "stepfun", "stepfun": "stepfun",
+    "mistral": "mistralai", "mistralai": "mistralai",
+    "huggingface": "huggingface", "hugging face": "huggingface",
+    "perplexity": "perplexity", "ollama": "ollama", "suno": "suno",
+    "stabilityai": "stabilityai", "stability ai": "stabilityai",
+    "midjourney": "midjourney", "openrouter": "openrouter",
+    # 硬件
+    "nvidia": "nvidia", "英伟达": "nvidia", "cuda": "nvidia",
+    "amd": "amd", "intel": "intel", "英特尔": "intel",
+    "arm": "arm", "qualcomm": "qualcomm", "高通": "qualcomm",
+    "broadcom": "broadcom", "sony": "sony", "索尼": "sony",
+    "samsung": "samsung", "三星": "samsung", "tesla": "tesla", "特斯拉": "tesla",
+    "spacex": "spacex", "spacexai": "spacex", "starlink": "spacex",
+    # SaaS / 工具 / 平台
+    "cloudflare": "cloudflare", "figma": "figma", "shopify": "shopify",
+    "snowflake": "snowflake", "datadog": "datadog", "hubspot": "hubspot",
+    "box": "box", "palantir": "palantir", "cursor": "cursor",
+    "windsurf": "windsurf", "linear": "linear", "notion": "notion",
+    "vercel": "vercel", "github": "github", "workday": "workday",
+    "stripe": "stripe", "docker": "docker", "kubernetes": "kubernetes",
+    "redis": "redis", "postgresql": "postgresql", "postgres": "postgresql",
+    "mysql": "mysql", "mongodb": "mongodb", "telegram": "telegram",
+    "discord": "discord", "wechat": "wechat", "微信": "wechat", "qq": "qq",
+    # 其他
+    "arxiv": "arxiv", "bilibili": "bilibili", "b站": "bilibili",
+    "unitednations": "unitednations", "联合国": "unitednations",
     "中国电信": "chinatelecom", "chinatelecom": "chinatelecom",
-    "android": "android", "arxiv": "arxiv", "bilibili": "bilibili",
 }
 
 
@@ -324,12 +390,21 @@ def gen_titles(run_dir: Path, issue: dict, llm_cfg: dict | None,
 # ---------------------------------------------------------------------------
 
 def _slug_of(name: str) -> str:
-    """实体名 → simpleicons slug；未命中映射时 slugify（中文名原样给模板做文本兜底）。"""
+    """实体名 → simpleicons slug：全名命中 > 逐词前缀回退 > slugify 兜底。
+
+    前缀回退让 "GPT-6 Sol"→openai、"小米 MiMo"→xiaomi、"TRAE CN"→bytedance
+    这类带版本/后缀写法归到品牌格；兜底 slug 404 时模板显实体名缩写。
+    """
     n = re.sub(r"\s+", " ", str(name or "").strip().lower())
     if not n:
         return ""
     if n in _ICON_SLUG:
         return _ICON_SLUG[n]
+    toks = re.split(r"[\s\-]+", n)
+    for i in range(len(toks) - 1, 0, -1):
+        hit = _ICON_SLUG.get(" ".join(toks[:i]))
+        if hit:
+            return hit
     slug = re.sub(r"[^a-z0-9]+", "", n)
     return slug or str(name).strip()
 
@@ -352,15 +427,35 @@ def _cover_params(issue: dict, titles_doc: dict | None,
     brand = ents[0] if ents else (hero.get("nav") or hero.get("id") or "AI")
     big = hero.get("title_short") or hero.get("nav") or hero.get("headline") or "AI 早报"
     big = re.sub(r"\s+", "", str(big))[:10] or "AI 早报"
-    sub = re.sub(r"\s+", "", str(hero.get("headline") or hero.get("tldr") or ""))[:24]
+    # sub 保留单词间空格（纯粘连排版拉丁文不可读）；截断避开半个词、
+    # 再去掉悬空连词尾（"与…"→"…"）
+    sub = re.sub(r"\s+", " ", str(hero.get("headline") or hero.get("tldr") or "")).strip()
+    if len(sub) > 24:
+        cut = re.sub(r"[A-Za-z0-9.+-]*$", "", sub[:24]).rstrip()
+        cut = re.sub(r"[的了与和及或在为称其是将有对从向以至到并]+$", "", cut).rstrip()
+        sub = (cut or sub[:24]) + "…"
 
-    logos, seen = [], set()
+    logos, names, seen = [], {}, set()
+
+    def _compact(x: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(x).lower())
 
     def push(name):
         s = _slug_of(name)
-        if s and s not in seen:
+        if not s:
+            return
+        label = str(name).strip()
+        if s not in seen:
             seen.add(s)
             logos.append(s)
+            names[s] = label
+            return
+        # 同 slug 归并：优先"本名即 slug"的规范名（OpenAI 而非 Sam Altman），
+        # 其次取更短名（兜底格字标更干净）
+        if _compact(label) == s:
+            names[s] = label
+        elif _compact(names[s]) != s and len(label) < len(names[s]):
+            names[s] = label
 
     push(brand)
     for it in items:
@@ -370,9 +465,9 @@ def _cover_params(issue: dict, titles_doc: dict | None,
         if it.get("nav"):
             push(it["nav"])
     logos = logos[:9] or ["github", "huggingface", "openai"]
-    hero_slug = logos[0] if _slug_of(brand) not in logos else _slug_of(brand)
     return {"brand": str(brand), "big": big, "sub": sub,
-            "hero": hero_slug, "logos": ",".join(logos),
+            "hero": logos[0], "logos": ",".join(logos),
+            "names": json.dumps([names[s] for s in logos], ensure_ascii=False),
             "date": str(issue.get("date") or "")}
 
 
@@ -1025,6 +1120,12 @@ def _selftest() -> None:
     assert params["logos"].split(",")[0] == "qwen"
     assert params["date"] == "2026-09-20"
     assert _slug_of("月之暗面") == "kimi" and _slug_of("DeepSeek") == "deepseek"
+    # 前缀回退 + 同 slug 归并：变体名归品牌格，names 保留最佳显示名
+    assert _slug_of("GPT-6 Sol") == "openai" and _slug_of("小米 MiMo") == "xiaomi"
+    assert _slug_of("TRAE Work") == "bytedance" and _slug_of("Claude Fable 5.1") == "anthropic"
+    p2 = _cover_params({"items": [{"id": "a", "entities": ["Sam Altman", "OpenAI", "GPT-6 Sol"]}],
+                        "date": "d"}, None, {}, {"a": "k1"})
+    assert p2["logos"] == "openai" and json.loads(p2["names"]) == ["OpenAI"], p2
 
     # 抽样均摊 ≤8
     big_issue = {"items": [{"id": f"i{i}", "headline": f"第{i}条标题甲乙丙丁戊己",
