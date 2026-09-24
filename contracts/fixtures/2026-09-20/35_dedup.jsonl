@@ -1,0 +1,15 @@
+{"schema": "dedup_verdict/1", "item_key": "ead9d03d25434288", "verdict": "fresh", "cluster_id": 100, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "e49df2e8f3181f6d", "verdict": "fresh", "cluster_id": 101, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "ba7844c57c1724ca", "verdict": "fresh", "cluster_id": 102, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "8718fa8cc42ad61b", "verdict": "fresh", "cluster_id": 103, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "49d1e4e1e5ef71fa", "verdict": "fresh", "cluster_id": 104, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "721c94bd6f2f3edc", "verdict": "fresh", "cluster_id": 105, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "f1b9b8b4f2d59e73", "verdict": "fresh", "cluster_id": 106, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "8a37e6139f628811", "verdict": "fresh", "cluster_id": 107, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "8256e22ea7196985", "verdict": "fresh", "cluster_id": 108, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "63b48040f2bb54c4", "verdict": "fresh", "cluster_id": 109, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "442871e785926b1c", "verdict": "fresh", "cluster_id": 110, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "c90c60220665332a", "verdict": "fresh", "cluster_id": 111, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "36dfd88d234122fd", "verdict": "fresh", "cluster_id": 112, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "cbf2e385752a521d", "verdict": "fresh", "cluster_id": 113, "match_cos": null, "judge": null}
+{"schema": "dedup_verdict/1", "item_key": "8107cc9acd802fb7", "verdict": "suppressed", "cluster_id": 87, "match_cos": 0.71, "judge": {"label": "A", "why": "同事件无新信息"}}

@@ -6,7 +6,7 @@
 #   "pydantic>=2",
 # ]
 # ///
-"""x_nitter.py — X/Twitter 采集路①：nitter 实例池（PLAN.md §5.3）。
+"""x_nitter.py — X/Twitter 采集路①：nitter 实例池（docs/PLAN.md §5.3）。
 
 fetch_user(handle, cfg, *, diag=None, run_dir=None) -> list[raw_item dict]
     按持久化健康分（state/x_nitter_health.json：成功 +1 / 失败 -2）排序并
@@ -33,7 +33,7 @@ nitter-status.html 补充候选）+ DEFAULT_INSTANCES 兜底。
 契约映射说明：raw_item/1 的 _source.kind ∈ rss|atom|api|scrape|manual 且
 extra="forbid" —— nitter feed 本质即 'rss'，实例名由 _source.feed_url 承载，
 非标 x.com 路由由 _fetch.via="mirror" 标记（任务描述里的 kind:'x'/
-via:'nitter:<inst>' 与契约枚举冲突，以 PLAN.md §4 契约为准）。
+via:'nitter:<inst>' 与契约枚举冲突，以 docs/PLAN.md §4 契约为准）。
 
 Smoke:  uv run stages/lib/x_nitter.py            # 含 live 探测
         uv run stages/lib/x_nitter.py --offline  # 跳过 live
@@ -67,7 +67,7 @@ from lib import http as _http          # noqa: E402
 from lib import normalize as _norm     # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EXP_DIR = REPO_ROOT / "experiments" / "hard-x.com-rsshub-or-mirror-instance"
+EXP_DIR = REPO_ROOT / "stages" / "lib" / "seeds" / "x_nitter"
 HEALTH_PATH = REPO_ROOT / "state" / "x_nitter_health.json"
 
 # 2026-09-21 实测验证（notes.md）：meowing.monster 主、jaydenha.uk 备、
@@ -125,7 +125,7 @@ def _norm_instance(entry: Any) -> Optional[str]:
 # ------------------------------------------------------------ seed pool ----
 
 def _mine_seed_hosts() -> list[str]:
-    """从 experiments/hard-x.com-*/ 挖验证过/候选的实例 host。
+    """从 seeds/x_nitter/ 挖验证过/候选的实例 host（种子摘自调研档案）。
 
     - nitter-*.rss：channel <atom:link href>/<link> 的 host（文件头是真实
       服务实例，含 307 后的落地 host）；文件名 nitter-<host>-<Handle>.rss

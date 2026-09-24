@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""All LLM prompt templates for the AI-news pipeline (PLAN.md §6, §7).
+"""All LLM prompt templates for the AI-news pipeline (docs/PLAN.md §6, §7).
 
 Owners:  filter.py  -> FILTER_PROMPT + SUMMARY_PROMPT   (§7.1)
          dedup.py   -> JUDGE_PROMPT                     (§7.2)

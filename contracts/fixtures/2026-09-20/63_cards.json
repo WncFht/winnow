@@ -1,0 +1,302 @@
+{
+ "schema": "cards/1",
+ "episode": "2026-09-20",
+ "renderer": "juya-news-card@fork-Mappedinfo",
+ "template": "claudeStyle",
+ "items": [
+  {
+   "id": "deepseek",
+   "mainTitle": "DeepSeek API明确节假日全天按空闲时段计费",
+   "cards": [
+    {
+     "title": "计费新规",
+     "desc": "调休上班的周末及中国法定节假日，全天均按<strong>空闲时段费率</strong>计费",
+     "icon": "campaign"
+    },
+    {
+     "title": "适用范围",
+     "desc": "面向使用 <code>DeepSeek</code> 官方 API 的用户，平台公告横幅已明确该规则",
+     "icon": "group"
+    }
+   ]
+  },
+  {
+   "id": "tibo",
+   "mainTitle": "Tibo疑似暗示Codex banked reset",
+   "cards": [
+    {
+     "title": "起因",
+     "desc": "<code>OpenAI</code> 本周没有推出预期更新，用户向 <code>Codex</code> 负责人 <code>Tibo</code> 索要 banked reset",
+     "icon": "forum"
+    },
+    {
+     "title": "语义争议",
+     "desc": "<code>Tibo</code> 回复“OK fine, but it's also still coming Tuesday”，是否承诺 <strong>reset</strong> 出现两种解读",
+     "icon": "quiz"
+    }
+   ]
+  },
+  {
+   "id": "step5",
+   "mainTitle": "Step 5 Preview现身Artificial Analysis网站",
+   "cards": [
+    {
+     "title": "榜单收录",
+     "desc": "阶跃星辰 <code>Step 5 Preview</code> 现身 <code>Artificial Analysis</code> 榜单并完成独立评测",
+     "icon": "leaderboard"
+    },
+    {
+     "title": "评测数据",
+     "desc": "智能指数 <strong>44</strong>，支持 <strong>1M</strong> 上下文和视觉输入，百万输入/输出价格 <strong>1 / 2.7 美元</strong>",
+     "icon": "monitoring"
+    },
+    {
+     "title": "可用情况",
+     "desc": "部分 <code>Step Plan</code> 用户称已可调用，页面列为闭源模型，官方尚未正式发布",
+     "icon": "lock_open"
+    }
+   ]
+  },
+  {
+   "id": "qwen",
+   "mainTitle": "千问发布Qwen3.8-LiveTranslate",
+   "cards": [
+    {
+     "title": "60种语言",
+     "desc": "面向真实对话的实时同传，支持 <strong>60 种语言</strong>",
+     "icon": "translate"
+    },
+    {
+     "title": "架构",
+     "desc": "<code>Interleave</code> 架构 + <code>Thinker-Talker</code> 双模块，字均延迟 <strong>2.8s → 2.3s</strong>",
+     "icon": "architecture"
+    },
+    {
+     "title": "新能力",
+     "desc": "实时说话人分离、原文译文同帧输出、长上下文消歧",
+     "icon": "auto_awesome"
+    },
+    {
+     "title": "可用性",
+     "desc": "在线体验与 API 均已上线千问 AI 平台",
+     "icon": "power"
+    }
+   ]
+  },
+  {
+   "id": "radar",
+   "mainTitle": "达摩院开源腹部CT诊断模型RADAR",
+   "cards": [
+    {
+     "title": "模型",
+     "desc": "腹部 CT 诊断通用视觉语言模型，论文发表于 <strong>Science</strong>",
+     "icon": "radiology"
+    },
+    {
+     "title": "训练数据",
+     "desc": "<strong>42.5万例</strong>增强腹部 CT、<strong>1500万</strong>解剖级图文对，无需人工标注",
+     "icon": "dataset"
+    },
+    {
+     "title": "性能",
+     "desc": "覆盖 <strong>18</strong> 个解剖结构、<strong>146</strong> 项影像发现，内外部诊断 AUC 超 <strong>0.87</strong>",
+     "icon": "target"
+    },
+    {
+     "title": "开放",
+     "desc": "权重已在 <code>HuggingFace</code> 开放，代码存档 <code>Zenodo</code>，Apache 2.0",
+     "icon": "lock_open"
+    }
+   ]
+  },
+  {
+   "id": "cua",
+   "mainTitle": "Cua开源小型表单填写模型cua-s1-forms",
+   "cards": [
+    {
+     "title": "超小参数",
+     "desc": "仅 <strong>70.6万</strong> 可训练参数，检查点约 <strong>2.8MB</strong>，支持本地运行",
+     "icon": "deployed_code"
+    },
+    {
+     "title": "工作方式",
+     "desc": "单次前向并行判断表单元素该填写、勾选、点击还是跳过",
+     "icon": "checklist"
+    },
+    {
+     "title": "定位",
+     "desc": "<code>CUA-S1</code> 家族表单研究检查点，仍处早期研究阶段",
+     "icon": "warning"
+    }
+   ]
+  },
+  {
+   "id": "xing",
+   "mainTitle": "中国电信开源Xing4.0-29B-A4B模型",
+   "cards": [
+    {
+     "title": "规格",
+     "desc": "星辰语义大模型，总参数 <strong>29B</strong>、激活 <strong>4B</strong>",
+     "icon": "memory"
+    },
+    {
+     "title": "面向",
+     "desc": "复杂工程与 <code>Agent</code> 任务，支持 <strong>256K</strong> 上下文并可扩展至 <strong>512K</strong>",
+     "icon": "smart_toy"
+    },
+    {
+     "title": "国产算力",
+     "desc": "完全基于国产算力训练，面向昇腾 <strong>910C</strong> 集群，吞吐提升约 <strong>96%</strong>",
+     "icon": "flag"
+    }
+   ]
+  },
+  {
+   "id": "androidbench",
+   "mainTitle": "Android Developers推出Android Bench 2.0",
+   "cards": [
+    {
+     "title": "评测对象",
+     "desc": "真实、多日的 <code>Android</code> 工程任务：从零构建、新功能、跨平台迁移",
+     "icon": "phone_android"
+    },
+    {
+     "title": "评分维度",
+     "desc": "完成率、视觉保真度、回归问题与每任务平均成本",
+     "icon": "straighten"
+    },
+    {
+     "title": "新增",
+     "desc": "开始评估 <code>Agent</code> 与模型组合，新增 <code>Gemini 3.8/3.7</code>、<code>GPT-6 Astra</code>、<code>Kimi K3</code> 等",
+     "icon": "group_add"
+    }
+   ]
+  },
+  {
+   "id": "lawsuit",
+   "mainTitle": "OpenAI等四家公司遭反垄断诉讼",
+   "cards": [
+    {
+     "title": "起诉",
+     "desc": "付费用户在加州北区联邦法院起诉 <code>OpenAI</code>、<code>Anthropic</code>、<code>SpaceXAI</code>、<code>Google</code>",
+     "icon": "gavel"
+    },
+    {
+     "title": "指控",
+     "desc": "高管公开呼吁协调限制 AI 进步速度，违反<strong>《谢尔曼反托拉斯法》第1条</strong>",
+     "icon": "block"
+    },
+    {
+     "title": "诉求",
+     "desc": "寻求集体诉讼认证、禁令及宣告性判决，四家公司尚未回应",
+     "icon": "groups"
+    }
+   ]
+  },
+  {
+   "id": "anthropic",
+   "mainTitle": "Anthropic或将发新模型应对Astra竞争",
+   "cards": [
+    {
+     "title": "路透报道",
+     "desc": "<code>Anthropic</code> 正考虑推出新模型，应对 <code>GPT-6 Astra</code> 获得的企业市场关注",
+     "icon": "newspaper"
+    },
+    {
+     "title": "安全评估",
+     "desc": "仍在评估下一款模型安全性，是否及何时发布尚未确定",
+     "icon": "shield"
+    },
+    {
+     "title": "爆料",
+     "desc": "博主称新版 <code>Fable</code>、<code>Opus</code>、<code>Sonnet</code> 在部分账号隐蔽测试，未获官方确认",
+     "icon": "visibility"
+    }
+   ]
+  },
+  {
+   "id": "gpt6",
+   "mainTitle": "OpenAI或将发布GPT-6 Sol和GPT-6 Luna",
+   "cards": [
+    {
+     "title": "时间点",
+     "desc": "<code>Sam Altman</code> 称最期待的内容已推迟到下周，<code>DevDay</code> 当地时间 <strong>9月29日</strong> 举行",
+     "icon": "event"
+    },
+    {
+     "title": "内容量",
+     "desc": "<code>Tibo</code> 称准备中的新内容“可能够办 <strong>3个DevDay</strong>”，下周先发布一部分",
+     "icon": "inventory_2"
+    },
+    {
+     "title": "猜测对象",
+     "desc": "用户提出想要 <code>GPT-6 Sol</code> 和 <code>GPT-6 Luna</code>，<code>Tibo</code> 回复“What else do you want”",
+     "icon": "rocket_launch"
+    }
+   ]
+  },
+  {
+   "id": "gemini",
+   "mainTitle": "Google或将发布Gemini 4 Pro",
+   "cards": [
+    {
+     "title": "隐蔽测试",
+     "desc": "多名用户称 <code>Arena</code> 中 <code>gemini-3.8-flash</code> 会随机路由至疑似 <code>Gemini 4 Pro</code> 的 <code>Argon</code> checkpoint",
+     "icon": "theater_comedy"
+    },
+    {
+     "title": "表现",
+     "desc": "<code>SVG</code>、<code>3D</code> 场景、网页和游戏生成表现优异",
+     "icon": "emoji_events"
+    },
+    {
+     "title": "插曲",
+     "desc": "一张流传基准测试图被鉴定为 <code>GPT-Image</code> 生成，官方未确认型号与开放时间",
+     "icon": "image"
+    }
+   ]
+  },
+  {
+   "id": "minimax",
+   "mainTitle": "MiniMax或将发布MiniMax-M3.1",
+   "cards": [
+    {
+     "title": "代码线索",
+     "desc": "官方开源 <code>CLI</code> 工具多个文件出现 <code>MiniMax-M3.1</code> 标识",
+     "icon": "code"
+    },
+    {
+     "title": "参数档位",
+     "desc": "多套上下文（<strong>45万-100万</strong>）与输出参数及 <code>thinking effort</code> 档位",
+     "icon": "tune"
+    },
+    {
+     "title": "截图",
+     "desc": "社区流传截图显示官方工作人员预告即将发布，暂无更多官方信息",
+     "icon": "photo"
+    }
+   ]
+  },
+  {
+   "id": "kimi",
+   "mainTitle": "月之暗面或将发布Kimi K3.1",
+   "cards": [
+    {
+     "title": "暗示",
+     "desc": "<code>Kimi</code> 知乎认证机构号发布一串省略开头“<strong>3.1</strong>”的圆周率数字",
+     "icon": "pie_chart"
+    },
+    {
+     "title": "解读",
+     "desc": "缺失部分与“<code>K3.1</code>”版本编号对应，被解读为暗示即将发布",
+     "icon": "psychology"
+    },
+    {
+     "title": "现状",
+     "desc": "帖文未直接提及 <code>K3.1</code>，目前该动态已被删除",
+     "icon": "delete"
+    }
+   ]
+  }
+ ]
+}

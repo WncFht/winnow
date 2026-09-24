@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["httpx>=0.27", "pyyaml>=6", "pydantic>=2"]
 # ///
-"""stages/filter.py — L0 精确去重 + LLM 批式相关性门 + 逐条概要（PLAN.md §7.1）。
+"""stages/filter.py — L0 精确去重 + LLM 批式相关性门 + 逐条概要（docs/PLAN.md §7.1）。
 
 输入  : <run_dir>/10_raw_items.jsonl   (raw_item/1，采集层产物)
         rulebook.md + aliases.json + config.yaml(llm/storage 段)

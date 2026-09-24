@@ -1,0 +1,26 @@
+{
+ "schema": "build/1",
+ "episode": "2026-09-20",
+ "built_at": "2026-09-20T12:40:00+08:00",
+ "inputs": {
+  "render_plan": "sha256:683d8c745f30247cd856e2e5f4d3099e5752ecc1f5ba44aef288e99ed3d8256c",
+  "timeline": "sha256:bc17828bf465967977301678191836a7173350f15edded8d26113b21e3519ce3"
+ },
+ "tool": {
+  "ffmpeg": "n9.0.1",
+  "vcodec": "libx264",
+  "preset": "medium",
+  "crf": 19,
+  "fps": 30,
+  "acodec": "aac",
+  "abitrate": "192k"
+ },
+ "output": {
+  "path": "80_out.mp4",
+  "dur": 183.296,
+  "bytes": 7472706,
+  "sha256": "87d22185cf9ba8df1f7f87f398021d3e8ca3b13d130071ce1f4cd59073d9cbfd",
+  "width": 1920,
+  "height": 1080
+ }
+}

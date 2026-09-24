@@ -1,6 +1,6 @@
 """Shared run-metadata helpers for every pipeline stage.
 
-Implements the PLAN.md contract:
+Implements the docs/PLAN.md contract:
 - runs/<date>/ artifacts (§4): 00_meta.json is schema "run_manifest/1" —
   {schema, episode, created_at, stages{}}; stages{} -> {artifact, sha256,
   status∈done|pending|failed|skipped, produced_at, producer}（extra=forbid）;

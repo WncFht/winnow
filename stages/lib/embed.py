@@ -10,11 +10,11 @@
 """Qwen3-Embedding-0.6B int8 ONNX embedder (last-token pooling, L2-normalized).
 
 Backend: onnx-community/Qwen3-Embedding-0.6B-ONNX int8 on CPU
-(~12 texts/s per PLAN.md §3.4; not an LLM, exempt from D1).
+(~12 texts/s per docs/PLAN.md §3.4; not an LLM, exempt from D1).
 
 Model dir resolution (first hit wins):
     1. $EMBED_MODEL_DIR
-    2. ~/.cache/embed/            (canonical cache per PLAN.md §3.4)
+    2. ~/.cache/embed/            (canonical cache per docs/PLAN.md §3.4)
 Each dir must contain model_int8.onnx + tokenizer.json.
 
 API:

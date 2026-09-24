@@ -6,7 +6,7 @@
 #   "urllib3>=2",
 # ]
 # ///
-"""Collect-layer HTTP helper (PLAN.md §5.2).
+"""Collect-layer HTTP helper (docs/PLAN.md §5.2).
 
 get(url, *, etag=None, lastmod=None, proxy=None, timeout=20, headers=None,
     retries=0, follow_redirects=True)
@@ -371,10 +371,10 @@ def get(
 # -------------------------------------------------------------- save_raw ----
 
 def _repo_root_for(run_dir: Path) -> Path:
-    """repo root = nearest ancestor of run_dir containing PLAN.md; fallback
+    """repo root = nearest ancestor of run_dir containing docs/PLAN.md; fallback
     run_dir.parent.parent (runs/<date> convention)."""
     for anc in Path(run_dir).resolve().parents:
-        if (anc / "PLAN.md").is_file():
+        if (anc / "docs/PLAN.md").is_file():
             return anc
     return Path(run_dir).resolve().parents[1]
 

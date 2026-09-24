@@ -1,6 +1,6 @@
 # Winnow（风选）— AI 早报产线实施方案（2026-09-21 定稿 v2，含 toolchain + 全阶段详设）
 
-本文件是实现的唯一依据。调研过程与实测证据见 `experiments/source-seeds/research_result.json` 及各实验目录；本文只写"做什么、怎么验"。实现时照 §10 阶段顺序做，每个阶段按"输入 → 处理 → 输出 → 复用 → 验收"五段落地。
+本文件是实现的唯一依据。调研过程与实测证据在调研档案区（`experiments/`、`repro/`、`evidence/`——**不随仓发布**，仅本地留存）；本文各处"种子：`experiments/…`"是出处标注，公开 clone 里这些路径不存在。本文只写"做什么、怎么验"。实现时照 §10 阶段顺序做，每个阶段按"输入 → 处理 → 输出 → 复用 → 验收"五段落地。
 
 ## 0. 范围与原则
 
@@ -33,11 +33,17 @@
 
 ```
 winnow/
-├── PLAN.md              # 本文件
+├── docs/                # 文档库（索引 docs/README.md）
+│   ├── PLAN.md          #   本文件
+│   ├── CONTRIBUTING.md  #   工程约定
+│   ├── ops.md           #   systemd 部署 + prelude 说明
+│   ├── composer.md      #   Remotion 备选引擎用法
+│   └── vendored-upstream.md  # juya-news-card 定格/patch/同步
 ├── contracts/           # ← 提升自 experiments/artifact-contracts/
 │   ├── models.py        #   全部 artifact pydantic 定义 + "schema":"<name>/<v>"
 │   ├── validate.py      #   跨字段校验（coverage、id 引用、数字白名单、link membership）
-│   └── schemas/         #   发射出的 JSON Schema（供 TS/Remotion 侧消费）
+│   ├── schemas/         #   发射出的 JSON Schema（供 TS/Remotion 侧消费）
+│   └── fixtures/2026-09-20/  # golden run fixture（just test 全量校验 + compose/render_plan 自测）
 ├── sources.yaml         # 唯一人工维护的源注册表（种子：experiments/source-seeds/domains.json）
 ├── config.example.yaml  # 开源模板：llm/tts/alert/proxy/schedule/storage
 ├── secrets.env.example  # SWE2MAX_API_KEY 等（dotenvx 加密可选，experiments/secrets-mgmt-fht）
@@ -68,7 +74,9 @@ winnow/
 │       ├── x_ssr.py       # X 采集路②：x.com 登出态 SSR 解析（shell-only 检测）
 │       ├── x_synd.py      # X 采集路③：syndication CDN（429 退避）
 │       ├── reddit_collect.py # Reddit loid OAuth（token 自动重铸，≤30rpm）
-│       └── weibo_collect.py  # 微博 m.weibo.cn JSON + visitor cookie 铸造
+│       ├── weibo_collect.py  # 微博 m.weibo.cn JSON + visitor cookie 铸造
+│       ├── fixtures/      #   自测回放样本（rss/html/json；repro 派生 timeline/items）
+│       └── seeds/x_nitter/ #  nitter 实例池种子语料（_mine_seed_hosts 运行时挖）
 ├── adapters/
 │   ├── llm_swe2max.py   # llm.chat 实现（§6 适配层契约）
 │   ├── tts_edge.py      # tts.synth edge-tts 实现（裁残余静音，吐原生句边界）
@@ -81,6 +89,7 @@ winnow/
 │   ├── src/FullDaily.tsx  #   已验证的 compose.py 逐点移植
 │   └── package.json remotion.config.ts
 ├── upstream/juya-news-card/   # vendored 上游渲染器（已 npm install；CDN 自托管补丁见 §7.6）
+├── assets/fonts/        # SmileySans-Oblique.ttf（chrome 叠加卡标题字，lib/chrome.py 读）
 ├── runs/<date>/         # 每期 artifact（§4 契约表）；runs/_exp-*/_test/_doctor 为沙箱目录（§9.1）
 ├── state/               # 跨天状态（gitignore）：history.sqlite(+wal)、items.sqlite（§5.6）、
 │                        #   seen.json、source_health.json、alias_suggestions.jsonl、
@@ -97,7 +106,7 @@ winnow/
 ├── sensitive_words.txt  # 合规确定性扫描词表（digest 合规 pass，§7.4）
 ├── justfile             # 薄驱动（§9）
 ├── .crossnote/          # MPE 预览环境软链（gitignore，scripts/crossnote-links.sh 生成）
-└── experiments/ evidence/ upstream/ repro/ repro-venv/   # 调研与证据区（不动）
+└── （调研档案区 experiments/ evidence/ repro/ 不随仓发布，本地保留）
 ```
 
 ## 3. Toolchain（`just setup-toolchain` 一次性完成 + 逐项 smoke test）
@@ -114,14 +123,14 @@ winnow/
 | ffmpeg | 带 libx264 | `ffmpeg -encoders \| grep libx264` | compose 兜底 + loudnorm + 音频装配 |
 | just | latest | `just -V` | 驱动 |
 | sqlite3 | stdlib 即可 | — | state/history.sqlite（+items.sqlite） |
-| lychee | x86_64 二进制已在 `experiments/factcheck-layer/lychee-*/` | 复制到 `adapters/bin/lychee` | link-check |
+| lychee | GitHub release x86_64 二进制 | `just setup-toolchain` 下载到 `adapters/bin/lychee` | link-check |
 | playwright(py) | pip + `playwright install chromium` | `python -c "import playwright"` | shotlib/chrome/composite |
 | git | — | — | raw_cache/上游版本钉 |
 
 ### 3.2 Node 侧
 
 - `cd upstream/juya-news-card && npm install`（已装则跳过；确认 `assets/htmlFont.ttf` 存在——render-batch.ts 注入 `CustomPreviewFont`）。
-- `cp -r experiments/remotion-feas composer/ && cd composer && npm install`。
+- `composer/` 已随仓提供（Remotion 工程），`cd composer && npm install`。
   - esbuild postinstall 被本机 allowScripts 拦截 → package.json 需含 `"allowScripts"`（remotion-feas 已修，直接继承）。
   - 首次渲染自动下载 chrome-headless-shell 到 `node_modules/.remotion/`；下载失败退路：`browserExecutable` 指向 `~/.cache/ms-playwright/chromium_headless_shell-*/`（playwright 已装必有）。
 

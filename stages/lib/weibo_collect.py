@@ -5,7 +5,7 @@
 #   "httpx>=0.28",
 # ]
 # ///
-"""Weibo collector — m.weibo.cn JSON + visitor-cookie flow (PLAN.md §5.3 Tier B).
+"""Weibo collector — m.weibo.cn JSON + visitor-cookie flow (docs/PLAN.md §5.3 Tier B).
 
 Lifts the verified flow from experiments/weibo-monitor + weibo-stability-probe:
 
@@ -746,7 +746,7 @@ def fetch_source(src: dict, cfg=None) -> list[dict]:
 # ------------------------------------------------------------- self test ----
 
 def _fixture(name):
-    p = REPO_ROOT / "experiments" / "weibo-stability-probe" / name
+    p = REPO_ROOT / "stages" / "lib" / "fixtures" / f"weibo_{name}"
     return json.loads(p.read_text()) if p.is_file() else None
 
 

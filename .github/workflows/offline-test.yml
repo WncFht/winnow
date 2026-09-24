@@ -10,8 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        # experiments/* 外部 clone 仅供调研参考，测试不需要
-        # (submodules stay unchecked-out by default)
 
       - uses: astral-sh/setup-uv@v5
       - uses: extractions/setup-just@v2

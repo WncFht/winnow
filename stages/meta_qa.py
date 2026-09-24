@@ -10,7 +10,7 @@
 #   "tokenizers>=0.19",
 # ]
 # ///
-"""stages/meta_qa.py — PLAN.md §7.9：标题候选 + 封面 + 确定性审计 + 出片回写 + 告警。
+"""stages/meta_qa.py — docs/PLAN.md §7.9：标题候选 + 封面 + 确定性审计 + 出片回写 + 告警。
 
 产物（§4 契约）：
   90_title_candidates.json   meta/1  {candidates:[{title,items,chars}]}（LLM；

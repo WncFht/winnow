@@ -8,7 +8,7 @@
 #   "googlenewsdecoder>=0.1.7,<0.2",
 # ]
 # ///
-"""stages/cards.py — 内容卡渲染 + chrome 叠加 + 帧合成（PLAN.md §7.6）。
+"""stages/cards.py — 内容卡渲染 + chrome 叠加 + 帧合成（docs/PLAN.md §7.6）。
 
 输入  : 50_issue.json（items[].{id,section,nav,title_short,cards[{label,body,icon}],
         sources[{url,primary}],media[],video.shot_sentences} + sections[] + date）

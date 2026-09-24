@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml>=6", "pydantic>=2"]
 # ///
-"""stages/render_plan.py — PLAN.md §7.7：编译 70_render_plan.json + 70_cards.ffconcat。
+"""stages/render_plan.py — docs/PLAN.md §7.7：编译 70_render_plan.json + 70_cards.ffconcat。
 
 输入（文件即依赖边，缺则 fail-fast 提示先跑哪个 just 目标）：
   62_timeline.json        timeline/1：items+segs+overlays（shot 窗口已编译为绝对时间）
@@ -53,8 +53,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # repo root -> con
 from lib import meta, prog  # stages/lib/{meta,prog}.py（stages/ 即 sys.path 脚本目录）
 
 REPO = Path(__file__).resolve().parents[1]
-REPRO = REPO / "repro"
-FIXTURE_RUN = REPO / "experiments" / "artifact-contracts" / "runs" / "2026-09-20"
+REPRO = REPO / "stages" / "lib" / "fixtures"  # repro_{timeline,items}.json
+FIXTURE_RUN = REPO / "contracts" / "fixtures" / "2026-09-20"
 
 F_TIMELINE = "62_timeline.json"
 F_CARDS = "63_cards.json"
@@ -692,9 +692,8 @@ def cmd_check(run_dir: Path) -> int:
 
 def _build_repro_run(rd: Path, with_overlays: bool = True,
                      with_issue: bool = True) -> dict:
-    """repro/{timeline,items}.json（tracked）+ artifact-contracts fixture 的
-    61_audio/65_subs/64_frames 媒体（git 入库；repro/{audio,subs,frames_v2}
-    是 gitignored 生成物，fresh clone 不存在）造一个 timeline/1 标准 run dir。
+    """lib/fixtures/repro_{timeline,items}.json + contracts/fixtures/2026-09-20
+    的 61_audio/65_subs/64_frames 媒体造一个 timeline/1 标准 run dir。
     返回 {'expect_vsegs': n, 'shot_windows': {item:[s,e]}}。"""
     for d in ("61_audio", "65_subs", "64_frames"):
         (rd / d).mkdir(parents=True, exist_ok=True)
@@ -706,8 +705,8 @@ def _build_repro_run(rd: Path, with_overlays: bool = True,
         name = png.name.replace("_shot.png", ".shot.png")  # fixture 已是规范名
         shutil.copy2(png, rd / "64_frames" / name)
 
-    rtl = _jload(REPRO / "timeline.json")
-    items_json = _jload(REPRO / "items.json")
+    rtl = _jload(REPRO / "repro_timeline.json")
+    items_json = _jload(REPRO / "repro_items.json")
 
     # shot_sentences → 绝对窗（voice 阶段产物语义）
     segs_by_item: dict[str, list[dict]] = {}
@@ -841,10 +840,10 @@ def cmd_selftest() -> int:
     shutil.rmtree(base, ignore_errors=True)
     fails: list[str] = []
 
-    # fixture 前置检查：媒体在 experiments/artifact-contracts/runs/2026-09-20
-    # （git 入库），timeline/items 在 repro/（tracked）；缺则报缺而非 traceback
+    # fixture 前置检查：run 目录在 contracts/fixtures/2026-09-20，
+    # timeline/items 在 stages/lib/fixtures/；缺则报缺而非 traceback
     missing_fix = [str(p) for p in
-                   (REPRO / "timeline.json", REPRO / "items.json",
+                   (REPRO / "repro_timeline.json", REPRO / "repro_items.json",
                     FIXTURE_RUN / "61_audio", FIXTURE_RUN / "64_frames",
                     FIXTURE_RUN / "65_subs", FIXTURE_RUN / OUT_PLAN)
                    if not p.exists()]

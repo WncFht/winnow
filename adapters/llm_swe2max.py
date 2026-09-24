@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["httpx>=0.27", "pyyaml>=6"]
 # ///
-"""llm.chat adapter — swe-2-max via local OpenAI-compatible gateway (PLAN.md §6, D1).
+"""llm.chat adapter — swe-2-max via local OpenAI-compatible gateway (docs/PLAN.md §6, D1).
 
 实测特性（experiments/swe2max-sufficiency-refute/，2026-09-21 复测）：
 - reasoning 模型小 max_tokens 会烧光预算返回空 → 默认 24000（config.llm.max_tokens）。

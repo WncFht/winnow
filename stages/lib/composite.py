@@ -1,4 +1,4 @@
-"""stages/lib/composite.py — img.layer 图层栈合成最终帧（PLAN.md §7.6）。
+"""stages/lib/composite.py — img.layer 图层栈合成最终帧（docs/PLAN.md §7.6）。
 
 移植自 repro/composite_frames.py：
   frame = 上游卡片卡 + nav 叠加 + crumb 叠加 (+ shot 弹卡)

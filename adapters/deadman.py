@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
-"""Dead-man switch ping — PLAN.md §7.9 / §9 (healthchecks.io style).
+"""Dead-man switch ping — docs/PLAN.md §7.9 / §9 (healthchecks.io style).
 
     from adapters import deadman
     deadman.ping(config=cfg)            # 全部成功 -> GET ping_url

@@ -1,0 +1,900 @@
+{
+  "schema": "issue/1",
+  "date": "2026-09-20",
+  "weekday": "周日",
+  "lang": "zh-CN",
+  "issue_url": "https://daily.juya.uk/issues/2026-09-20/",
+  "video_links": {
+    "bilibili": "https://www.bilibili.com/video/BV1NqeY6dEPP",
+    "youtube": "https://www.youtube.com/watch?v=x61i-WudtDo"
+  },
+  "sections": [
+    {
+      "slug": "dev-eco",
+      "name": "开发生态"
+    },
+    {
+      "slug": "model-release",
+      "name": "模型发布"
+    },
+    {
+      "slug": "tech-insight",
+      "name": "技术与洞察"
+    },
+    {
+      "slug": "industry",
+      "name": "行业动态"
+    },
+    {
+      "slug": "rumor-mill",
+      "name": "前瞻与传闻"
+    }
+  ],
+  "intro": {
+    "voice": [
+      "各位观众早上好，今天是九月二十日周日。",
+      "欢迎收看AI早报，屏幕上是今天的主要内容，接下来请看详细报道。"
+    ]
+  },
+  "outro": {
+    "voice": [
+      "今天的资讯播送完了，明天见！"
+    ]
+  },
+  "items": [
+    {
+      "id": "deepseek",
+      "section": "dev-eco",
+      "nav": "DeepSeek",
+      "headline": "DeepSeek API明确节假日及调休周末全天按空闲时段计费",
+      "tldr": "**DeepSeek** `API`平台近日发布公告横幅明确，调休上班的周末和中国法定节假日全天按空闲时段计费。该规则面向使用**DeepSeek**官方`API`的用户。",
+      "body": [
+        "**DeepSeek** `API`平台近日发布公告横幅明确，调休上班的周末及中国法定节假日全天均按空闲时段计费。即使周末因调休成为工作日，也适用这一计费时段规则。该规则面向使用**DeepSeek**官方`API`的用户。"
+      ],
+      "sources": [
+        {
+          "url": "https://platform.deepseek.com/",
+          "kind": "official",
+          "primary": true
+        }
+      ],
+      "confidence": "confirmed",
+      "voice": [
+        "DeepSeek API平台近日发布公告横幅明确，调休上班的周末和中国法定节假日全天按空闲时段计费。",
+        "该规则面向使用DeepSeek官方API的用户。"
+      ],
+      "cards": [
+        {
+          "label": "计费新规",
+          "body": "调休上班的周末及中国法定节假日，全天均按空闲时段费率计费",
+          "icon": ""
+        },
+        {
+          "label": "适用范围",
+          "body": "面向使用 DeepSeek 官方 API 的用户，平台公告横幅已明确该规则",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/deepseek.png",
+          "origin": "https://platform.deepseek.com/"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/9729dbc6-4c6a-4c47-9d27-18db8ab6e648/m001_23e08492.png",
+          "origin": "https://platform.deepseek.com/"
+        }
+      ],
+      "video": {
+        "shot_sentences": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "id": "tibo",
+      "section": "dev-eco",
+      "nav": "Tibo",
+      "headline": "Tibo疑似暗示Codex banked reset",
+      "tldr": "有用户因 **OpenAI** 本周没有推出预期更新，向 **Codex** 负责人 **Tibo** 索要 `banked reset`，**Tibo** 回复：“OK fine. But it’s also still coming in **Tuesday**”。 有人认为“OK fine”是在同意提供 `banked reset`；也有观点认为他并未确认 `reset`，真正明确的只是此前预告的内容仍会在**周二**到来。",
+      "body": [
+        "有用户发帖称 **OpenAI** 本周没有推出此前预期的更新，因此向 `Codex` 负责人 **Tibo** 喊话：“you owe us a `banked reset` sorry i don’t make the rules”。**Tibo** 随后回复：“OK fine. But it’s also still coming in **Tuesday**”。",
+        "这段回复随后出现两种不同解读。有用户认为“OK fine”是在同意提供 `banked reset`，并把这视为 **Tibo** 对 `reset` 请求的回应；也有观点认为这句话并没有确认会提供 `reset`，“OK fine”不足以构成明确承诺，真正明确的信息只是此前预告的内容仍会在周二到来。**Tibo** 的原话本身没有直接写出“`banked reset`”，因此是否会有 `reset` 仍取决于对这段回复的理解。"
+      ],
+      "sources": [
+        {
+          "url": "https://x.com/thsottiaux/status/2101352781219258527",
+          "kind": "social",
+          "primary": true
+        }
+      ],
+      "confidence": "reported",
+      "voice": [
+        "有用户因OpenAI本周没有推出预期更新，向Codex负责人Tibo索要banked reset，Tibo回复“OK fine, but it's also still coming Tuesday”。",
+        "有人认为“OK fine”是在同意提供banked reset；",
+        "也有观点认为他并未确认reset，真正明确的只是此前预告的内容仍会在周二到来。"
+      ],
+      "cards": [
+        {
+          "label": "起因",
+          "body": "OpenAI 本周没有推出预期更新，用户向 Codex 负责人 Tibo 索要 banked reset",
+          "icon": ""
+        },
+        {
+          "label": "语义争议",
+          "body": "Tibo 回复“OK fine, but it's also still coming Tuesday”，是否承诺 reset 出现两种解读",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/tibo.png",
+          "origin": "https://x.com/thsottiaux/status/2101352781219258527"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/9345883d-b95d-4ded-a3f0-489ed5bc1ead/m001_e29c2e5a.png",
+          "origin": "https://x.com/thsottiaux/status/2101352781219258527"
+        }
+      ],
+      "video": {
+        "shot_sentences": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "step5",
+      "section": "model-release",
+      "nav": "Step 5 Preview",
+      "headline": "Step 5 Preview现身Artificial Analysis网站",
+      "tldr": "阶跃星辰的 Step 5 Preview模型现身Artificial Analysis榜单，另有部分Step Plan用户称已可调用。第三方评测显示，该模型智能指数为44，支持1M上下文和视觉输入。更多信息有待官方正式发布。",
+      "body": [
+        "**Artificial Analysis**收录**阶跃星辰**的`Step 5 Preview`，并完成独立评测，部分`Step Plan`用户也称已能看到并调用该模型。",
+        "页面显示，其智能指数为**44**，支持**1M** `上下文`和`视觉输入`。百万输入和输出`token`价格分别为**1美元**和**2.7美元**。",
+        "`Step 5 Preview`目前在该页面上被列为`闭源模型`，但**阶跃星辰**尚未正式发布，实际开放范围及发布时间仍不明确。"
+      ],
+      "sources": [
+        {
+          "url": "https://artificialanalysis.ai/models/step-5",
+          "kind": "official",
+          "primary": true
+        }
+      ],
+      "confidence": "reported",
+      "voice": [
+        "阶跃星辰的Step 5 Preview模型现身Artificial Analysis榜单，另有部分Step Plan用户称已可调用。",
+        "第三方评测显示，该模型智能指数为44，支持1M上下文和视觉输入，更多信息有待官方正式发布。"
+      ],
+      "cards": [
+        {
+          "label": "榜单收录",
+          "body": "阶跃星辰 Step 5 Preview 现身 Artificial Analysis 榜单并完成独立评测",
+          "icon": ""
+        },
+        {
+          "label": "评测数据",
+          "body": "智能指数 44，支持 1M 上下文和视觉输入，百万输入/输出价格 1 / 2.7 美元",
+          "icon": ""
+        },
+        {
+          "label": "可用情况",
+          "body": "部分 Step Plan 用户称已可调用，页面列为闭源模型，官方尚未正式发布",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/step5.png",
+          "origin": "https://artificialanalysis.ai/models/step-5"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/c4c35042-5662-4d92-a9a3-92ec4cc8f8a8/m001_25847c4b.png",
+          "origin": "https://artificialanalysis.ai/models/step-5"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/c4c35042-5662-4d92-a9a3-92ec4cc8f8a8/m002_0f25a59a.png",
+          "origin": "https://artificialanalysis.ai/models/step-5"
+        }
+      ],
+      "facts": [
+        "智能指数44",
+        "1M上下文",
+        "百万输入/输出价格1/2.7美元"
+      ],
+      "video": {
+        "shot_sentences": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "qwen",
+      "section": "model-release",
+      "nav": "Qwen3.8-LiveTranslate",
+      "headline": "千问发布Qwen3.8-LiveTranslate",
+      "tldr": "**千问**发布同传模型`Qwen3.8-LiveTranslate`，支持**60种语言**实时翻译。模型采用`Interleave`架构和`Thinker-Talker`双模块设计，新增`实时说话人分离`、`原文译文同帧输出`与`长上下文消歧`能力，在线体验与`API`均已上线。",
+      "body": [
+        "**千问**目前已正式发布同声传译大模型`Qwen3.8-LiveTranslate`，面向真实对话提供**60种语言**的实时翻译。",
+        "模型采用`Interleave`架构，将音频与文本组织为交织单流，缓存复用已听音频和已输出译文，字均延迟由上一代的**2.8秒**降至**2.3秒**。",
+        "模型新增实时说话人分离、原文译文同帧输出和长上下文消歧**三项能力**。",
+        "根据**千问**公布的评测结果，模型在多说话人长音频和多语言实时同传测试中均优于上一代及当前主流系统。",
+        "目前，用户可在线体验，模型`API`也已上线**千问**AI平台。"
+      ],
+      "sources": [
+        {
+          "url": "https://mp.weixin.qq.com/s/Rc3CKdHAtA_NdVRN2RLuAg",
+          "kind": "media",
+          "primary": true
+        }
+      ],
+      "confidence": "confirmed",
+      "voice": [
+        "千问发布同传模型Qwen3.8-LiveTranslate，支持60种语言实时翻译。",
+        "模型采用Interleave架构和Thinker-Talker双模块设计，新增实时说话人分离、原文译文同帧输出与长上下文消歧能力，在线体验与API均已上线。"
+      ],
+      "cards": [
+        {
+          "label": "60种语言",
+          "body": "面向真实对话的实时同传，支持 60 种语言",
+          "icon": ""
+        },
+        {
+          "label": "架构",
+          "body": "Interleave 架构 + Thinker-Talker 双模块，字均延迟 2.8s → 2.3s",
+          "icon": ""
+        },
+        {
+          "label": "新能力",
+          "body": "实时说话人分离、原文译文同帧输出、长上下文消歧",
+          "icon": ""
+        },
+        {
+          "label": "可用性",
+          "body": "在线体验与 API 均已上线千问 AI 平台",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/713f302d-96af-454e-9bf0-137fccd523c2/m001_5cd152ab.png",
+          "origin": "https://mp.weixin.qq.com/s/Rc3CKdHAtA_NdVRN2RLuAg"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/713f302d-96af-454e-9bf0-137fccd523c2/m002_0167ddf4.png",
+          "origin": "https://mp.weixin.qq.com/s/Rc3CKdHAtA_NdVRN2RLuAg"
+        }
+      ],
+      "facts": [
+        "60种语言",
+        "字均延迟2.8s→2.3s"
+      ]
+    },
+    {
+      "id": "radar",
+      "section": "model-release",
+      "nav": "RADAR",
+      "headline": "阿里巴巴达摩院开源腹部CT诊断模型RADAR，论文发表于Science",
+      "tldr": "**阿里巴巴达摩院**开源了腹部`CT`诊断`视觉语言模型``RADAR`，论文发表于Science。该模型用**超40万例**CT和**1500万**图文对训练，覆盖**18个**解剖结构和**146项**影像发现，内外部诊断`AUC` **超0.87**。代码与权重已开放。",
+      "body": [
+        "**阿里巴巴达摩院**在 **GitHub** 开源了腹部 **CT** 诊断通用视觉语言模型 `RADAR`（`Rapid Abdominal Diagnosis with AI and Radiology`），相关研究论文发表于 **Science**。",
+        "`RADAR` 在包含 **424,911** 例增强腹部 **CT** 检查、**1500 万**解剖级图文对的 `RAD-CT` 数据集上训练，直接从临床报告学习，无需人工标注。",
+        "根据论文，模型覆盖 **18** 个解剖结构和 **146** 项影像发现，内部真实世界队列诊断 `AUC` 为 **0.913**，八家外部中心 `AUC` 为 **0.874** 至 **0.912**。",
+        "论文还报告，在 **26** 名放射科医生参与的阅读研究中，`RADAR` 协作使用使诊断敏感度提升约 **10%**。",
+        "预训练检查点已在 **HuggingFace** 的 `radar-generalist` 页面提供，代码同步存档于 `Zenodo`，仓库采用 `Apache 2.0` 许可证，并附带训练、推理与预处理文档及演示数据。"
+      ],
+      "sources": [
+        {
+          "url": "https://github.com/alibaba-damo-academy/damo-radar",
+          "kind": "repo",
+          "primary": true
+        },
+        {
+          "url": "https://huggingface.co/radar-generalist/RADAR",
+          "kind": "official"
+        },
+        {
+          "url": "https://zenodo.org/records/21271172",
+          "kind": "paper"
+        },
+        {
+          "url": "https://www.science.org/doi/10.1126/science.aec6129",
+          "kind": "paper"
+        },
+        {
+          "url": "https://damo.alibaba.com/events/32026091817897040537683024?language=CN",
+          "kind": "official"
+        },
+        {
+          "url": "https://www.scmp.com/tech/big-tech/article/3368055/alibaba-open-sources-medical-ai-model-can-detect-cancer-and-nearly-150-conditions",
+          "kind": "media"
+        }
+      ],
+      "confidence": "confirmed",
+      "voice": [
+        "阿里巴巴达摩院开源了腹部CT诊断视觉语言模型RADAR，论文发表于Science。",
+        "该模型用超40万例CT和1500万图文对训练，覆盖18个解剖结构和146项影像发现，内外部诊断AUC超0.87，代码与权重已开放。"
+      ],
+      "cards": [
+        {
+          "label": "模型",
+          "body": "腹部 CT 诊断通用视觉语言模型，论文发表于 Science",
+          "icon": ""
+        },
+        {
+          "label": "训练数据",
+          "body": "42.5万例增强腹部 CT、1500万解剖级图文对，无需人工标注",
+          "icon": ""
+        },
+        {
+          "label": "性能",
+          "body": "覆盖18个解剖结构、146项影像发现，内外部诊断 AUC 超 0.87",
+          "icon": ""
+        },
+        {
+          "label": "开放",
+          "body": "权重已在 HuggingFace 开放，代码存档 Zenodo，Apache 2.0",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/radar.png",
+          "origin": "https://github.com/alibaba-damo-academy/damo-radar"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/535fc6d1-ff94-476c-a621-acf104dfbbb0/m001_ab97185f.png",
+          "origin": "https://github.com/alibaba-damo-academy/damo-radar"
+        }
+      ],
+      "facts": [
+        "42.5万例增强腹部CT",
+        "1500万解剖级图文对",
+        "18个解剖结构",
+        "146项影像发现",
+        "AUC超0.87"
+      ],
+      "video": {
+        "shot_sentences": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "cua",
+      "section": "model-release",
+      "nav": "CUA-S1",
+      "headline": "Cua开源小型表单填写模型cua-s1-forms",
+      "tldr": "**Cua**开源约**70万**参数的表单填写模型`cua-s1-forms`，可并行判断表单元素该填写、勾选、点击还是跳过，代码和权重均已开放，支持本地运行。",
+      "body": [
+        "**Cua**开源面向表单填写的轻量模型`cua-s1-forms`。",
+        "它是`CUA-S1`小型专用计算机使用模型家族的表单研究检查点，通过`单次前向计算`为界面元素的候选值及勾选、点击、跳过操作评分，再由下游代码排序并交给`Cua Driver`执行。",
+        "模型包含**706,048个可训练参数**，检查点约**2.8 MB**；官方模型卡称其合成测试准确率为**99.95%**，小规模真实演示评估准确率为**100%**。",
+        "该项目仍处于早期研究阶段，不是通用助手，也未在演示集以外的任意真实表单上得到验证；目前未由任何推理服务商部署，使用者可下载权重并在本地加载。"
+      ],
+      "sources": [
+        {
+          "url": "https://huggingface.co/cua-ai/cua-s1-forms",
+          "kind": "official",
+          "primary": true
+        },
+        {
+          "url": "https://github.com/trycua/cua/tree/main/libs/cua-s1",
+          "kind": "repo"
+        }
+      ],
+      "confidence": "confirmed",
+      "voice": [
+        "Cua开源约70万参数的表单填写模型cua-s1-forms，可并行判断表单元素该填写、勾选、点击还是跳过。",
+        "代码和权重均已开放，支持本地运行。"
+      ],
+      "cards": [
+        {
+          "label": "超小参数",
+          "body": "仅 70.6万 可训练参数，检查点约 2.8MB，支持本地运行",
+          "icon": ""
+        },
+        {
+          "label": "工作方式",
+          "body": "单次前向并行判断表单元素该填写、勾选、点击还是跳过",
+          "icon": ""
+        },
+        {
+          "label": "定位",
+          "body": "CUA-S1 家族表单研究检查点，仍处早期研究阶段",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/b2e081e7-a71e-4330-a8e9-eea01d7319ce/m001_fe2828e5.png",
+          "origin": "https://huggingface.co/cua-ai/cua-s1-forms"
+        }
+      ],
+      "facts": [
+        "70.6万可训练参数",
+        "检查点约2.8MB"
+      ]
+    },
+    {
+      "id": "xing",
+      "section": "model-release",
+      "nav": "Xing4.0-29B-A4B",
+      "headline": "中国电信开源Xing4.0-29B-A4B模型",
+      "tldr": "**中国电信**近期开源了星辰语义大模型`Xing4.0-29B-A4B`，总参数量**29B**，激活参数**4B**。该模型面向复杂工程与`Agent`任务优化，完全基于国产算力训练。",
+      "body": [
+        "近日，**中国电信**旗下**中电信人工智能科技有限公司**开源星辰语义大模型`Xing4.0-29B-A4B`。",
+        "模型面向复杂工程和`Agent`任务优化，总参数量**29B**、激活参数**4B**，采用`mHC`、`MLA`和`MTP`架构，支持多步骤规划、工具调用与复杂推理链路，原生支持**256K**上下文并可扩展至**512K**。",
+        "模型完全基于国产算力训练，面向昇腾**910C**集群，以`MindSpore`和`MindFormers`完成适配及训练优化，官方称整体训练吞吐较开箱性能提升约**96%**。",
+        "目前基础版、`FP8`版和`GGUF`版均已提供，可通过`Hugging Face`、`ModelScope`和`Modelers`获取，并支持本地推理、服务化部署及微调。"
+      ],
+      "sources": [
+        {
+          "url": "https://github.com/XingChen-AGI/Xing4.0-29B-A4B",
+          "kind": "repo",
+          "primary": true
+        },
+        {
+          "url": "https://huggingface.co/XingChen-AGI/Xing4.0-29B-A4B",
+          "kind": "official"
+        }
+      ],
+      "confidence": "confirmed",
+      "voice": [
+        "中国电信近期开源了星辰语义大模型Xing4.0-29B-A4B，总参数量29B，激活参数4B。",
+        "该模型面向复杂工程与Agent任务优化，完全基于国产算力训练。"
+      ],
+      "cards": [
+        {
+          "label": "规格",
+          "body": "星辰语义大模型，总参数 29B、激活 4B，MoE 架构",
+          "icon": ""
+        },
+        {
+          "label": "面向",
+          "body": "复杂工程与 Agent 任务，支持 256K 上下文并可扩展至 512K",
+          "icon": ""
+        },
+        {
+          "label": "国产算力",
+          "body": "完全基于国产算力训练，面向昇腾 910C 集群，吞吐提升约 96%",
+          "icon": ""
+        }
+      ],
+      "facts": [
+        "总参数29B",
+        "激活4B",
+        "256K上下文可扩展至512K",
+        "吞吐提升约96%"
+      ]
+    },
+    {
+      "id": "androidbench",
+      "section": "tech-insight",
+      "nav": "Android Bench 2.0",
+      "headline": "Android Developers推出Android Bench 2.0",
+      "tldr": "`Android Bench 2.0`现已推出，将`AI`评测扩展到真实多日`Android`工程任务，并开始评估`Agent`与模型组合，相关结果已可查看。",
+      "body": [
+        "**Android Developers** 推出 `Android Bench 2.0`，用于评估 `AI` 处理真实、多日的 **Android** 工程任务的表现。",
+        "评测范围涵盖从零构建应用、开发新功能，以及将跨平台代码库迁移到 **Android**。",
+        "评测以完成率、视觉保真度、回归问题和每个模型及任务的平均成本进行连续评分。",
+        "新版还开始评估常用 **Agent** 与对应模型的组合。",
+        "并新增 `Gemini 3.8 Flash`、`Gemini 3.7 Flash`、`GPT-6 Astra`、`Fable 5.1`、`Kimi K3` 和 `Qwen 3.8 Max`。",
+        "目前，更新后的评测方法和模型比较结果已可查看。"
+      ],
+      "sources": [
+        {
+          "url": "https://x.com/AndroidDev/status/2100622197253398669",
+          "kind": "social",
+          "primary": true
+        },
+        {
+          "url": "https://developer.android.com/bench",
+          "kind": "official"
+        }
+      ],
+      "confidence": "confirmed",
+      "voice": [
+        "Android Bench 2.0现已推出，将AI评测扩展到真实多日Android工程任务。",
+        "并开始评估Agent与模型组合，相关结果已可查看。"
+      ],
+      "cards": [
+        {
+          "label": "评测对象",
+          "body": "真实、多日的 Android 工程任务：从零构建、新功能、跨平台迁移",
+          "icon": ""
+        },
+        {
+          "label": "评分维度",
+          "body": "完成率、视觉保真度、回归问题与每任务平均成本",
+          "icon": ""
+        },
+        {
+          "label": "新增",
+          "body": "开始评估 Agent 与模型组合，新增 Gemini 3.8/3.7、GPT-6 Astra、Kimi K3 等",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/11998480-1336-471b-862b-3fc5c1b4057b/m001_b9ace6d5.png",
+          "origin": "https://x.com/AndroidDev/status/2100622197253398669"
+        }
+      ]
+    },
+    {
+      "id": "lawsuit",
+      "section": "industry",
+      "nav": "Antitrust Lawsuit",
+      "headline": "OpenAI等四家公司遭付费用户提起反垄断诉讼",
+      "tldr": "一批付费用户在加州联邦法院起诉**OpenAI**、**Anthropic**、**SpaceXAI**和**Google**，指控四家公司高管公开呼吁协调限制`AI`进步速度，违反`反垄断法`。原告称这种合谋导致用户以原价获得改进更慢的产品，正寻求`集体诉讼认证`及`禁令`，**四家公司**尚未回应。",
+      "body": [
+        "一批付费订阅用户目前在加州北区联邦地区法院起诉**Anthropic PBC**、**OpenAI OPCO LLC**、**SpaceXAI**和**Google LLC**，指控四家公司通过协调限制`AI`产品改进速度，违反`《谢尔曼反托拉斯法》第1条`。原告称，相关协调源于多名公司高管公开赞同一篇主张限制未经约束的`AI`发展速度、呼吁行业协调的文章，导致订阅者以相同价格获得改进更慢的产品。",
+        "原告正寻求`集体诉讼认证`、针对四家公司的禁令，以及确认其违反联邦反垄断法的`宣告性判决`。",
+        "四家公司尚未回应置评请求，材料也未说明相关`AI`服务的可用性已发生变化。"
+      ],
+      "sources": [
+        {
+          "url": "https://news.bloomberglaw.com/litigation/openai-anthropic-google-spacexai-hit-with-antitrust-lawsuit",
+          "kind": "media",
+          "primary": true
+        },
+        {
+          "url": "https://www.bloomberglaw.com/public/document/BuistetalvAnthropicPBCetalDocketNo326cv10693NDCalSep182026CourtDo?doc_id=XB2DGFVVCI9HORMAMOFMINMJF4",
+          "kind": "media"
+        }
+      ],
+      "confidence": "reported",
+      "voice": [
+        "一批付费用户在加州联邦法院起诉OpenAI、Anthropic、SpaceXAI和Google。",
+        "指控四家公司高管公开呼吁协调限制AI进步速度，违反反垄断法。",
+        "原告称这种合谋导致用户以原价获得改进更慢的产品，正寻求集体诉讼认证及禁令。"
+      ],
+      "cards": [
+        {
+          "label": "起诉",
+          "body": "付费用户在加州北区联邦法院起诉 OpenAI、Anthropic、SpaceXAI、Google",
+          "icon": ""
+        },
+        {
+          "label": "指控",
+          "body": "高管公开呼吁协调限制 AI 进步速度，违反《谢尔曼反托拉斯法》第1条",
+          "icon": ""
+        },
+        {
+          "label": "诉求",
+          "body": "寻求集体诉讼认证、禁令及宣告性判决，四家公司尚未回应",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/lawsuit.png",
+          "origin": "https://news.bloomberglaw.com/litigation/openai-anthropic-google-spacexai-hit-with-antitrust-lawsuit"
+        }
+      ],
+      "video": {
+        "shot_sentences": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "anthropic",
+      "section": "rumor-mill",
+      "nav": "Anthropic",
+      "headline": "Anthropic 或将发布发布新模型应对Astra在企业市场的竞争",
+      "tldr": "据报道，**Anthropic**正考虑发布新模型应对**Astra**在企业市场的竞争，安全评估仍在进行。另有爆料博主称新版`Fable`、`Opus`和`Sonnet`正在部分账号隐蔽测试，但相关信息尚无官方确认。",
+      "body": [
+        "路透社援引三名消息人士称，**Anthropic**正考虑推出新模型，以应对**OpenAI** `GPT-6 Astra`获得的企业市场关注，但公司仍在评估下一款模型的安全性，尚未确定是否及何时发布。",
+        "与此同时，爆料博主**leo**称，新版`Fable`、`Opus`和`Sonnet`正在不同`Claude`界面及账号中隐蔽测试，但这一说法尚未获得**Anthropic**确认，也不代表三款模型已经全面开放。",
+        "路透社称，**Anthropic**还在权衡模型投入与盈利能力，相关讨论发生在利率上升、竞争加剧及预期`IPO`之前。"
+      ],
+      "sources": [
+        {
+          "url": "https://www.reuters.com/business/anthropic-considers-releasing-new-ai-model-ahead-ipo-sources-say-2026-09-19/",
+          "kind": "media",
+          "primary": true
+        },
+        {
+          "url": "https://x.com/synthwavedd/status/2101072800505049241",
+          "kind": "social"
+        }
+      ],
+      "confidence": "reported",
+      "voice": [
+        "据报道，Anthropic正考虑发布新模型应对Astra在企业市场的竞争，安全评估仍在进行。",
+        "另有爆料博主称新版Fable、Opus和Sonnet正在部分账号隐蔽测试。"
+      ],
+      "cards": [
+        {
+          "label": "路透报道",
+          "body": "Anthropic 正考虑推出新模型，应对 GPT-6 Astra 获得的企业市场关注",
+          "icon": ""
+        },
+        {
+          "label": "安全评估",
+          "body": "仍在评估下一款模型安全性，是否及何时发布尚未确定",
+          "icon": ""
+        },
+        {
+          "label": "爆料",
+          "body": "博主称新版 Fable、Opus、Sonnet 在部分账号隐蔽测试，未获官方确认",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/anthropic.png",
+          "origin": "https://www.reuters.com/business/anthropic-considers-releasing-new-ai-model-ahead-ipo-sources-say-2026-09-19/"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/34761066-ad0e-4d09-a378-dcd6d4728259/m001_06baf49e.png",
+          "origin": "https://www.reuters.com/business/anthropic-considers-releasing-new-ai-model-ahead-ipo-sources-say-2026-09-19/"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/34761066-ad0e-4d09-a378-dcd6d4728259/m002_74898078.png",
+          "origin": "https://www.reuters.com/business/anthropic-considers-releasing-new-ai-model-ahead-ipo-sources-say-2026-09-19/"
+        }
+      ],
+      "video": {
+        "shot_sentences": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "gpt6",
+      "section": "rumor-mill",
+      "nav": "OpenAI",
+      "headline": "OpenAI 或将发布 GPT-6 Sol 和 GPT-6 Luna",
+      "tldr": "**OpenAI** 或将在下周推出新的 `GPT-6` 系列模型。**Sam Altman** 此前表示，原计划发布、自己最期待的内容已推迟到下周；**OpenAI** 团队成员 **Tibo** 近期称，下周会先发布“一些东西”，目前准备中的新内容甚至“可能够办 **3** 个 `DevDay`”。 当用户直接提出想要 `GPT-6 Sol` 和 `GPT-6 Luna` 时，**Tibo** 回复“What else do you want”，使这两款模型成为当前主要猜测对象。 不过，**OpenAI** 目前尚未正式透露相关信息，**OpenAI** `DevDay` 将于当地时间 **9 月 29 日** 举行。",
+      "body": [
+        "**OpenAI** 或将在下周推出新的 `GPT-6` 系列模型。",
+        "**Sam Altman** 此前表示，原计划发布、自己最期待的内容已推迟到下周；**OpenAI** 团队成员 **Tibo** 表示，他正与 **Sam Altman** 等人筹备主题演讲，由于准备展示的内容较多，团队需考虑如何向用户解释这些新内容如何组合起来。",
+        "按其说法，新内容将密集出现，其中一部分会在下周率先公布，以免用户等待太久，更多内容将在未来数月陆续展示。",
+        "**Tibo** 还称，现有内容可能足够举办约 **三场** 开发者活动，随后向社区询问还想要什么。有用户回复称，希望获得并优先推出 `GPT-6 Sol` 和 `GPT-6 Luna`。",
+        "**Tibo** 回复“What else do you want”，使这两款模型成为当前主要猜测对象。",
+        "不过，**OpenAI** 目前尚未正式透露相关信息，**OpenAI DevDay** 将于当地时间 **9 月 29 日** 举行。"
+      ],
+      "sources": [
+        {
+          "url": "https://x.com/thsottiaux/status/2101157729037586694",
+          "kind": "social",
+          "primary": true
+        }
+      ],
+      "confidence": "rumor",
+      "voice": [
+        "OpenAI或将在下周推出新的GPT-6系列模型。",
+        "Sam Altman此前表示，原计划发布、自己最期待的内容已推迟到下周。",
+        "OpenAI团队成员Tibo近期称下周会先发布一些东西，目前准备中的新内容甚至可能够办三个DevDay。",
+        "当用户直接提出想要GPT-6 Sol和GPT-6 Luna时，Tibo回复“What else do you want”，使这两款模型成为当前主要猜测对象。",
+        "不过OpenAI目前尚未正式透露相关信息，OpenAI DevDay将于当地时间九月二十九日举行。"
+      ],
+      "cards": [
+        {
+          "label": "时间点",
+          "body": "Sam Altman 称最期待的内容已推迟到下周，DevDay 当地时间9月29日举行",
+          "icon": ""
+        },
+        {
+          "label": "内容量",
+          "body": "Tibo 称准备中的新内容“可能够办3个DevDay”，下周先发布一部分",
+          "icon": ""
+        },
+        {
+          "label": "猜测对象",
+          "body": "用户提出想要 GPT-6 Sol 和 GPT-6 Luna，Tibo 回复“What else do you want”",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/0f0707c4-cae1-4074-adc9-98be3b0ca1a0/m001_d87eea6d.png",
+          "origin": "https://x.com/thsottiaux/status/2101157729037586694"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/0f0707c4-cae1-4074-adc9-98be3b0ca1a0/m002_00e27224.png",
+          "origin": "https://x.com/thsottiaux/status/2101157729037586694"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/0f0707c4-cae1-4074-adc9-98be3b0ca1a0/m003_61443dd7.png",
+          "origin": "https://x.com/thsottiaux/status/2101157729037586694"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/0f0707c4-cae1-4074-adc9-98be3b0ca1a0/m004_cd0a1d18.png",
+          "origin": "https://x.com/thsottiaux/status/2101157729037586694"
+        }
+      ]
+    },
+    {
+      "id": "gemini",
+      "section": "rumor-mill",
+      "nav": "Gemini 4.0",
+      "headline": "Google 或将发布 Gemini 4 Pro",
+      "tldr": "近期多名用户称，**Arena** 中的 `gemini-3.8-flash` 会随机路由至疑似 **Gemini 4 Pro** 的 `Argon` checkpoint，**SVG**、**3D** 场景、网页和游戏生成表现优异；另有一张已被鉴定为使用 `GPT-Image` 生成的基准测试图流传。",
+      "body": [
+        "多名第三方测试者和平台此前称，`Gemini 4 Pro`正在Arena以其他模型名称进行隐藏测试，并通过代码生成、图像任务展现出优异能力；另有一张已被鉴定为使用 `GPT-Image` 生成的基准测试图流传。目前**Google**尚未确认`Gemini 4 Pro`的型号、内部代号、测试成绩、价格和公开开放时间。"
+      ],
+      "sources": [
+        {
+          "url": "https://x.com/god_of_ai7/status/2101237972633063922",
+          "kind": "social",
+          "primary": true
+        }
+      ],
+      "confidence": "rumor",
+      "voice": [
+        "近期多名用户称Arena中的gemini-3.8-flash会随机路由至疑似Gemini 4 Pro的Argon checkpoint。",
+        "SVG、3D场景、网页和游戏生成表现优异。",
+        "另有一张已被鉴定为使用GPT-Image生成的基准测试图流传。"
+      ],
+      "cards": [
+        {
+          "label": "隐蔽测试",
+          "body": "多名用户称 Arena 中 gemini-3.8-flash 会随机路由至疑似 Gemini 4 Pro 的 Argon checkpoint",
+          "icon": ""
+        },
+        {
+          "label": "表现",
+          "body": "SVG、3D 场景、网页和游戏生成表现优异",
+          "icon": ""
+        },
+        {
+          "label": "插曲",
+          "body": "一张流传基准测试图被鉴定为 GPT-Image 生成，官方未确认型号与开放时间",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "gif",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/da717e7d-1400-48ee-8114-00948ee90959/m001_9d074bdb.gif",
+          "origin": "https://x.com/god_of_ai7/status/2101237972633063922"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/da717e7d-1400-48ee-8114-00948ee90959/m002_4dcec401.png",
+          "origin": "https://x.com/god_of_ai7/status/2101237972633063922"
+        }
+      ]
+    },
+    {
+      "id": "minimax",
+      "section": "rumor-mill",
+      "nav": "MiniMax-M3.1",
+      "headline": "MiniMax 或将发布 MiniMax-M3.1",
+      "tldr": "**MiniMax**官方近期开源的`CLI`工具的代码中，多个文件出现了`MiniMax-M3.1`标识，配有多套`上下文`与`输出参数`及`thinking effort`档位。另有一张社区流传的截图显示官方工作人员预告该模型即将发布。目前未有更多的官方信息。",
+      "body": [
+        "**MiniMax**官方开源的 `MiniMax Code CLI` 当前有多个文件出现字符 `MiniMax-M3.1`，覆盖历史模型字段恢复、`managed catalog`、模型列表、参数解析和队列持久化。",
+        "测试配置包含 **450,000**、**512,000** 和 **1,000,000** 上下文，以及 **8,192**、**16,000** 和 **128,000** 输出等多套数值，并涉及多个 `thinking effort` 档位。",
+        "另有一张社区流传的截图显示官方工作人员预告该模型即将发布。",
+        "`MiniMax-M3.1` 尚未进入实际内置模型，目前未有更多的官方信息。"
+      ],
+      "sources": [
+        {
+          "url": "https://github.com/search?q=repo%3AMiniMax-AI%2Fminimax-code+minimax-m3.1&type=code",
+          "kind": "repo",
+          "primary": true
+        }
+      ],
+      "confidence": "rumor",
+      "voice": [
+        "MiniMax官方近期开源的CLI工具的代码中，多个文件出现了MiniMax-M3.1标识，配有多套上下文与输出参数及thinking effort档位。",
+        "另有一张社区流传的截图显示官方工作人员预告该模型即将发布。",
+        "目前未有更多的官方信息。"
+      ],
+      "cards": [
+        {
+          "label": "代码线索",
+          "body": "官方开源 CLI 工具多个文件出现 MiniMax-M3.1 标识",
+          "icon": ""
+        },
+        {
+          "label": "参数档位",
+          "body": "多套上下文（45万-100万）与输出参数及 thinking effort 档位",
+          "icon": ""
+        },
+        {
+          "label": "截图",
+          "body": "社区流传截图显示官方工作人员预告即将发布，暂无更多官方信息",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/minimax.png",
+          "origin": "https://github.com/search?q=repo%3AMiniMax-AI%2Fminimax-code+minimax-m3.1&type=code"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/ede1c6a5-0e83-4e90-9c15-9fe134921f52/m001_18c5bb88.png",
+          "origin": "https://github.com/search?q=repo%3AMiniMax-AI%2Fminimax-code+minimax-m3.1&type=code"
+        },
+        {
+          "kind": "image",
+          "src": "https://assets.juya.uk/imagehub/aidaily/1d304b0d-ec1e-44ca-87ec-bacc02b23c6e/ede1c6a5-0e83-4e90-9c15-9fe134921f52/m002_4425bdc2.png",
+          "origin": "https://github.com/search?q=repo%3AMiniMax-AI%2Fminimax-code+minimax-m3.1&type=code"
+        }
+      ],
+      "facts": [
+        "上下文45万-100万"
+      ],
+      "video": {
+        "shot_sentences": [
+          1
+        ]
+      }
+    },
+    {
+      "id": "kimi",
+      "section": "rumor-mill",
+      "nav": "Kimi",
+      "headline": "月之暗面或将发布 Kimi K3.1",
+      "tldr": "**Kimi**知乎认证机构号发布了一串省略开头**3.1**的圆周率数字，这被解读为暗示**Kimi** `K3.1`即将发布。不过帖文并未直接提及`K3.1`，目前该动态已被删除。",
+      "body": [
+        "此前，**Kimi** **知乎**认证机构号发布了一串圆周率数字，内容从“**4159**”开始，缺少开头的“**3.1**”。",
+        "由于缺失部分与“`K3.1`”的版本编号对应，这种发布方式被解读为可能在暗示**Kimi** `K3.1`即将发布。",
+        "不过，帖子本身未直接提及**Kimi** `K3.1`，也没有说明发布时间、产品能力、开放范围或使用方式，相关猜测目前尚未得到进一步确认。",
+        "目前该动态已被删除。"
+      ],
+      "sources": [],
+      "confidence": "rumor",
+      "voice": [
+        "Kimi知乎认证机构号发布了一串省略开头3.1的圆周率数字，这被解读为暗示Kimi K3.1即将发布。",
+        "不过帖文并未直接提及K3.1，目前该动态已被删除。"
+      ],
+      "cards": [
+        {
+          "label": "暗示",
+          "body": "Kimi 知乎认证机构号发布一串省略开头“3.1”的圆周率数字",
+          "icon": ""
+        },
+        {
+          "label": "解读",
+          "body": "缺失部分与“K3.1”版本编号对应，被解读为暗示即将发布",
+          "icon": ""
+        },
+        {
+          "label": "现状",
+          "body": "帖文未直接提及 K3.1，目前该动态已被删除",
+          "icon": ""
+        }
+      ],
+      "media": [
+        {
+          "kind": "shot",
+          "src": "shots/kimi.png"
+        }
+      ],
+      "video": {
+        "shot_sentences": [
+          1
+        ]
+      }
+    }
+  ]
+}

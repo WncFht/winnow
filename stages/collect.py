@@ -10,7 +10,7 @@
 #   "pydantic>=2",
 # ]
 # ///
-"""stages/collect.py — 采集层（PLAN.md §5 + §4 契约）。
+"""stages/collect.py — 采集层（docs/PLAN.md §5 + §4 契约）。
 
 输入  : sources.yaml（唯一人工维护源注册表）+ config.yaml|config.example.yaml
         + state/seen.json + state/source_health.json

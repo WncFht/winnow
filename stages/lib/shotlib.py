@@ -7,7 +7,7 @@
 #   "pillow>=10",
 # ]
 # ///
-"""stages/lib/shotlib.py — 来源页截图 + 品牌占位卡（PLAN.md §7.6）。
+"""stages/lib/shotlib.py — 来源页截图 + 品牌占位卡（docs/PLAN.md §7.6）。
 
     shot(url, out_path, cfg=None) -> {"path": str|None, "kind": "shot"|"placeholder", ...}
     load_policy(path=None)        -> dict                # state/shot_policy.yaml

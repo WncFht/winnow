@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
-"""gate_select — 人工闸 1（PLAN.md §7.3）。
+"""gate_select — 人工闸 1（docs/PLAN.md §7.3）。
 
 `40_candidates.json`（UI 数据源，非契约）的五类来源——前四个 run 文件
 缺一即 fail-fast（文件即依赖边，提示按 DAG 序给），第五个缺席/半空只

@@ -1,5 +1,5 @@
 # =============================================================================
-# AI 早报 pipeline — thin driver (PLAN.md §9)
+# AI 早报 pipeline — thin driver (docs/PLAN.md §9)
 #
 #   just gather            collect -> filter -> dedup          (auto block A)
 #   just pick              gate 1: serve review UI             (HUMAN)
@@ -114,10 +114,6 @@ setup-toolchain:
     if [ -f composer/package.json ]; then
       if [ -d composer/node_modules ]; then echo "  ok composer node_modules"
       else (cd composer && npm install) && echo "  ok composer npm install" || { echo "  FAIL composer npm install"; miss=$((miss+1)); }; fi
-    elif [ -d experiments/remotion-feas ] && { [ ! -d composer ] || [ -z "$(ls -A composer 2>/dev/null)" ]; }; then
-      mkdir -p composer && cp -r experiments/remotion-feas/. composer/ && (cd composer && npm install) \
-        && echo "  ok seeded composer/ from experiments/remotion-feas" \
-        || { echo "  FAIL composer seed"; miss=$((miss+1)); }
     else
       echo "  SKIP composer/ (non-empty, owned elsewhere or seed absent)"
     fi
@@ -703,7 +699,7 @@ test:
       run "adapters/$s" uv run "adapters/$s.py" --selftest
     done
     # golden fixture 全量校验（schema + 交叉字段 + manifest sha256 复验）
-    run "contracts-fixture" uv run -q --with pydantic python3 experiments/artifact-contracts/validate.py
+    run "contracts-fixture" uv run -q --with pydantic python3 contracts/validate.py contracts/fixtures/2026-09-20
     for s in lib/http lib/shotlib lib/reddit_collect lib/weibo_collect lib/x_ssr lib/x_nitter lib/x_synd; do
       run "$s" uv run "stages/$s.py" --offline
     done
@@ -747,7 +743,7 @@ fetch-embed:
     echo "fetch-embed: $d ready ($(du -h "$d/model_int8.onnx" | cut -f1))"
 
 # breeze TTS 一次性安装：上游推理代码 clone + 独立 venv（torch/transformers
-# 与 stage 进程隔离，见 experiments/tts-bakeoff/PLAN.md §7）。weights 走 HF
+# 与 stage 进程隔离，docs/PLAN.md §7.5）。weights 走 HF
 # cache（models--BreezeBlue--Breeze-TTS-2），本配方不拉权重。
 setup-breeze:
     #!/usr/bin/env bash
@@ -812,8 +808,8 @@ pool-vacuum:
 # --------------------------------------------------------------------------
 
 # dedup judge accuracy on fixtures — REMOVED: dedup.py 无 --judge-eval flag，
-# 必挂 stub 已删；fixtures 在 experiments/dedup-llm/clusters.json，待补 flag 后
-# 再以新配方恢复。
+# 必挂 stub 已删；fixtures 在调研档案 experiments/dedup-llm/clusters.json
+# （不随仓发布），待补 flag 后再以新配方恢复。
 
 # screenshot pipeline self test: domain-policy table + playwright path (§7.6)
 shot-test:

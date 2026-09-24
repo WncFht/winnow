@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Normalization helpers shared by collect/filter/dedup (PLAN.md §5.2, §7.1).
+"""Normalization helpers shared by collect/filter/dedup (docs/PLAN.md §5.2, §7.1).
 
 url_canon(u)     canonical URL: lower scheme/host, IDNA, strip www./m./amp.,
                  drop tracking params (utm_*/fbclid/gclid/spm/… — same

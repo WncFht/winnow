@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["fonttools>=4.50", "playwright==1.63.0"]
 # ///
-"""stages/lib/layout_d2.py — D2 卡片自适应闭式解（PLAN.md §7.6）。
+"""stages/lib/layout_d2.py — D2 卡片自适应闭式解（docs/PLAN.md §7.6）。
 
 上游 juya-news-card `claudeStyle` 的自适应是 1px 递减循环 + transform scale
 （floor 0.6）——card-density 实测：卡题 >22 字省略号截断、主标题 >44 字撞

@@ -1,0 +1,133 @@
+{
+ "schema": "run_manifest/1",
+ "episode": "2026-09-20",
+ "created_at": "2026-09-20T09:00:00+08:00",
+ "stages": {
+  "00_meta": {
+   "artifact": "00_meta.json",
+   "sha256": "dd776a30e45738778b94cd026bcbcfd2df07a4007338ce0e4d4074f5c8f4a1e7",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "10_raw_items": {
+   "artifact": "10_raw_items.jsonl",
+   "sha256": "445f6492508a5c52bf5698f0ffc81bc0b50178a77b709eda213434c9bbaef0b7",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "11_raw_manifest": {
+   "artifact": "11_raw_manifest.json",
+   "sha256": "ec2bd3c27bbf11796d945a4862215cd8c80a59f9fd56f1fb9c3056fef707880d",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "20_filtered": {
+   "artifact": "20_filtered.jsonl",
+   "sha256": "b5374c86b23b0ad8762cc460ccce580ad973d15533aa626a00d73a7166e0bf1a",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "30_summaries": {
+   "artifact": "30_summaries.jsonl",
+   "sha256": "c976edc177a616c4677ea713d381cb505ee5bada62ba880e04f3cc289203a834",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "35_dedup": {
+   "artifact": "35_dedup.jsonl",
+   "sha256": "ba400ea6ec91eb88da602efdd2df05fc7185f08895bb4f0ef9b8d90c56a50335",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "40_selected": {
+   "artifact": "40_selected.json",
+   "sha256": "30e0418a4d3b91f6b20e99225bcc4659a447fb793488e1d71e5dd95655525a69",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "50_issue": {
+   "artifact": "50_issue.json",
+   "sha256": "3e4d461818b4f420039189a026cbff0525adf614b2895aea28d7ee7ee6f2e8ea",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "60_voice_script": {
+   "artifact": "60_voice_script.jsonl",
+   "sha256": "e1e5787bd8c5889dcae6287c24acca3b9cc36579322df798cc5a0e75b0aa8720",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "61_audio_manifest": {
+   "artifact": "61_audio_manifest.json",
+   "sha256": "f2a089d5f5759fa36970a23df910bbdf48693bf6c4cb2c58da037706c825a97d",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "62_cards": {
+   "artifact": "62_cards.ffconcat",
+   "sha256": "48c3a73124bb67f0ab394dd188e4c674a72d0d09fcab027c385ae3323994bd05",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "62_episode": {
+   "artifact": "62_episode.srt",
+   "sha256": "389601ad33295ba1359c2678079c3bf830e7ef7c63dccf708c311d065a35250c",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "62_timeline": {
+   "artifact": "62_timeline.json",
+   "sha256": "bc17828bf465967977301678191836a7173350f15edded8d26113b21e3519ce3",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "63_cards": {
+   "artifact": "63_cards.json",
+   "sha256": "286b5d974e1d9dfce3d8097bbe5f2f39c49f92f12b834753a89693e0e1f46034",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "63_cards_manifest": {
+   "artifact": "63_cards_manifest.json",
+   "sha256": "2a7ddff22b5ae12322ef44b635fada25bfb9041d47304950731d5b0991811220",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "64_frames_manifest": {
+   "artifact": "64_frames_manifest.json",
+   "sha256": "7381af2eef4504edff9d8b7f3df8a1e025cd1814da5d9ce296af199646c16ef7",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "70_render_plan": {
+   "artifact": "70_render_plan.json",
+   "sha256": "683d8c745f30247cd856e2e5f4d3099e5752ecc1f5ba44aef288e99ed3d8256c",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  },
+  "80_build_manifest": {
+   "artifact": "80_build_manifest.json",
+   "sha256": "f4c86ad08e0a3262db4cbcefd6f76c53f47d7fe3de6fa695f34c8240c35dc101",
+   "status": "done",
+   "produced_at": "2026-09-20T12:40:00+08:00",
+   "producer": "build_samples.py"
+  }
+ }
+}

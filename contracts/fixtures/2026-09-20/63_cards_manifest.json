@@ -1,0 +1,134 @@
+{
+ "schema": "frames_manifest/1",
+ "episode": "2026-09-20",
+ "dir": "63_cards",
+ "files": [
+  {
+   "item": "androidbench",
+   "kind": "card",
+   "path": "63_cards/androidbench.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "7255888b0b8457d2b9c72234eebc4b0deefcd8fc6da2484b069f90694efdcf89",
+   "t": null
+  },
+  {
+   "item": "anthropic",
+   "kind": "card",
+   "path": "63_cards/anthropic.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "139d6d5aefb50725f8b9cddb333e32a1a72b36ef1899f6bad5602f8c9c01f14a",
+   "t": null
+  },
+  {
+   "item": "cua",
+   "kind": "card",
+   "path": "63_cards/cua.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "174a00cfa2a56131c388d1cfc1dfefb5b3b9a6763923c466d18a562db4977317",
+   "t": null
+  },
+  {
+   "item": "deepseek",
+   "kind": "card",
+   "path": "63_cards/deepseek.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "59586435eb41026e817c62ae9a8eedf5f27d9735924bc4ce29a1c4a562781f67",
+   "t": null
+  },
+  {
+   "item": "gemini",
+   "kind": "card",
+   "path": "63_cards/gemini.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "9fe70444292a760983349890fe132eba6c0d6a29f2e4e9a88d8d5f3cbc66d815",
+   "t": null
+  },
+  {
+   "item": "gpt6",
+   "kind": "card",
+   "path": "63_cards/gpt6.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "360e308810dc3e2e81c749978a8a140a756398be9ede3f78cabb5ef6f29b4957",
+   "t": null
+  },
+  {
+   "item": "kimi",
+   "kind": "card",
+   "path": "63_cards/kimi.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "1b9d266d11dad4b6440acabf5abea8908e23962949e7a10eb3590e77f5ec4e0b",
+   "t": null
+  },
+  {
+   "item": "lawsuit",
+   "kind": "card",
+   "path": "63_cards/lawsuit.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "84e2cf9c5593713a4c81342e098b377558077b6c7f8b06b986ea465ed4db7cc4",
+   "t": null
+  },
+  {
+   "item": "minimax",
+   "kind": "card",
+   "path": "63_cards/minimax.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "c131ac5132be2e80711839547911e749d2642936ceffe3041c097135b1543420",
+   "t": null
+  },
+  {
+   "item": "qwen",
+   "kind": "card",
+   "path": "63_cards/qwen.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "53ca5d53d64dab662dd40d539e8079732550fb30d9c436902e18b930868b9bd0",
+   "t": null
+  },
+  {
+   "item": "radar",
+   "kind": "card",
+   "path": "63_cards/radar.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "82abc4d69e07dbd2139fd8bfbc78d8232d71bb7e4193a7e309389852c57506d2",
+   "t": null
+  },
+  {
+   "item": "step5",
+   "kind": "card",
+   "path": "63_cards/step5.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "9886ded2507cbd1768ed046e9fc2e97f260052bee22fbe3fc83851876f583e1c",
+   "t": null
+  },
+  {
+   "item": "tibo",
+   "kind": "card",
+   "path": "63_cards/tibo.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "de369abb931310a8683a1bd2accf08cb3265565eca0556673787a82fe9524d59",
+   "t": null
+  },
+  {
+   "item": "xing",
+   "kind": "card",
+   "path": "63_cards/xing.png",
+   "w": 1920,
+   "h": 1080,
+   "sha256": "58a77af4c0ff4d0cf502690f3b6ce1cb9f42daf4a100f31ab685814697c842d1",
+   "t": null
+  }
+ ],
+ "missing": []
+}

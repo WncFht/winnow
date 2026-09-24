@@ -4,9 +4,9 @@
 
 [![offline-test](../../actions/workflows/offline-test.yml/badge.svg)](../../actions/workflows/offline-test.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**[中文版 README → README.zh-CN.md](README.zh-CN.md)** · [Contributing](CONTRIBUTING.md)
+**[中文版 README → README.zh-CN.md](README.zh-CN.md)** · [Contributing](docs/CONTRIBUTING.md)
 
-Winnow is a daily AI-news production line: it collects from ~160 sources, filters and deduplicates with an LLM, puts a human in the loop at two editorial gates (each with a deadline auto-release), then synthesizes a finished narrated mp4 — title, cover, QA included. Document output is planned next. Everything is driven by `just`; `PLAN.md` is the single source of truth for design decisions.
+Winnow is a daily AI-news production line: it collects from ~160 sources, filters and deduplicates with an LLM, puts a human in the loop at two editorial gates (each with a deadline auto-release), then synthesizes a finished narrated mp4 — title, cover, QA included. Document output is planned next. Everything is driven by `just`; `docs/PLAN.md` is the single source of truth for design decisions.
 
 ## Pipeline overview
 
@@ -68,41 +68,41 @@ Gate-2 editing: after `pick`, run `just digest` for `50_review.md`, edit via `ju
 stages/            12 PEP-723 self-contained stage scripts (uv run stages/xx.py)
 stages/lib/        shared libs: http/store/pool/embed/simhash/prompts/
                    shotlib/prog/meta/normalize/ttsnorm/*_collect …
+                   + fixtures/ selftest samples + seeds/ (x_nitter pool seeds)
 contracts/         artifact pydantic models + emitted JSON schemas
+contracts/fixtures/2026-09-20/   golden run fixture (validate + compose selftest)
 adapters/          LLM gateway, edge-tts, ntfy/deadman alerts, X paid adapter
+assets/fonts/      SmileySans-Oblique.ttf (chrome overlay cards)
 tools/watch.py     status / watch dashboards
 ops/               prelude.sh (_jlock) + winnow-* systemd units + install.sh
+docs/              all project docs — index in docs/README.md
 sources.yaml       ~160 sources (method/tier/proxy/SLA; just lint-sources)
 config.yaml        local config (untracked; template config.example.yaml)
 secrets.env        local secrets (untracked; template secrets.env.example)
 state/             history.sqlite + items.sqlite + backups/ + runtime state
 runs/<date>/       full per-episode artifacts (NN_*.json*) + logs/
-upstream/          vendored juya-news-card renderer (see VENDORED.md)
-composer/          Remotion composer — alternative engine (see NOTES.md)
-experiments/       research/selection lab archive (evidence layer for PLAN.md)
-repro/ evidence/   original-pipeline teardown artifacts (see below)
+upstream/          vendored juya-news-card renderer (docs/vendored-upstream.md)
+composer/          Remotion composer — alternative engine (docs/composer.md)
 ```
 
 ## Docs map
 
+All documentation lives under `docs/` (index: `docs/README.md`).
+
 | File | Contents |
 | --- | --- |
-| `PLAN.md` | **single source of truth**: decisions D1–D12, per-stage design, acceptance criteria |
-| `rulebook.md` | filter/digest rulebook (distilled from daily human feedback) |
-| `repro/README.md` | replica pipeline: stage↔original mapping + re-run flow |
-| `upstream/VENDORED.md` | juya-news-card pinned SHA, local patches, re-sync procedure |
-| `composer/NOTES.md` | Remotion composer usage + feasibility notes |
-| `experiments/README.md` | research archive index (adopted/live/snapshot/superseded) |
-| `experiments/tts-bakeoff/sami-tts.md` | SAMI TTS reverse-engineered API (alt channel, research archive) |
+| `docs/PLAN.md` | **single source of truth**: decisions D1–D12, per-stage design, acceptance criteria |
+| `rulebook.md` | filter/digest rulebook — stays at root: `stages/` reads it as a runtime input |
+| `docs/CONTRIBUTING.md` | engineering conventions: PEP 723 stages, just driver, test matrix |
+| `docs/ops.md` | systemd user timers + prelude.sh/_jlock shared prelude |
+| `docs/vendored-upstream.md` | juya-news-card pinned SHA, local patches, re-sync procedure |
+| `docs/composer.md` | Remotion composer usage + feasibility notes |
 
 ## Research background
 
-This repo began as a teardown & full re-implementation of 橘鸦Juya's daily 《AI早报》 production line (BV1NqeY6dEPP, 2026-09-20 episode); the current repo is the productionized form. Teardown artifacts kept for provenance:
+This repo began as a teardown & full re-implementation of 橘鸦Juya's daily 《AI早报》 production line (BV1NqeY6dEPP, 2026-09-20 episode); the current repo is the productionized form. The research archive behind it — teardown evidence (`evidence/`), the static replica pipeline (`repro/`), and the selection/feasibility labs (`experiments/`) — is kept private and _not_ shipped: `docs/PLAN.md` cites `experiments/…` paths as provenance markers, so those references will not resolve in a public clone.
 
-- `evidence/` — teardown notes, transcripts (`.srt`), and reference frames. The source videos themselves are _not_ redistributed — fetch them by BV number: original episode BV1NqeY6dEPP, workflow-reveal BV1JmdhYqEoy, tooling intro BV199AUzHE8q. `web/` holds feed/page availability captures.
 - `upstream/juya-news-card` — the author's open-sourced card renderer (MIT fork `Mappedinfo/juya-news-card`; original imjuya repo deleted). Next.js+React+TS, 174 templates; driven by `scripts/render-batch.ts`.
-- `repro/` — single-episode static replica pipeline (fetch_shots → render_chrome → composite_frames → tts → compose → out.mp4 268.5s).
-- `experiments/` — pre-PLAN selection/feasibility labs (artifact-contracts, dedup-llm, remotion-feas, factcheck-layer, …); each marked adopted / superseded / snapshot.
 
 ## License & third-party notices
 

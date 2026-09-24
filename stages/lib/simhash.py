@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""64-bit simhash for near-duplicate detection (PLAN.md §7.2 dedup 判定级联 tier-2).
+"""64-bit simhash for near-duplicate detection (docs/PLAN.md §7.2 dedup 判定级联 tier-2).
 
 Fingerprint input is ``title_norm + ' ' + summary`` — see fingerprint_parts().
 The summary MUST be in the hash: daily/periodical editions share a title

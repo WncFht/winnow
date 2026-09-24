@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pydantic>=2"]
 # ///
-"""stages/compose.py — PLAN.md §7.8 ffmpeg 兜底合成引擎。
+"""stages/compose.py — docs/PLAN.md §7.8 ffmpeg 兜底合成引擎。
 
 唯一驱动输入：70_render_plan.json（render_plan/1 —— 完全解析后的绝对
 时间轴，composer/fallback 共用同一份计划）。把 repro/compose.py 已验证
@@ -357,7 +357,7 @@ def cmd_render(run_dir: Path, max_t: float | None, out_arg: str | None) -> int:
 
 def cmd_selftest() -> int:
     """artifact-contracts fixture → runs/_compose_smoke，--max-t 10 冒烟。"""
-    src = REPO / "experiments/artifact-contracts/runs/2026-09-20"
+    src = REPO / "contracts/fixtures/2026-09-20"
     dst = REPO / "runs/_compose_smoke"
     if not (src / PLAN_NAME).exists():
         print(f"[selftest] FAIL fixture 缺 {PLAN_NAME}: {src}")

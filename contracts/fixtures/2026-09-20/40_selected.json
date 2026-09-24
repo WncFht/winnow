@@ -1,0 +1,110 @@
+{
+ "schema": "selected/1",
+ "episode": "2026-09-20",
+ "decided_at": "2026-09-20T09:31:10+08:00",
+ "decided_by": "human",
+ "kept": [
+  {
+   "item_key": "ead9d03d25434288",
+   "id": "deepseek",
+   "section": "dev-eco",
+   "note": null
+  },
+  {
+   "item_key": "e49df2e8f3181f6d",
+   "id": "tibo",
+   "section": "dev-eco",
+   "note": null
+  },
+  {
+   "item_key": "ba7844c57c1724ca",
+   "id": "step5",
+   "section": "model-release",
+   "note": null
+  },
+  {
+   "item_key": "8718fa8cc42ad61b",
+   "id": "qwen",
+   "section": "model-release",
+   "note": null
+  },
+  {
+   "item_key": "49d1e4e1e5ef71fa",
+   "id": "radar",
+   "section": "model-release",
+   "note": null
+  },
+  {
+   "item_key": "721c94bd6f2f3edc",
+   "id": "cua",
+   "section": "model-release",
+   "note": null
+  },
+  {
+   "item_key": "f1b9b8b4f2d59e73",
+   "id": "xing",
+   "section": "model-release",
+   "note": null
+  },
+  {
+   "item_key": "8a37e6139f628811",
+   "id": "androidbench",
+   "section": "tech-insight",
+   "note": null
+  },
+  {
+   "item_key": "8256e22ea7196985",
+   "id": "lawsuit",
+   "section": "industry",
+   "note": null
+  },
+  {
+   "item_key": "63b48040f2bb54c4",
+   "id": "anthropic",
+   "section": "rumor-mill",
+   "note": null
+  },
+  {
+   "item_key": "442871e785926b1c",
+   "id": "gpt6",
+   "section": "rumor-mill",
+   "note": null
+  },
+  {
+   "item_key": "c90c60220665332a",
+   "id": "gemini",
+   "section": "rumor-mill",
+   "note": null
+  },
+  {
+   "item_key": "36dfd88d234122fd",
+   "id": "minimax",
+   "section": "rumor-mill",
+   "note": null
+  },
+  {
+   "item_key": "cbf2e385752a521d",
+   "id": "kimi",
+   "section": "rumor-mill",
+   "note": null
+  }
+ ],
+ "dropped": [
+  {
+   "item_key": "8107cc9acd802fb7",
+   "reason": "low-value-or-not-ai"
+  },
+  {
+   "item_key": "bd3699b154b8df97",
+   "reason": "low-value-or-not-ai"
+  },
+  {
+   "item_key": "a351d028a26f669b",
+   "reason": "low-value-or-not-ai"
+  },
+  {
+   "item_key": "7b5964e0f168aed5",
+   "reason": "low-value-or-not-ai"
+  }
+ ]
+}

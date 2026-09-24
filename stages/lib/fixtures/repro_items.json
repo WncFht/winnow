@@ -1,0 +1,256 @@
+{
+  "date": "2026-09-20",
+  "weekday": "周日",
+  "sections": [
+    { "name": "开发生态", "icon": "🛠️" },
+    { "name": "模型发布", "icon": "🚀" },
+    { "name": "技术与洞察", "icon": "🔬" },
+    { "name": "行业动态", "icon": "🏢" },
+    { "name": "前瞻与传闻", "icon": "🔮" }
+  ],
+  "items": [
+    {
+      "id": "intro",
+      "nav": "Intro",
+      "type": "overview",
+      "voice": [
+        "各位观众早上好，今天是九月二十日周日。",
+        "欢迎收看AI早报，屏幕上是今天的主要内容，接下来请看详细报道。"
+      ]
+    },
+    {
+      "id": "deepseek",
+      "section": "开发生态",
+      "nav": "DeepSeek",
+      "title": "DeepSeek API明确节假日全天按空闲时段计费",
+      "cards": [
+        { "icon": "📢", "label": "计费新规", "color": "#d4572e", "body": "调休上班的周末及中国法定节假日，全天均按空闲时段费率计费" },
+        { "icon": "👥", "label": "适用范围", "color": "#d9a41f", "body": "面向使用 DeepSeek 官方 API 的用户，平台公告横幅已明确该规则" }
+      ],
+      "shot": "shots/deepseek.png",
+      "shot_sentences": [1, 2],
+      "voice": [
+        "DeepSeek API平台近日发布公告横幅明确，调休上班的周末和中国法定节假日全天按空闲时段计费。",
+        "该规则面向使用DeepSeek官方API的用户。"
+      ]
+    },
+    {
+      "id": "tibo",
+      "section": "开发生态",
+      "nav": "Tibo",
+      "title": "Tibo疑似暗示Codex banked reset",
+      "cards": [
+        { "icon": "📣", "label": "起因", "color": "#d4572e", "body": "OpenAI 本周没有推出预期更新，用户向 Codex 负责人 Tibo 索要 banked reset" },
+        { "icon": "💬", "label": "语义争议", "color": "#b8860b", "body": "Tibo 回复“OK fine, but it's also still coming Tuesday”，是否承诺 reset 出现两种解读" }
+      ],
+      "shot": "shots/tibo.png",
+      "shot_sentences": [1],
+      "voice": [
+        "有用户因OpenAI本周没有推出预期更新，向Codex负责人Tibo索要banked reset，Tibo回复“OK fine, but it's also still coming Tuesday”。",
+        "有人认为“OK fine”是在同意提供banked reset；",
+        "也有观点认为他并未确认reset，真正明确的只是此前预告的内容仍会在周二到来。"
+      ]
+    },
+    {
+      "id": "step5",
+      "section": "模型发布",
+      "nav": "Step 5 Preview",
+      "title": "Step 5 Preview现身Artificial Analysis网站",
+      "cards": [
+        { "icon": "📋", "label": "榜单收录", "color": "#d4572e", "body": "阶跃星辰 Step 5 Preview 现身 Artificial Analysis 榜单并完成独立评测" },
+        { "icon": "📊", "label": "评测数据", "color": "#3a7bd5", "body": "智能指数 44，支持 1M 上下文和视觉输入，百万输入/输出价格 1 / 2.7 美元" },
+        { "icon": "🔓", "label": "可用情况", "color": "#d9a41f", "body": "部分 Step Plan 用户称已可调用，页面列为闭源模型，官方尚未正式发布" }
+      ],
+      "shot": "shots/step5.png",
+      "shot_sentences": [1],
+      "voice": [
+        "阶跃星辰的Step 5 Preview模型现身Artificial Analysis榜单，另有部分Step Plan用户称已可调用。",
+        "第三方评测显示，该模型智能指数为44，支持1M上下文和视觉输入，更多信息有待官方正式发布。"
+      ]
+    },
+    {
+      "id": "qwen",
+      "section": "模型发布",
+      "nav": "Qwen3.8-LiveTranslate",
+      "title": "千问发布Qwen3.8-LiveTranslate",
+      "cards": [
+        { "icon": "🌐", "label": "60种语言", "color": "#d4572e", "body": "面向真实对话的实时同传，支持 60 种语言" },
+        { "icon": "🧠", "label": "架构", "color": "#7a5af8", "body": "Interleave 架构 + Thinker-Talker 双模块，字均延迟 2.8s → 2.3s" },
+        { "icon": "✨", "label": "新能力", "color": "#d9a41f", "body": "实时说话人分离、原文译文同帧输出、长上下文消歧" },
+        { "icon": "🔌", "label": "可用性", "color": "#3a9a5f", "body": "在线体验与 API 均已上线千问 AI 平台" }
+      ],
+      "voice": [
+        "千问发布同传模型Qwen3.8-LiveTranslate，支持60种语言实时翻译。",
+        "模型采用Interleave架构和Thinker-Talker双模块设计，新增实时说话人分离、原文译文同帧输出与长上下文消歧能力，在线体验与API均已上线。"
+      ]
+    },
+    {
+      "id": "radar",
+      "section": "模型发布",
+      "nav": "RADAR",
+      "title": "达摩院开源腹部CT诊断模型RADAR",
+      "cards": [
+        { "icon": "🏥", "label": "模型", "color": "#d4572e", "body": "腹部 CT 诊断通用视觉语言模型，论文发表于 Science" },
+        { "icon": "📚", "label": "训练数据", "color": "#3a7bd5", "body": "42.5万例增强腹部 CT、1500万解剖级图文对，无需人工标注" },
+        { "icon": "🎯", "label": "性能", "color": "#d9a41f", "body": "覆盖18个解剖结构、146项影像发现，内外部诊断 AUC 超 0.87" },
+        { "icon": "🔓", "label": "开放", "color": "#3a9a5f", "body": "权重已在 HuggingFace 开放，代码存档 Zenodo，Apache 2.0" }
+      ],
+      "shot": "shots/radar.png",
+      "shot_sentences": [1],
+      "voice": [
+        "阿里巴巴达摩院开源了腹部CT诊断视觉语言模型RADAR，论文发表于Science。",
+        "该模型用超40万例CT和1500万图文对训练，覆盖18个解剖结构和146项影像发现，内外部诊断AUC超0.87，代码与权重已开放。"
+      ]
+    },
+    {
+      "id": "cua",
+      "section": "模型发布",
+      "nav": "CUA-S1",
+      "title": "Cua开源小型表单填写模型cua-s1-forms",
+      "cards": [
+        { "icon": "🐜", "label": "超小参数", "color": "#d4572e", "body": "仅 70.6万 可训练参数，检查点约 2.8MB，支持本地运行" },
+        { "icon": "📝", "label": "工作方式", "color": "#3a7bd5", "body": "单次前向并行判断表单元素该填写、勾选、点击还是跳过" },
+        { "icon": "⚠️", "label": "定位", "color": "#d9a41f", "body": "CUA-S1 家族表单研究检查点，仍处早期研究阶段" }
+      ],
+      "voice": [
+        "Cua开源约70万参数的表单填写模型cua-s1-forms，可并行判断表单元素该填写、勾选、点击还是跳过。",
+        "代码和权重均已开放，支持本地运行。"
+      ]
+    },
+    {
+      "id": "xing",
+      "section": "模型发布",
+      "nav": "Xing4.0-29B-A4B",
+      "title": "中国电信开源Xing4.0-29B-A4B模型",
+      "cards": [
+        { "icon": "🧮", "label": "规格", "color": "#d4572e", "body": "星辰语义大模型，总参数 29B、激活 4B，MoE 架构" },
+        { "icon": "🤖", "label": "面向", "color": "#3a7bd5", "body": "复杂工程与 Agent 任务，支持 256K 上下文并可扩展至 512K" },
+        { "icon": "🇨🇳", "label": "国产算力", "color": "#d9a41f", "body": "完全基于国产算力训练，面向昇腾 910C 集群，吞吐提升约 96%" }
+      ],
+      "voice": [
+        "中国电信近期开源了星辰语义大模型Xing4.0-29B-A4B，总参数量29B，激活参数4B。",
+        "该模型面向复杂工程与Agent任务优化，完全基于国产算力训练。"
+      ]
+    },
+    {
+      "id": "androidbench",
+      "section": "技术与洞察",
+      "nav": "Android Bench 2.0",
+      "title": "Android Developers推出Android Bench 2.0",
+      "cards": [
+        { "icon": "📱", "label": "评测对象", "color": "#d4572e", "body": "真实、多日的 Android 工程任务：从零构建、新功能、跨平台迁移" },
+        { "icon": "📏", "label": "评分维度", "color": "#3a7bd5", "body": "完成率、视觉保真度、回归问题与每任务平均成本" },
+        { "icon": "🤝", "label": "新增", "color": "#3a9a5f", "body": "开始评估 Agent 与模型组合，新增 Gemini 3.8/3.7、GPT-6 Astra、Kimi K3 等" }
+      ],
+      "voice": [
+        "Android Bench 2.0现已推出，将AI评测扩展到真实多日Android工程任务。",
+        "并开始评估Agent与模型组合，相关结果已可查看。"
+      ]
+    },
+    {
+      "id": "lawsuit",
+      "section": "行业动态",
+      "nav": "Antitrust Lawsuit",
+      "title": "OpenAI等四家公司遭反垄断诉讼",
+      "cards": [
+        { "icon": "⚖️", "label": "起诉", "color": "#d4572e", "body": "付费用户在加州北区联邦法院起诉 OpenAI、Anthropic、SpaceXAI、Google" },
+        { "icon": "🚫", "label": "指控", "color": "#b8860b", "body": "高管公开呼吁协调限制 AI 进步速度，违反《谢尔曼反托拉斯法》第1条" },
+        { "icon": "👥", "label": "诉求", "color": "#3a7bd5", "body": "寻求集体诉讼认证、禁令及宣告性判决，四家公司尚未回应" }
+      ],
+      "shot": "shots/lawsuit.png",
+      "shot_sentences": [1],
+      "voice": [
+        "一批付费用户在加州联邦法院起诉OpenAI、Anthropic、SpaceXAI和Google。",
+        "指控四家公司高管公开呼吁协调限制AI进步速度，违反反垄断法。",
+        "原告称这种合谋导致用户以原价获得改进更慢的产品，正寻求集体诉讼认证及禁令。"
+      ]
+    },
+    {
+      "id": "anthropic",
+      "section": "前瞻与传闻",
+      "nav": "Anthropic",
+      "title": "Anthropic或将发新模型应对Astra竞争",
+      "cards": [
+        { "icon": "📰", "label": "路透报道", "color": "#d4572e", "body": "Anthropic 正考虑推出新模型，应对 GPT-6 Astra 获得的企业市场关注" },
+        { "icon": "🛡️", "label": "安全评估", "color": "#3a7bd5", "body": "仍在评估下一款模型安全性，是否及何时发布尚未确定" },
+        { "icon": "🕵️", "label": "爆料", "color": "#d9a41f", "body": "博主称新版 Fable、Opus、Sonnet 在部分账号隐蔽测试，未获官方确认" }
+      ],
+      "shot": "shots/anthropic.png",
+      "shot_sentences": [1],
+      "voice": [
+        "据报道，Anthropic正考虑发布新模型应对Astra在企业市场的竞争，安全评估仍在进行。",
+        "另有爆料博主称新版Fable、Opus和Sonnet正在部分账号隐蔽测试。"
+      ]
+    },
+    {
+      "id": "gpt6",
+      "section": "前瞻与传闻",
+      "nav": "OpenAI",
+      "title": "OpenAI或将发布GPT-6 Sol和GPT-6 Luna",
+      "cards": [
+        { "icon": "📅", "label": "时间点", "color": "#d4572e", "body": "Sam Altman 称最期待的内容已推迟到下周，DevDay 当地时间9月29日举行" },
+        { "icon": "🎁", "label": "内容量", "color": "#3a7bd5", "body": "Tibo 称准备中的新内容“可能够办3个DevDay”，下周先发布一部分" },
+        { "icon": "🔮", "label": "猜测对象", "color": "#d9a41f", "body": "用户提出想要 GPT-6 Sol 和 GPT-6 Luna，Tibo 回复“What else do you want”" }
+      ],
+      "voice": [
+        "OpenAI或将在下周推出新的GPT-6系列模型。",
+        "Sam Altman此前表示，原计划发布、自己最期待的内容已推迟到下周。",
+        "OpenAI团队成员Tibo近期称下周会先发布一些东西，目前准备中的新内容甚至可能够办三个DevDay。",
+        "当用户直接提出想要GPT-6 Sol和GPT-6 Luna时，Tibo回复“What else do you want”，使这两款模型成为当前主要猜测对象。",
+        "不过OpenAI目前尚未正式透露相关信息，OpenAI DevDay将于当地时间九月二十九日举行。"
+      ]
+    },
+    {
+      "id": "gemini",
+      "section": "前瞻与传闻",
+      "nav": "Gemini 4.0",
+      "title": "Google或将发布Gemini 4 Pro",
+      "cards": [
+        { "icon": "🎭", "label": "隐蔽测试", "color": "#d4572e", "body": "多名用户称 Arena 中 gemini-3.8-flash 会随机路由至疑似 Gemini 4 Pro 的 Argon checkpoint" },
+        { "icon": "🏆", "label": "表现", "color": "#3a7bd5", "body": "SVG、3D 场景、网页和游戏生成表现优异" },
+        { "icon": "🖼️", "label": "插曲", "color": "#d9a41f", "body": "一张流传基准测试图被鉴定为 GPT-Image 生成，官方未确认型号与开放时间" }
+      ],
+      "voice": [
+        "近期多名用户称Arena中的gemini-3.8-flash会随机路由至疑似Gemini 4 Pro的Argon checkpoint。",
+        "SVG、3D场景、网页和游戏生成表现优异。",
+        "另有一张已被鉴定为使用GPT-Image生成的基准测试图流传。"
+      ]
+    },
+    {
+      "id": "minimax",
+      "section": "前瞻与传闻",
+      "nav": "MiniMax-M3.1",
+      "title": "MiniMax或将发布MiniMax-M3.1",
+      "cards": [
+        { "icon": "🔍", "label": "代码线索", "color": "#d4572e", "body": "官方开源 CLI 工具多个文件出现 MiniMax-M3.1 标识" },
+        { "icon": "⚙️", "label": "参数档位", "color": "#3a7bd5", "body": "多套上下文（45万-100万）与输出参数及 thinking effort 档位" },
+        { "icon": "📸", "label": "截图", "color": "#d9a41f", "body": "社区流传截图显示官方工作人员预告即将发布，暂无更多官方信息" }
+      ],
+      "shot": "shots/minimax.png",
+      "shot_sentences": [1],
+      "voice": [
+        "MiniMax官方近期开源的CLI工具的代码中，多个文件出现了MiniMax-M3.1标识，配有多套上下文与输出参数及thinking effort档位。",
+        "另有一张社区流传的截图显示官方工作人员预告该模型即将发布。",
+        "目前未有更多的官方信息。"
+      ]
+    },
+    {
+      "id": "kimi",
+      "section": "前瞻与传闻",
+      "nav": "Kimi",
+      "title": "月之暗面或将发布Kimi K3.1",
+      "cards": [
+        { "icon": "🥧", "label": "暗示", "color": "#d4572e", "body": "Kimi 知乎认证机构号发布一串省略开头“3.1”的圆周率数字" },
+        { "icon": "💭", "label": "解读", "color": "#3a7bd5", "body": "缺失部分与“K3.1”版本编号对应，被解读为暗示即将发布" },
+        { "icon": "🗑️", "label": "现状", "color": "#d9a41f", "body": "帖文未直接提及 K3.1，目前该动态已被删除" }
+      ],
+      "shot": "shots/kimi.png",
+      "shot_sentences": [1],
+      "voice": [
+        "Kimi知乎认证机构号发布了一串省略开头3.1的圆周率数字，这被解读为暗示Kimi K3.1即将发布。",
+        "不过帖文并未直接提及K3.1，目前该动态已被删除。",
+        "今天的资讯播送完了，明天见！"
+      ]
+    }
+  ]
+}

@@ -4,7 +4,7 @@
 
 > 中文快照（2026-09-24）；最新以英文 README.md 为准。
 
-每日《AI 早报》生产线 —— 从 161 个信息源到成片 mp4 + 标题/封面/QA。2 段自动块夹 2 个人工闸（各带死线自动放行），全部经 justfile 驱动。设计/实施唯一真源是 `PLAN.md`，本文件只做门面。
+每日《AI 早报》生产线 —— 从 161 个信息源到成片 mp4 + 标题/封面/QA。2 段自动块夹 2 个人工闸（各带死线自动放行），全部经 justfile 驱动。设计/实施唯一真源是 `docs/PLAN.md`，本文件只做门面。
 
 ## Pipeline 概览
 
@@ -58,7 +58,7 @@ just produce           # digest → callb → voice → cards → subs → rende
 - 断了续跑：`just resume`（按 00_meta.json 校验补跑缺失阶段）
 - 强制重跑某段：`just from <stage>`（跑到所属 block 末尾）
 - 盯进度：`just status` / `just watch` / `just tail [stage]`
-- 沙箱实验：`just exp <name> <stage> [args]`（runs/_exp-\<name\>）
+- 沙箱实验：`just exp <name> <stage> [args]`（runs/\_exp-\<name\>）
 - 离线回归：`just test`
 
 ## 目录结构
@@ -67,39 +67,42 @@ just produce           # digest → callb → voice → cards → subs → rende
 stages/            12 个 PEP 723 自含阶段脚本（uv run stages/xx.py --run-dir …）
 stages/lib/        公共库：http / store / pool / embed / simhash / prompts /
                    shotlib / prog / meta / normalize / ttsnorm / *_collect …
+                   + fixtures/ 自测样本 + seeds/（x_nitter 实例池种子）
 contracts/         artifact pydantic 模型 + JSON schemas
+contracts/fixtures/2026-09-20/   golden run fixture（validate + compose 自测用）
 adapters/          LLM 网关、edge-tts、ntfy/deadman 告警、X 付费适配
+assets/fonts/      SmileySans-Oblique.ttf（chrome 叠加卡标题字）
 tools/watch.py     status / watch 仪表盘
 ops/               prelude.sh（_jlock）+ systemd service/timer + install.sh
+docs/              全部项目文档——索引见 docs/README.md
 sources.yaml       161 源（method/tier/proxy/SLA；just lint-sources 校验）
 config.yaml        本机配置（不入库；模板 config.example.yaml）
 secrets.env        本机密钥（不入库；模板 secrets.env.example）
 state/             history.sqlite + items.sqlite + backups/ + 运行时小状态
 runs/<date>/       每期全量 artifact（NN_*.json*）+ logs/
-upstream/          vendored juya-news-card 卡片渲染器（见 VENDORED.md）
-composer/          Remotion 合成器（备选引擎，见 NOTES.md）
-experiments/       调研/选型实验目录（PLAN 的证据层）
-repro/ evidence/   复刻调研产物（见「调研背景」）
+upstream/          vendored juya-news-card 卡片渲染器（docs/vendored-upstream.md）
+composer/          Remotion 合成器（备选引擎，docs/composer.md）
 ```
 
 ## 文档地图
 
+文档全部收在 `docs/`（索引：`docs/README.md`）。
+
 | 文件 | 内容 |
 | --- | --- |
-| `PLAN.md` | **设计/实施唯一真源**：D1–D12 已拍板决策、各阶段详设、验收口径 |
-| `rulebook.md` | filter/digest 筛选规则手册（由每日人工反馈蒸馏，版本化维护） |
-| `repro/README.md` | 复刻 pipeline：各环节 ↔ 原版环节对应表 + 复跑流程 |
-| `upstream/VENDORED.md` | juya-news-card 定格 SHA、本地 patch 清单、重新同步上游方法 |
-| `composer/NOTES.md` | Remotion 合成器用法（plan 输入优先级、字幕 live-text 约定）+ 可行性实验记录 |
-| `experiments/tts-bakeoff/sami-tts.md` | 剪映 SAMI TTS 逆向接口说明（备选通道，调研档案） |
+| `docs/PLAN.md` | **设计/实施唯一真源**：D1–D12 已拍板决策、各阶段详设、验收口径 |
+| `rulebook.md` | filter/digest 筛选规则手册——留在根目录：stages 运行时直接读它 |
+| `docs/CONTRIBUTING.md` | 工程约定：PEP 723 stage 形态、just 驱动、测试矩阵 |
+| `docs/ops.md` | systemd user timer 部署 + prelude.sh/_jlock 公共前奏 |
+| `docs/vendored-upstream.md` | juya-news-card 定格 SHA、本地 patch 清单、重新同步上游方法 |
+| `docs/composer.md` | Remotion 合成器用法（plan 输入优先级、字幕 live-text 约定）+ 可行性实验记录 |
 
 ## 调研背景
 
-本仓库起点是对 UP 主 橘鸦 Juya《AI 早报》日更视频生产线（BV1NqeY6dEPP，2026-09-20 期）的调研与完整复刻；现仓库即其产线化形态，调研产物留存：
+本仓库起点是对 UP 主 橘鸦 Juya《AI 早报》日更视频生产线（BV1NqeY6dEPP，2026-09-20 期）的调研与完整复刻；现仓库即其产线化形态。背后的调研档案——拆解证据（`evidence/`）、单期静态复刻（`repro/`）、选型/可行性实验（`experiments/`）——留存私仓、**不随仓发布**：`docs/PLAN.md` 里各处"种子：`experiments/…`"是出处标注，公开 clone 中这些路径不存在。
 
-- `evidence/` —— 拆解证据：`original/` 正片 video.mp4 + 字幕 srt + 抽帧； `makingof/` UP 主工作流揭秘视频 BV1JmdhYqEoy + 转写；`opensource/` 工具开源介绍 BV199AUzHE8q；`web/` daily.juya.uk RSS / 文字版日报页 / GitHub Pages 存档。
 - `upstream/juya-news-card` —— UP 主开源卡片渲染器真身（MIT fork `Mappedinfo/juya-news-card`；原 imjuya 仓库已删号）。Next.js+React+TS，174 套模板；现由 cards 阶段经 `scripts/render-batch.ts` 批渲染调用。
-- `repro/` —— 单期静态复刻 pipeline（fetch_shots → render_chrome → composite_frames → tts → compose → out.mp4 268.5s），各环节与原版对应关系及复跑流程见 `repro/README.md`；`repro/v1/` 是被上游取代的初版自造卡片模板。
-- `experiments/` —— PLAN 成形前的选型/可行性实验（artifact-contracts、dedup-llm、remotion-feas、factcheck-layer 等）。
+
+环节归属（复刻口径）：内容卡片为纯上游实现（`generateTemplateHtml` + `claudeStyle` 模板逐像素渲染）；导航/面包屑叠加层、截图弹卡、字幕 pill、TTS 逐句对轨、ffmpeg 合成器为自造（原版必有对应物但未开源）；复刻期内容数据手写结构化（取自 UP 主当日 RSS），产线化后由 collect/filter/digest 的 LLM 环节取代。
 
 环节归属（复刻口径）：内容卡片为纯上游实现（`generateTemplateHtml` + `claudeStyle` 模板逐像素渲染）；导航/面包屑叠加层、截图弹卡、字幕 pill、TTS 逐句对轨、ffmpeg 合成器为自造（原版必有对应物但未开源）；复刻期内容数据手写结构化（取自 UP 主当日 RSS），产线化后由 collect/filter/ digest 的 LLM 环节取代。

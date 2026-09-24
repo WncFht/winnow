@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["httpx>=0.28", "pyyaml>=6", "pydantic>=2"]
 # ///
-"""X 平台采集器 ③ syndication 路（PLAN.md §5.3 四路之三，429 指数退避）。
+"""X 平台采集器 ③ syndication 路（docs/PLAN.md §5.3 四路之三，429 指数退避）。
 
 Endpoint（实测自 experiments/hard-x.com-official-api-or-native-feed/，
 endpoint shape = X 官方 embedded-timeline widget 的 first-party JSON-in-HTML）：
@@ -49,7 +49,7 @@ config.yaml → config.example.yaml。相关键：
       RateLimited(XSyndError)（.retry_after=epoch|None）。
 
 CLI:  uv run stages/lib/x_synd.py            # live：抓 1-2 个 handle
-      uv run stages/lib/x_synd.py --offline  # 只解析 experiments/ 缓存样本
+      uv run stages/lib/x_synd.py --offline  # 只解析 lib/fixtures/ 缓存样本
 """
 from __future__ import annotations
 
@@ -392,9 +392,8 @@ def fetch_user(handle: str, cfg: Any = None, **kw) -> list[dict]:
 # ------------------------------------------------------------- self test ----
 
 _FIXTURES = [
-    REPO / "experiments/hard-x.com-official-api-or-native-feed/"
-         "feed_xcom_variant.html",
-    REPO / "experiments/hard-x.com-official-api-or-native-feed/synd_test.html",
+    REPO / "stages/lib/fixtures/feed_xcom_variant.html",
+    REPO / "stages/lib/fixtures/synd_test.html",
 ]
 
 

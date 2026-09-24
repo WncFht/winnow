@@ -558,7 +558,7 @@ def run_voice(run_dir: Path, cfg: dict, args) -> dict:
     else:
         raise _die(f"tts.engine={engine_req} 未实现（edge|breeze）",
                    "config.yaml tts.engine 设 edge 或 breeze（breeze 见 "
-                   "experiments/tts-bakeoff/PLAN.md §7）")
+                   "docs/PLAN.md §7.5）")
     tl_cfg = _timeline_cfg(cfg, args)
     episode = str(issue.get("date") or "")
     if not _EPISODE_RE.fullmatch(episode):

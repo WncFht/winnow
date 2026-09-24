@@ -1,0 +1,19 @@
+{
+ "schema": "raw_manifest/1",
+ "episode": "2026-09-20",
+ "window": {
+  "from": "2026-09-19T09:00:00+08:00",
+  "to": "2026-09-20T09:12:33+08:00"
+ },
+ "file": "10_raw_items.jsonl",
+ "n_items": 18,
+ "sources": [
+  {
+   "name": "daily-pool",
+   "kind": "rss",
+   "n": 18,
+   "errors": []
+  }
+ ],
+ "produced_at": "2026-09-20T09:12:40+08:00"
+}

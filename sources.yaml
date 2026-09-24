@@ -1,4 +1,4 @@
-# AI 早报 pipeline 源注册表 — 唯一人工维护文件 (PLAN.md §5.1)
+# AI 早报 pipeline 源注册表 — 唯一人工维护文件 (docs/PLAN.md §5.1)
 # 种子: experiments/source-seeds/domains.json (135 域) + rss_titles.json + research_result.json 逐源实测笔记
 # 通道全部经 2026-09-21 本机实测 (中国大陆直连/本机代理), 未实测的在 note 里标注
 # method: rss|atom|json_api|sitemap_diff|changelog_diff|x|reddit|weibo|wechat|youtube_rss|manual

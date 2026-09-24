@@ -535,9 +535,8 @@ if __name__ == "__main__":
     assert t2 == [] and u2 == {}
     print("shell detection OK (0 tweets on shell page)")
 
-    # 真实抓档回放（实验目录若在则跑；缺失不阻塞）
-    exp = (REPO_ROOT / "experiments" / "hard-x.com-scraper-tool-or-manual"
-           / "profile_karpathy.html")
+    # 真实抓档回放（fixture 在则跑；缺失不阻塞）
+    exp = REPO_ROOT / "stages" / "lib" / "fixtures" / "profile_karpathy.html"
     if exp.is_file():
         u3, t3 = parse_profile(exp.read_text(encoding="utf-8",
                                              errors="replace"))

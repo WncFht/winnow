@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pyyaml"]
 # ///
-"""ntfy alert adapter — PLAN.md §7.9 / §9, decision D9.
+"""ntfy alert adapter — docs/PLAN.md §7.9 / §9, decision D9.
 
     from adapters import alert_ntfy as alert
     alert.push("采集完成", "勾选闸开放，死线 08:30", config=cfg)

@@ -1,0 +1,38 @@
+{"schema": "voice_seg/1", "seg_id": "000_intro_0", "item": "intro", "si": 0, "text": "各位观众早上好，今天是九月二十日周日。", "role": "intro"}
+{"schema": "voice_seg/1", "seg_id": "001_intro_1", "item": "intro", "si": 1, "text": "欢迎收看AI早报，屏幕上是今天的主要内容，接下来请看详细报道。", "role": "intro"}
+{"schema": "voice_seg/1", "seg_id": "002_deepseek_0", "item": "deepseek", "si": 0, "text": "DeepSeek API平台近日发布公告横幅明确，调休上班的周末和中国法定节假日全天按空闲时段计费。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "003_deepseek_1", "item": "deepseek", "si": 1, "text": "该规则面向使用DeepSeek官方API的用户。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "004_tibo_0", "item": "tibo", "si": 0, "text": "有用户因OpenAI本周没有推出预期更新，向Codex负责人Tibo索要banked reset，Tibo回复“OK fine, but it's also still coming Tuesday”。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "005_tibo_1", "item": "tibo", "si": 1, "text": "有人认为“OK fine”是在同意提供banked reset；", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "006_tibo_2", "item": "tibo", "si": 2, "text": "也有观点认为他并未确认reset，真正明确的只是此前预告的内容仍会在周二到来。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "007_step5_0", "item": "step5", "si": 0, "text": "阶跃星辰的Step 5 Preview模型现身Artificial Analysis榜单，另有部分Step Plan用户称已可调用。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "008_step5_1", "item": "step5", "si": 1, "text": "第三方评测显示，该模型智能指数为44，支持1M上下文和视觉输入，更多信息有待官方正式发布。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "009_qwen_0", "item": "qwen", "si": 0, "text": "千问发布同传模型Qwen3.8-LiveTranslate，支持60种语言实时翻译。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "010_qwen_1", "item": "qwen", "si": 1, "text": "模型采用Interleave架构和Thinker-Talker双模块设计，新增实时说话人分离、原文译文同帧输出与长上下文消歧能力，在线体验与API均已上线。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "011_radar_0", "item": "radar", "si": 0, "text": "阿里巴巴达摩院开源了腹部CT诊断视觉语言模型RADAR，论文发表于Science。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "012_radar_1", "item": "radar", "si": 1, "text": "该模型用超40万例CT和1500万图文对训练，覆盖18个解剖结构和146项影像发现，内外部诊断AUC超0.87，代码与权重已开放。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "013_cua_0", "item": "cua", "si": 0, "text": "Cua开源约70万参数的表单填写模型cua-s1-forms，可并行判断表单元素该填写、勾选、点击还是跳过。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "014_cua_1", "item": "cua", "si": 1, "text": "代码和权重均已开放，支持本地运行。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "015_xing_0", "item": "xing", "si": 0, "text": "中国电信近期开源了星辰语义大模型Xing4.0-29B-A4B，总参数量29B，激活参数4B。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "016_xing_1", "item": "xing", "si": 1, "text": "该模型面向复杂工程与Agent任务优化，完全基于国产算力训练。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "017_androidbench_0", "item": "androidbench", "si": 0, "text": "Android Bench 2.0现已推出，将AI评测扩展到真实多日Android工程任务。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "018_androidbench_1", "item": "androidbench", "si": 1, "text": "并开始评估Agent与模型组合，相关结果已可查看。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "019_lawsuit_0", "item": "lawsuit", "si": 0, "text": "一批付费用户在加州联邦法院起诉OpenAI、Anthropic、SpaceXAI和Google。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "020_lawsuit_1", "item": "lawsuit", "si": 1, "text": "指控四家公司高管公开呼吁协调限制AI进步速度，违反反垄断法。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "021_lawsuit_2", "item": "lawsuit", "si": 2, "text": "原告称这种合谋导致用户以原价获得改进更慢的产品，正寻求集体诉讼认证及禁令。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "022_anthropic_0", "item": "anthropic", "si": 0, "text": "据报道，Anthropic正考虑发布新模型应对Astra在企业市场的竞争，安全评估仍在进行。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "023_anthropic_1", "item": "anthropic", "si": 1, "text": "另有爆料博主称新版Fable、Opus和Sonnet正在部分账号隐蔽测试。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "024_gpt6_0", "item": "gpt6", "si": 0, "text": "OpenAI或将在下周推出新的GPT-6系列模型。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "025_gpt6_1", "item": "gpt6", "si": 1, "text": "Sam Altman此前表示，原计划发布、自己最期待的内容已推迟到下周。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "026_gpt6_2", "item": "gpt6", "si": 2, "text": "OpenAI团队成员Tibo近期称下周会先发布一些东西，目前准备中的新内容甚至可能够办三个DevDay。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "027_gpt6_3", "item": "gpt6", "si": 3, "text": "当用户直接提出想要GPT-6 Sol和GPT-6 Luna时，Tibo回复“What else do you want”，使这两款模型成为当前主要猜测对象。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "028_gpt6_4", "item": "gpt6", "si": 4, "text": "不过OpenAI目前尚未正式透露相关信息，OpenAI DevDay将于当地时间九月二十九日举行。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "029_gemini_0", "item": "gemini", "si": 0, "text": "近期多名用户称Arena中的gemini-3.8-flash会随机路由至疑似Gemini 4 Pro的Argon checkpoint。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "030_gemini_1", "item": "gemini", "si": 1, "text": "SVG、3D场景、网页和游戏生成表现优异。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "031_gemini_2", "item": "gemini", "si": 2, "text": "另有一张已被鉴定为使用GPT-Image生成的基准测试图流传。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "032_minimax_0", "item": "minimax", "si": 0, "text": "MiniMax官方近期开源的CLI工具的代码中，多个文件出现了MiniMax-M3.1标识，配有多套上下文与输出参数及thinking effort档位。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "033_minimax_1", "item": "minimax", "si": 1, "text": "另有一张社区流传的截图显示官方工作人员预告该模型即将发布。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "034_minimax_2", "item": "minimax", "si": 2, "text": "目前未有更多的官方信息。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "035_kimi_0", "item": "kimi", "si": 0, "text": "Kimi知乎认证机构号发布了一串省略开头3.1的圆周率数字，这被解读为暗示Kimi K3.1即将发布。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "036_kimi_1", "item": "kimi", "si": 1, "text": "不过帖文并未直接提及K3.1，目前该动态已被删除。", "role": "body"}
+{"schema": "voice_seg/1", "seg_id": "037_outro_0", "item": "outro", "si": 0, "text": "今天的资讯播送完了，明天见！", "role": "outro"}

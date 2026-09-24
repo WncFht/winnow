@@ -1,4 +1,4 @@
-"""stages/lib/chrome.py — 视频级 chrome 叠加层渲染（PLAN.md §7.6）。
+"""stages/lib/chrome.py — 视频级 chrome 叠加层渲染（docs/PLAN.md §7.6）。
 
 移植自 repro/render_chrome.py（已踩坑修复版），数据面换成 issue/v1：
   - file:// workaround：pg.set_content() 加载不了 file:// 图片 → HTML 写到
@@ -32,7 +32,7 @@ from typing import Union
 from playwright.sync_api import sync_playwright
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-FONT_DIR = REPO_ROOT / "repro" / "assets"  # SmileySans-Oblique.ttf（概览卡标题字）
+FONT_DIR = REPO_ROOT / "assets" / "fonts"  # SmileySans-Oblique.ttf（概览卡标题字）
 W, H = 1920, 1080
 
 INTRO_CRUMB_ID = "__intro__"  # 面包屑最左 Intro 格（issue/v1 的 intro 不在 items[] 里）

@@ -1,0 +1,277 @@
+{
+ "schema": "audio_manifest/1",
+ "episode": "2026-09-20",
+ "engine": "edge-tts 7.2.8",
+ "voice": "zh-CN-YunxiNeural",
+ "rate": "+15%",
+ "codec": "mp3",
+ "sample_rate": 24000,
+ "files": [
+  {
+   "seg_id": "000_intro_0",
+   "file": "61_audio/000_intro_0.mp3",
+   "dur": 3.792,
+   "sha256": "6c140fbcbc95b285772473c596dcf71ac453c0de5ac74c9316ef5e29c4783d5a",
+   "text_sha": "58f14ebb0605f5ea"
+  },
+  {
+   "seg_id": "001_intro_1",
+   "file": "61_audio/001_intro_1.mp3",
+   "dur": 6.216,
+   "sha256": "b45d9f031f4021fa1212e8fe76b13f787687adc8b3f76f896e95f78af1b44e24",
+   "text_sha": "20b2e75802b08361"
+  },
+  {
+   "seg_id": "002_deepseek_0",
+   "file": "61_audio/002_deepseek_0.mp3",
+   "dur": 8.016,
+   "sha256": "a80b1ff798d90b565e6382f6526a914c6833a50a3d73967e5a5c359b6bbd5879",
+   "text_sha": "59aea1b3468a5fe4"
+  },
+  {
+   "seg_id": "003_deepseek_1",
+   "file": "61_audio/003_deepseek_1.mp3",
+   "dur": 3.912,
+   "sha256": "f553a547289fa149de8c37202ee338d918172f542591ecd975caacaf8f7b61ac",
+   "text_sha": "0e46baf701a697e5"
+  },
+  {
+   "seg_id": "004_tibo_0",
+   "file": "61_audio/004_tibo_0.mp3",
+   "dur": 9.912,
+   "sha256": "26af6abc1aa1d429b673aef811a91663c5ff85e531117bc835925c9641d2dd27",
+   "text_sha": "ba44f3095ad30927"
+  },
+  {
+   "seg_id": "005_tibo_1",
+   "file": "61_audio/005_tibo_1.mp3",
+   "dur": 3.984,
+   "sha256": "e961338b3658fc04e237b82b2fd69a7b093f7625c6b3d43a4943b4bd47ee6b34",
+   "text_sha": "edbd161e499a3ef0"
+  },
+  {
+   "seg_id": "006_tibo_2",
+   "file": "61_audio/006_tibo_2.mp3",
+   "dur": 6.672,
+   "sha256": "ad2ea7ef09ec7f610d375269a064964845c873fa29edc1c7d29414c689ed6738",
+   "text_sha": "1f07d1bc8f168a7a"
+  },
+  {
+   "seg_id": "007_step5_0",
+   "file": "61_audio/007_step5_0.mp3",
+   "dur": 7.56,
+   "sha256": "e8746cfa2688096542cec318f746e8e0801848c0a6907addb2b51a44fd0d28ec",
+   "text_sha": "cb50695160ab6323"
+  },
+  {
+   "seg_id": "008_step5_1",
+   "file": "61_audio/008_step5_1.mp3",
+   "dur": 8.448,
+   "sha256": "5bc69723ff35096c3231aedb097ab10293f6bd2f30cdb421b7199233dd287f1b",
+   "text_sha": "b608da6ef82baa4e"
+  },
+  {
+   "seg_id": "009_qwen_0",
+   "file": "61_audio/009_qwen_0.mp3",
+   "dur": 6.072,
+   "sha256": "9daaa6f450c0095685a5d3aea7f7d79817b04f776489f2a9101fc4ea6c4de6db",
+   "text_sha": "7c56b276372f5dd5"
+  },
+  {
+   "seg_id": "010_qwen_1",
+   "file": "61_audio/010_qwen_1.mp3",
+   "dur": 10.992,
+   "sha256": "db478c60f45350fc2b7df4c13eb029503cb8fe4edf7380b9b21d3cf68f2e8f72",
+   "text_sha": "2907cece95a56c2a"
+  },
+  {
+   "seg_id": "011_radar_0",
+   "file": "61_audio/011_radar_0.mp3",
+   "dur": 6.84,
+   "sha256": "21401984b5900b1cb3c4e628fc8872e4e9e59c229b0e8f5b6a62a4ead82e253b",
+   "text_sha": "b501bed3279e5a90"
+  },
+  {
+   "seg_id": "012_radar_1",
+   "file": "61_audio/012_radar_1.mp3",
+   "dur": 11.736,
+   "sha256": "774566f59ae3eb4c40fb872f75589f82ba184bc9e03985e60d1fa4a0a29013a1",
+   "text_sha": "558d7984ba92c4d7"
+  },
+  {
+   "seg_id": "013_cua_0",
+   "file": "61_audio/013_cua_0.mp3",
+   "dur": 9.0,
+   "sha256": "4bc884a542e63236745869b862756d7744d0ca09b6708f5459ba22b6cbcfd792",
+   "text_sha": "1ddb9d0001d0606c"
+  },
+  {
+   "seg_id": "014_cua_1",
+   "file": "61_audio/014_cua_1.mp3",
+   "dur": 3.696,
+   "sha256": "1fcb56037c68e51ba0160d2c902ce83d8adaca54966fcbafbcb61316569a40b9",
+   "text_sha": "a73736d68ca192fe"
+  },
+  {
+   "seg_id": "015_xing_0",
+   "file": "61_audio/015_xing_0.mp3",
+   "dur": 8.256,
+   "sha256": "eb8d0ba74684950523098bb70450ad716bc0f48315cef301ed617deafebf3928",
+   "text_sha": "b1e3015ec2a0d270"
+  },
+  {
+   "seg_id": "016_xing_1",
+   "file": "61_audio/016_xing_1.mp3",
+   "dur": 5.496,
+   "sha256": "20c5df058008e60e8198cec0e3cc5ff94ba87153d6837bff19c19dc50b9c5326",
+   "text_sha": "42e24315385fbc11"
+  },
+  {
+   "seg_id": "017_androidbench_0",
+   "file": "61_audio/017_androidbench_0.mp3",
+   "dur": 6.576,
+   "sha256": "91d8afbcf16926a0b33864e7f433091825a2130d7f4b8c7833395de2ee1b0de3",
+   "text_sha": "0d4b048a18a5c605"
+  },
+  {
+   "seg_id": "018_androidbench_1",
+   "file": "61_audio/018_androidbench_1.mp3",
+   "dur": 4.728,
+   "sha256": "a3d5ef6457680acbb7c1b425e37eae1a2b493daffbeb821fca061414e405473c",
+   "text_sha": "c41c24abd62f3405"
+  },
+  {
+   "seg_id": "019_lawsuit_0",
+   "file": "61_audio/019_lawsuit_0.mp3",
+   "dur": 6.792,
+   "sha256": "34d2b56ac3c3b65e08f10ce23587a7babcf834aa6cf136d98545bdf813e0802b",
+   "text_sha": "25a7f5562bebdb24"
+  },
+  {
+   "seg_id": "020_lawsuit_1",
+   "file": "61_audio/020_lawsuit_1.mp3",
+   "dur": 6.192,
+   "sha256": "cdcf213647e3dc7963c687ec857f6d6d13308f4ff30f064ad786623f67ce3e78",
+   "text_sha": "68906491e9ee0c6b"
+  },
+  {
+   "seg_id": "021_lawsuit_2",
+   "file": "61_audio/021_lawsuit_2.mp3",
+   "dur": 7.128,
+   "sha256": "dea7c5c875783bfea65ecafe874a3ebd47944f74e8caadc8db9698923b4c64a4",
+   "text_sha": "e1eba8aa566bed58"
+  },
+  {
+   "seg_id": "022_anthropic_0",
+   "file": "61_audio/022_anthropic_0.mp3",
+   "dur": 7.464,
+   "sha256": "3b489bcffd2d4477b42891586ee71738e2692e92b0212679ecefa1f82ac1addd",
+   "text_sha": "5c893b0585c6a633"
+  },
+  {
+   "seg_id": "023_anthropic_1",
+   "file": "61_audio/023_anthropic_1.mp3",
+   "dur": 6.12,
+   "sha256": "da23a3aab06b8734eea80ea3f2bd7a8af8f48f9122ad681a1ac3ba3ecc27a036",
+   "text_sha": "a87d00122c18d2eb"
+  },
+  {
+   "seg_id": "024_gpt6_0",
+   "file": "61_audio/024_gpt6_0.mp3",
+   "dur": 4.944,
+   "sha256": "b3c851dbe6700a706a7f67f6263ffcae2fdcc774f73891682f05a397163e1f45",
+   "text_sha": "5812e2d239fcec20"
+  },
+  {
+   "seg_id": "025_gpt6_1",
+   "file": "61_audio/025_gpt6_1.mp3",
+   "dur": 5.64,
+   "sha256": "e823a3a783de80008d625f80ac5c28e8417a44f10ed8d39e972134d513f5b90d",
+   "text_sha": "9c2e68b8b884b070"
+  },
+  {
+   "seg_id": "026_gpt6_2",
+   "file": "61_audio/026_gpt6_2.mp3",
+   "dur": 7.824,
+   "sha256": "b14ab6638354e14d848f3d5cdd13b10f6bc7dc3a4daebddea59dd119702572b8",
+   "text_sha": "604b371b5c7baac6"
+  },
+  {
+   "seg_id": "027_gpt6_3",
+   "file": "61_audio/027_gpt6_3.mp3",
+   "dur": 10.44,
+   "sha256": "62229b2be3c0618f56f74987afa7996b8953f6cde8198867ad474764c422c6f3",
+   "text_sha": "e49ed7cdafd5b314"
+  },
+  {
+   "seg_id": "028_gpt6_4",
+   "file": "61_audio/028_gpt6_4.mp3",
+   "dur": 7.44,
+   "sha256": "e25e98de368c8a074d552aa9c1b47e1f074ed6965f1ce40dbaa473e706364c06",
+   "text_sha": "190d78a9dc05f732"
+  },
+  {
+   "seg_id": "029_gemini_0",
+   "file": "61_audio/029_gemini_0.mp3",
+   "dur": 8.112,
+   "sha256": "d4a7a6440f5542bc3105ed8a9c8feb49a634cadc0b01c682d0d9e74285091b82",
+   "text_sha": "24fd3d080480a99c"
+  },
+  {
+   "seg_id": "030_gemini_1",
+   "file": "61_audio/030_gemini_1.mp3",
+   "dur": 4.92,
+   "sha256": "21d9d1f384473e472a9d4a06815461fa58aced5ad19ea60632296b1d9830fbeb",
+   "text_sha": "63171a02b84d8810"
+  },
+  {
+   "seg_id": "031_gemini_2",
+   "file": "61_audio/031_gemini_2.mp3",
+   "dur": 5.016,
+   "sha256": "30946710e83ab6cc3ce7f46f338746542358cb0b2a41f141b04c0acfada581c5",
+   "text_sha": "94c1f2683b6a5300"
+  },
+  {
+   "seg_id": "032_minimax_0",
+   "file": "61_audio/032_minimax_0.mp3",
+   "dur": 10.32,
+   "sha256": "dca1a7b36e3d3ad0ac5fb8cc16f190c4cab7317e562685fe777b9959ef7ae504",
+   "text_sha": "70f75993d390ffa8"
+  },
+  {
+   "seg_id": "033_minimax_1",
+   "file": "61_audio/033_minimax_1.mp3",
+   "dur": 5.256,
+   "sha256": "94b4ab07241a49555cff6855976c8f5f6a5c0edf4053352286a07667bc9f4002",
+   "text_sha": "eb585290a8053320"
+  },
+  {
+   "seg_id": "034_minimax_2",
+   "file": "61_audio/034_minimax_2.mp3",
+   "dur": 2.832,
+   "sha256": "8c99f12470248e50012ab2e7a5f7937232833e379ea09c29d0c2d12e6f0ee4ea",
+   "text_sha": "6c9baf03aeaa2006"
+  },
+  {
+   "seg_id": "035_kimi_0",
+   "file": "61_audio/035_kimi_0.mp3",
+   "dur": 8.304,
+   "sha256": "ea162b038819e4fad07a199e78b4ae08a33f286f7615b60a48fc385edb2fbb3b",
+   "text_sha": "e911169c66b882cc"
+  },
+  {
+   "seg_id": "036_kimi_1",
+   "file": "61_audio/036_kimi_1.mp3",
+   "dur": 4.944,
+   "sha256": "d67b2c0f07ef30c03dd6c7f9f8538709fe7adea2de8ff32f95052d31e6735309",
+   "text_sha": "a2800c5e9825ccf3"
+  },
+  {
+   "seg_id": "037_outro_0",
+   "file": "61_audio/037_outro_0.mp3",
+   "dur": 2.736,
+   "sha256": "5faa7ac2b3160d6271247b4198b9db07f3ac9342959fc1feea6f850f0aa65cfc",
+   "text_sha": "bf1b411b8c503939"
+  }
+ ]
+}

@@ -1,8 +1,6 @@
 # secrets / runtime state
 secrets.env
 # 凭据兜底：env/key/pem/cookies/netrc 一律不入库（*.env.example 模板除外）。
-# 已跟踪的历史 probe 档案（experiments/*/cookies.txt、cacert.pem 等）不受
-# 影响——ignore 只管 untracked；确需新增请 git add -f 显式放行。
 .env
 *.env
 !*.env.example
@@ -15,11 +13,13 @@ config.yaml
 state/
 data/
 runs/
-# …但 artifact-contracts 的 golden run 是 selftest fixture（测试资产）。
-# 注意 git 不重入被排目录：豁免须连 runs/ 目录本体一起否定。
-!experiments/artifact-contracts/runs/
 .claude/
 .vscode/
+
+# 调研档案区：不随仓发布，本地保留（PLAN 里 "种子: experiments/…" 是出处标注）
+experiments/
+repro/
+evidence/
 
 # python / node
 node_modules/
@@ -36,12 +36,6 @@ composer/.tmp/
 composer/smoke/
 /out/
 
-# experiment scratch / logs
-experiments/card-density/probe_vendor_selfhost/
-experiments/orchestration-sched/server.log
-experiments/orchestration-sched/prefect.db
-experiments/**/.venv*/
-
 # HF/model downloader lock 噪音（非代码）
 **/.lock/
 
@@ -55,34 +49,6 @@ upstream/juya-news-card.gitdir/
 # MPE preview env (local link farm — scripts/crossnote-links.sh)
 /.crossnote/
 
-# 权重/生成物出库（2026-09-23）：模型一律走 HF/下载脚本，不进 git
-experiments/**/*.safetensors
-experiments/**/*.pt
-experiments/**/*.ckpt
-experiments/**/*.bin
-# …但探测证据 .bin 是调研档案（hard-*/probe 产物），不入"权重"豁免
-!experiments/**/body_*.bin
-!experiments/**/probe_*.bin
-!experiments/**/resp_*.bin
-!experiments/tr-com-feed-probe/*.bin
-experiments/**/*.mp4
-experiments/**/*.mkv
-experiments/**/*.wav
-experiments/**/*.zip
-experiments/**/*.tar.gz
-experiments/**/*.onnx
-experiments/**/*.so
-experiments/**/*.so.*
-experiments/**/*.ttf
-experiments/**/tmp/
-experiments/local-tts-try/pretrained_models/
-experiments/tts-local-eval/models/
-experiments/llm-filter-layer/llama/
-experiments/dedup-lab/models/
-experiments/dedup-history/model/
-experiments/storage-audit-fht/run/
-experiments/storage-audit-fht/crash/
-experiments/storage-audit-fht/gittest/
 adapters/bin/lychee
 
 # 本地 TTS：worker venv + 上游 clone（weights 走 HF cache，均不进 git）
@@ -93,20 +59,3 @@ tools/tts_workers/breeze-tts/
 composer/ffmpeg-baseline/
 composer/public/audio
 composer/public/frames_v2
-experiments/remotion-feas/ffmpeg-baseline/
-experiments/remotion-feas/public/audio
-experiments/remotion-feas/public/frames_v2
-experiments/bloomberglaw-feed-probe/node_modules
-
-# repro 生成产物（代码/数据保留，渲染/audio/字体出库）
-repro/audio/
-repro/chrome/
-repro/frames_v2/
-repro/subs/
-repro/shots/
-# assets 内容出库但目录本体不排——否则内层豁免不生效（git 不重入被排目录）
-repro/assets/*
-# …但 SmileySans-Oblique.ttf 是 render_chrome.py @font-face 的入参，豁免
-!repro/assets/SmileySans-Oblique.ttf
-repro/v1/cards/
-repro/out.mp4

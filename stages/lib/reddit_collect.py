@@ -6,7 +6,7 @@
 #   "pydantic>=2",
 # ]
 # ///
-"""Reddit collector (PLAN.md §5.3, Tier B platform collector).
+"""Reddit collector (docs/PLAN.md §5.3, Tier B platform collector).
 
 Port of experiments/hard-reddit.com-official-api-or-native-feed/fetch_reddit.sh
 + loid_token.json — route A, the recommended path per that experiment's
@@ -79,8 +79,7 @@ from stages.lib.normalize import item_key, title_norm, url_canon
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 STATE_DEFAULT = REPO_ROOT / "state" / "reddit_token.json"
-FIXTURE = (REPO_ROOT / "experiments"
-           / "hard-reddit.com-official-api-or-native-feed" / "oauth_hot.json")
+FIXTURE = REPO_ROOT / "stages" / "lib" / "fixtures" / "reddit_oauth_hot.json"
 
 # --- loid OAuth constants (fetch_reddit.sh / RESULTS.md route A) --------------
 TOKEN_URL = "https://www.reddit.com/auth/v2/oauth/access-token/loid"
