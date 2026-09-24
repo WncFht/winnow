@@ -73,7 +73,8 @@
       "type": "string"
     },
     "episode": {
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "正片 YYYY-MM-DD；_ 前缀 = 沙盒 run dir（episode 常回退 run_dir.name）",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2}|_.+)$",
       "title": "Episode",
       "type": "string"
     },

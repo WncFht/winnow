@@ -21,9 +21,22 @@
 
 ## 重新同步上游
 
+`.gitdir/` 在 .gitignore 中、不随仓分发——fresh clone 里没有它，先重建
+（克隆上游 → 把它的 `.git` 挪成 `.gitdir`，工作树壳删掉）：
+
+```
+git clone https://github.com/Mappedinfo/juya-news-card.git /tmp/jnc-upstream
+mv /tmp/jnc-upstream/.git upstream/juya-news-card.gitdir && rm -rf /tmp/jnc-upstream
+```
+
+然后按原流程（`diff` 直接对定格 SHA，不必动 HEAD）：
+
 ```
 mv upstream/juya-news-card.gitdir upstream/juya-news-card/.git
 git -C upstream/juya-news-card fetch origin
-git -C upstream/juya-news-card diff HEAD origin/main   # 看上游新增
+git -C upstream/juya-news-card diff e7442e4a29c35fce0dea1538c892b7f04b1c119d origin/main   # 看上游新增
 # 同步完后把 .git 再挪回 .gitdir（或保持 vendor 不提交流程）
 ```
+
+备选（不恢复 gitdir）：scratch 目录 clone 上游并 checkout 定格 SHA，
+`diff -r` 对比 vendored 树即可（排除 node_modules/ 与上方本地 patch 清单）。

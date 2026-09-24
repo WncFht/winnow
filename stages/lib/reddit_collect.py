@@ -32,9 +32,6 @@ fetch_sub(sub, cfg) -> list[dict]
                         item_guid=t3_fullname}
       _fetch         = {status, via=direct, reachable, etag, content_sha256}
       _raw_ref       = data/raw_cache path when cfg carries run_dir
-fetch_entry(entry, cfg) -> list[dict]
-    Convenience wrapper taking a whole sources.yaml `method: reddit` entry —
-    extracts the sub name / sort / limit from entry.feed_url and entry fields.
 
 cfg keys consulted (all optional): limit | max_items_per_source, sort
 (new|hot|top|rising), feed_url (fallback endpoint + sort/limit hints),
@@ -95,7 +92,6 @@ BROWSER_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
               "ai-news-pipeline/0.1")
 SCOPES = ["*", "email", "pii"]
 TOKEN_MARGIN_S = 600                  # re-mint this many seconds before expiry
-DEFAULT_PROXY = "http://127.0.0.1:7890"
 RPM = 30                              # PLAN §5.3: ≤30 rpm pacing
 RSS_RPM = 1                           # route B measured budget ≈1 req/45-60s
 SORTS = ("new", "hot", "top", "rising", "best")
@@ -137,7 +133,26 @@ def _proxy_mode(cfg: dict) -> str:
     return _opt(cfg, "proxy_mode", "proxy.mode", default="prefer")
 
 
+def _repo_proxy() -> Optional[str]:
+    """config.yaml / config.example.yaml 的 proxy.http——env 缺省时的兜底。
+    （本机 clash 127.0.0.1:7890 是示例不是默认；无配置 → None = 直连。）"""
+    try:
+        import yaml
+        for name in ("config.yaml", "config.example.yaml"):
+            p = REPO_ROOT / name
+            if p.is_file():
+                doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+                px = doc.get("proxy")
+                if isinstance(px, dict) and px.get("http"):
+                    return str(px["http"])
+    except Exception:
+        pass
+    return None
+
+
 def _proxy_url(cfg: dict) -> Optional[str]:
+    """显式 cfg 键 > *_proxy env > config.yaml proxy.http > None（默认空 =
+    不用代理直连；本机 clash 127.0.0.1:7890 是示例不是默认）。"""
     p = cfg.get("proxy")
     if isinstance(p, str) and "://" in p:
         return p
@@ -149,7 +164,7 @@ def _proxy_url(cfg: dict) -> Optional[str]:
     env = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
            or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
            or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
-    return env or DEFAULT_PROXY
+    return env or _repo_proxy()
 
 
 def _state_path(cfg: dict) -> Path:
@@ -618,19 +633,6 @@ def fetch_sub(sub: str, cfg: Optional[dict] = None) -> list[dict]:
                 status=rss_err.status)
 
 
-def fetch_entry(entry: dict, cfg: Optional[dict] = None) -> list[dict]:
-    """Collect one sources.yaml `method: reddit` entry -> raw_item dicts."""
-    merged = dict(cfg or {})
-    merged.update(entry or {})
-    sub = sub_from_feed_url(merged.get("feed_url") or "") or merged.get("sub")
-    if not sub:
-        raise RedditError("parse_error",
-                          f"no subreddit derivable from entry "
-                          f"{merged.get('name')!r} feed_url="
-                          f"{merged.get('feed_url')!r}")
-    return fetch_sub(sub, merged)
-
-
 # ------------------------------------------------------------- self test ----
 
 if __name__ == "__main__":
@@ -680,9 +682,10 @@ if __name__ == "__main__":
         print("WARN: contracts.models unavailable, skipped validation")
 
     if not offline:
+        # 不显式给 proxy_url——走 env→config→None 默认链
+        #（本机 clash 7890 是示例不是默认）
         got = fetch_sub("LocalLLaMA", {
             "limit": 25, "sort": "new",
-            "proxy_url": "http://127.0.0.1:7890",
             "name": "reddit_localllama",
         })
         assert got, "LocalLLaMA returned 0 items"

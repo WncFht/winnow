@@ -1,0 +1,26 @@
+name: offline-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  just-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # experiments/* 外部 clone 仅供调研参考，测试不需要
+        # (submodules stay unchecked-out by default)
+
+      - uses: astral-sh/setup-uv@v5
+      - uses: extractions/setup-just@v2
+
+      - name: system deps
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-noto-cjk
+
+      - name: embed model fixture
+        run: just fetch-embed
+
+      - name: offline regression matrix
+        run: just test

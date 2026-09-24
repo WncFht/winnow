@@ -43,7 +43,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "人工勾选结果。kept[] 数组顺序 = 正片顺序；id 是此后一切 join 键。",
+  "description": "人工勾选结果。kept[] 数组顺序 = 正片顺序；id 是此后一切 join 键。\nkept 可为空——§11 零条目停刊（no_items degraded）路径写 kept=[]。",
   "properties": {
     "schema": {
       "const": "selected/1",
@@ -52,7 +52,8 @@
       "type": "string"
     },
     "episode": {
-      "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+      "description": "正片 YYYY-MM-DD；_ 前缀 = 沙盒 run dir（episode 常回退 run_dir.name）",
+      "pattern": "^(\\d{4}-\\d{2}-\\d{2}|_.+)$",
       "title": "Episode",
       "type": "string"
     },
@@ -74,7 +75,7 @@
       "items": {
         "$ref": "#/$defs/KeptItem"
       },
-      "minItems": 1,
+      "minItems": 0,
       "title": "Kept",
       "type": "array"
     },

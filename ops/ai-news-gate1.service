@@ -1,16 +1,19 @@
 # AI 早报 pipeline — gate-1 deadline watcher (PLAN §9, D8)
 # Fired by ai-news-gate1.timer at 08:30 Asia/Shanghai.
 # `just deadline1`: auto top-K release when no human pick landed, then digest.
+# TEMPLATE: __REPO__ / __HOME__ are substituted by ops/install.sh at install
+# time — do not copy this file into systemd/user verbatim.
 # Install: bash ops/install.sh
 [Unit]
 Description=AI news pipeline: gate-1 deadline watcher (just deadline1)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/fanghaotian/src/ai-news-pipeline
-EnvironmentFile=-/home/fanghaotian/src/ai-news-pipeline/secrets.env
-Environment=PATH=/home/fanghaotian/.local/bin:/home/fanghaotian/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=__REPO__
+EnvironmentFile=-__REPO__/secrets.env
+# user-manager PATH lacks ~/.local/bin (uv) and ~/.cargo/bin (just)
+Environment=PATH=__HOME__/.local/bin:__HOME__/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 Environment=TZ=Asia/Shanghai
 TimeoutStartSec=2h
-ExecStart=/home/fanghaotian/.cargo/bin/just deadline1
+ExecStart=__HOME__/.cargo/bin/just deadline1
 SyslogIdentifier=ai-news-gate1

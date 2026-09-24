@@ -687,21 +687,23 @@ def cmd_check(run_dir: Path) -> int:
 
 
 # --------------------------------------------------------------------------- #
-# selftest —— repro/ fixture + golden run + 边界用例
+# selftest —— repro timeline/items + fixture 媒体搭 run + golden + 边界用例
 # --------------------------------------------------------------------------- #
 
 def _build_repro_run(rd: Path, with_overlays: bool = True,
                      with_issue: bool = True) -> dict:
-    """从 repro/{timeline,items,audio,subs,frames_v2} 造一个 timeline/1 标准 run dir。
+    """repro/{timeline,items}.json（tracked）+ artifact-contracts fixture 的
+    61_audio/65_subs/64_frames 媒体（git 入库；repro/{audio,subs,frames_v2}
+    是 gitignored 生成物，fresh clone 不存在）造一个 timeline/1 标准 run dir。
     返回 {'expect_vsegs': n, 'shot_windows': {item:[s,e]}}。"""
     for d in ("61_audio", "65_subs", "64_frames"):
         (rd / d).mkdir(parents=True, exist_ok=True)
-    for mp3 in (REPRO / "audio").glob("*.mp3"):
+    for mp3 in (FIXTURE_RUN / "61_audio").glob("*.mp3"):
         shutil.copy2(mp3, rd / "61_audio" / mp3.name)
-    for png in (REPRO / "subs").glob("*.png"):
+    for png in (FIXTURE_RUN / "65_subs").glob("*.png"):
         shutil.copy2(png, rd / "65_subs" / png.name)
-    for png in (REPRO / "frames_v2").glob("*.png"):
-        name = png.name.replace("_shot.png", ".shot.png")
+    for png in (FIXTURE_RUN / "64_frames").glob("*.png"):
+        name = png.name.replace("_shot.png", ".shot.png")  # fixture 已是规范名
         shutil.copy2(png, rd / "64_frames" / name)
 
     rtl = _jload(REPRO / "timeline.json")
@@ -839,6 +841,17 @@ def cmd_selftest() -> int:
     shutil.rmtree(base, ignore_errors=True)
     fails: list[str] = []
 
+    # fixture 前置检查：媒体在 experiments/artifact-contracts/runs/2026-09-20
+    # （git 入库），timeline/items 在 repro/（tracked）；缺则报缺而非 traceback
+    missing_fix = [str(p) for p in
+                   (REPRO / "timeline.json", REPRO / "items.json",
+                    FIXTURE_RUN / "61_audio", FIXTURE_RUN / "64_frames",
+                    FIXTURE_RUN / "65_subs", FIXTURE_RUN / OUT_PLAN)
+                   if not p.exists()]
+    if missing_fix:
+        print(f"[selftest] FAIL fixture 缺失: {missing_fix}")
+        return 1
+
     def check(name, cond, extra=""):
         print(f"  {'PASS' if cond else 'FAIL'} {name} {extra}")
         if not cond:
@@ -940,13 +953,13 @@ def cmd_selftest() -> int:
     rd4 = meta.ensure_run("2099-01-03", base=base)
     (rd4 / "61_audio").mkdir(parents=True)
     (rd4 / "64_frames").mkdir(parents=True)
-    for name, src in (("a.png", "intro.png"), ("a.shot.png", "step5_shot.png"),
+    for name, src in (("a.png", "intro.png"), ("a.shot.png", "step5.shot.png"),
                       ("b.png", "qwen.png")):
-        shutil.copy2(REPRO / "frames_v2" / src, rd4 / "64_frames" / name)
+        shutil.copy2(FIXTURE_RUN / "64_frames" / src, rd4 / "64_frames" / name)
     for name, src in (("000_a_0.mp3", "000_intro_0.mp3"),
                       ("001_a_1.mp3", "001_intro_1.mp3"),
                       ("002_b_0.mp3", "002_deepseek_0.mp3")):
-        shutil.copy2(REPRO / "audio" / src, rd4 / "61_audio" / name)
+        shutil.copy2(FIXTURE_RUN / "61_audio" / src, rd4 / "61_audio" / name)
     tl4 = {
         "schema": "timeline/1", "episode": rd4.name, "time_unit": "seconds",
         "total": 10.5, "lead_in": 0.5, "tail": 0.5,

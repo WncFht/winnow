@@ -42,7 +42,8 @@ config.yaml → config.example.yaml。相关键：
       backoff_base_s: 2.0
       max_rounds: 3          # 传输错误整轮重试上限
       proxy: null            # "direct" 绕过；默认 config.proxy.http → env
-    proxy.http: http://127.0.0.1:7890
+    proxy.http: ""           # 示例 http://127.0.0.1:7890（本机 clash——是示例
+                             # 不是默认）；空 → *_proxy env → 直连
 
 异常：XSyndError（http/解析/传输，.status/.detail）；
       RateLimited(XSyndError)（.retry_after=epoch|None）。

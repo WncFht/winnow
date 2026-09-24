@@ -18,11 +18,6 @@ fetch_user(handle, cfg, *, diag=None, run_dir=None) -> list[raw_item dict]
     data/raw_cache 并给全体 item 记 _raw_ref（落盘失败不阻塞）。
     全部实例失败 → raise AllRoutesDead（.attempts 带每实例诊断）。
 
-fetch_search(query, cfg, *, diag=None) -> list[raw_item dict]
-    关键词搜索路：GET https://<inst>/search/rss?f=tweets&q=<query>，
-    同一实例池/健康分/轮换/解析管道；source_name 记 "x-search:<query>"，
-    全灭 → AllRoutesDead("search:<query>")。
-
 实例池 = cfg.x_collector.nitter_instances（操作员优先）+ 实验目录种子
 （experiments/hard-x.com-rsshub-or-mirror-instance/：nitter-*.rss 文件名
 与其 channel <atom:link>/<link> 暴露验证过的实例；twiiit-instances.txt、
@@ -396,7 +391,9 @@ def _proxy_arg(cfg: Any):
     p = _cfg_get(cfg, "proxy.http") or _cfg_get(cfg, "proxy.https")
     if isinstance(p, str) and p:
         return p
-    return None  # -> env（HTTP(S)_PROXY/ALL_PROXY）；本机 env 即 7890
+    # -> env（HTTP(S)_PROXY/ALL_PROXY），无 env 即直连——默认空=不用代理；
+    # 本机 clash 127.0.0.1:7890 是示例不是默认
+    return None
 
 
 def _fetch_rss(url: str, cfg: Any) -> "_http.FetchResult":
@@ -491,43 +488,6 @@ def fetch_user(handle: str, cfg: Any, *,
     return items
 
 
-def fetch_search(query: str, cfg: Any, *,
-                 diag: Optional[dict] = None) -> list[dict]:
-    """关键词搜索 RSS（/search/rss?f=tweets&q=…，实测可用）-> raw_items。"""
-    from urllib.parse import quote
-    health = _load_health(cfg)
-    pool = instance_pool(cfg)
-    ordered = _ordered(pool, health)
-    health["rr"] = int(health.get("rr", 0)) + 1
-    max_att = int(_cfg_get(cfg, "x_collector.max_attempts",
-                           DEFAULT_MAX_ATTEMPTS) or DEFAULT_MAX_ATTEMPTS)
-    attempts: list[dict] = []
-    for inst in ordered[:max(1, max_att)]:
-        url = f"https://{inst}/search/rss?f=tweets&q={quote(query)}"
-        rec = {"instance": inst, "url": url, "status": 0,
-               "error": "ok", "latency_ms": 0, "n_items": 0}
-        res = _fetch_rss(url, cfg)
-        rec.update(status=res.status, error=res.error,
-                   latency_ms=res.latency_ms)
-        items = parse_rss(res.body or b"", inst, "search",
-                          status=res.status,
-                          etag=res.etag,
-                          source_name=f"x-search:{query}") if res.ok else []
-        rec["n_items"] = len(items)
-        attempts.append(rec)
-        _bump(health, inst, bool(items), rec["error"])
-        _save_health(health, cfg)
-        if items:
-            if diag is not None:
-                diag["attempts"] = attempts
-                diag["via"] = f"nitter:{inst}"
-            return items
-    if diag is not None:
-        diag["attempts"] = attempts
-        diag["via"] = None
-    raise AllRoutesDead(f"search:{query}", attempts)
-
-
 # ------------------------------------------------------------- self test ----
 
 if __name__ == "__main__":
@@ -593,9 +553,14 @@ if __name__ == "__main__":
 
     # --- live：≥4 实例经代理逐探测 + fetch_user 端到端 -----------------------
     if not offline:
-        proxy = "http://127.0.0.1:7890"
+        # 代理走 env→config→空 默认链（本机 clash 7890 是示例不是默认）；
+        # 无代理可解析 → "direct"（境外实例大概率全灭 → fails 如实报）
+        proxy = (os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+                 or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+                 or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy")
+                 or "")
         cfg_live = {
-            "proxy": {"http": proxy},
+            "proxy": {"http": proxy or "direct"},
             "x_collector": {
                 "nitter_instances": DEFAULT_INSTANCES,
                 "timeout": 25,

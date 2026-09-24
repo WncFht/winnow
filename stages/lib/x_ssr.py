@@ -72,7 +72,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
 
-DEFAULT_PROXY = "http://127.0.0.1:7890"  # 本机 clash（config.proxy.http 同值）
 PROXY_POLICIES = {"required", "prefer", "direct_only"}
 
 _RAW_ITEM_KEYS = {  # contracts/models.py RawItem extra="forbid" 全集
@@ -106,10 +105,29 @@ class FetchError(RuntimeError):
 
 # ----------------------------------------------------------------- proxy ----
 
+def _repo_proxy() -> Optional[str]:
+    """config.yaml / config.example.yaml 的 proxy.http——env 缺省时的兜底。
+    （本机 clash 127.0.0.1:7890 是示例不是默认；无配置 → None。）"""
+    try:
+        import yaml
+        for name in ("config.yaml", "config.example.yaml"):
+            p = REPO_ROOT / name
+            if p.is_file():
+                doc = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+                px = doc.get("proxy")
+                if isinstance(px, dict) and px.get("http"):
+                    return str(px["http"])
+    except Exception:
+        pass
+    return None
+
+
 def _resolve_proxy(cfg: dict) -> Optional[str]:
     """-> httpx proxy arg（URL str）或 'direct'。
 
-    优先级：cfg.proxy_url > cfg.proxy(=URL 或 {http:..} dict) > env > 本机默认。
+    优先级：cfg.proxy_url > cfg.proxy(=URL 或 {http:..} dict)
+    > *_proxy env > config.yaml proxy.http > 'direct'（默认空 = 不用代理；
+    本机 clash 127.0.0.1:7890 是示例不是默认）。
     'direct_only' 策略或显式 'direct' → 'direct'（lib_http 的直连哨兵）。
     """
     pv = cfg.get("proxy")
@@ -125,8 +143,11 @@ def _resolve_proxy(cfg: dict) -> Optional[str]:
         p = pv
     if not p:
         p = (os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
-             or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy"))
-    return p or DEFAULT_PROXY
+             or os.environ.get("HTTP_PROXY") or os.environ.get("http_proxy")
+             or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy"))
+    if not p:
+        p = _repo_proxy()
+    return p or "direct"
 
 
 # ----------------------------------------------------------------- parse ----
@@ -550,7 +571,9 @@ if __name__ == "__main__":
 
     # ---- 活网实测 ----------------------------------------------------------
     if "--offline" not in sys.argv:
-        cfg = {"proxy": "required", "proxy_url": DEFAULT_PROXY,
+        # 不显式给 proxy_url——走 env→config→'direct' 默认链
+        #（本机 clash 7890 是示例不是默认）
+        cfg = {"proxy": "required",
                "timeout": 25, "name": "selftest"}
         n = 0
         for h in ("OpenAI", "AnthropicAI"):

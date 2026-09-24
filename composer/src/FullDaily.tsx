@@ -3,7 +3,7 @@ import {AbsoluteFill, Audio, Img, Sequence} from 'remotion';
 import {assetSrc, FullDailyProps, OSeg} from './plan';
 
 // 消费 70_render_plan.json（render_plan/1，composer 唯一输入）。
-// 与 remotion-feas 验证过的 compose.py 逐点移植语义一致：
+// 与可行性实验验证过的 repro/compose.py 逐点移植语义一致：
 //  - video_track 已平铺满铺 [0,total]：逐段 <Sequence from><Img>（shot 窗口
 //    三段嵌套由 render_plan.py 预先编译成独立 VSeg，此处不做推断）
 //  - audio_track：无界 <Sequence from=at><Audio>，自然播完 = adelay+amix

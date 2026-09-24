@@ -10,7 +10,6 @@
 """stages/lib/shotlib.py — 来源页截图 + 品牌占位卡（PLAN.md §7.6）。
 
     shot(url, out_path, cfg=None) -> {"path": str|None, "kind": "shot"|"placeholder", ...}
-    shot_many(items, cfg=None)    -> list[dict]          # 批量复用同一 browser
     load_policy(path=None)        -> dict                # state/shot_policy.yaml
 
 策略链（域名策略表 state/shot_policy.yaml 先行）：
@@ -428,9 +427,13 @@ def _placeholder_pil(domain: str, out_path: Path, size=(1920, 1080)) -> bool:
         d.rounded_rectangle([x0, y0, x0 + cw, y0 + ch], radius=28,
                             fill="#fdfbf6", outline="#e3ddcd", width=3)
         font = None
-        for fp in ("/usr/share/fonts/noto-sans-cjk/NotoSansCJK-Bold.ttc",
-                   "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
-                   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"):
+        # 发行版路径矩阵：Arch=noto-cjk、Debian/Ubuntu=opentype/noto +
+        # truetype/dejavu（ttf-dejavu）、Fedora 系旧名 noto-sans-cjk
+        for fp in ("/usr/share/fonts/noto-cjk/NotoSansCJK-Bold.ttc",
+                   "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                   "/usr/share/fonts/noto-sans-cjk/NotoSansCJK-Bold.ttc",
+                   "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                   "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"):
             try:
                 font = ImageFont.truetype(fp, 72)
                 small = ImageFont.truetype(fp, 30)
@@ -1149,20 +1152,6 @@ def shot(url: str, out_path, cfg=None) -> dict:
         return s.shot(url, out_path)
 
 
-def shot_many(items, cfg=None):
-    """items: [(url, out_path), ...] 或 [{'url':..,'out_path':..}, ...]
-    -> list[dict]（与 shot() 同形）。"""
-    out = []
-    with ShotSession(cfg) as s:
-        for it in items:
-            if isinstance(it, dict):
-                u, p = it["url"], it["out_path"]
-            else:
-                u, p = it[0], it[1]
-            out.append(s.shot(u, p))
-    return out
-
-
 # ------------------------------------------------------------- self test ----
 
 def _selftest():
@@ -1207,15 +1196,16 @@ def _selftest():
     print("[wechat]", json.dumps(r, ensure_ascii=False))
     assert r["kind"] == "placeholder" and r["ok"] and r["path"]
 
-    # 3) 正常新闻页 —— 直连先试，失败换代理再试
+    # 3) 正常新闻页 —— 直连先试，失败换代理再试（代理走 env→config→空
+    #    默认链；本机 clash 7890 是示例不是默认，无代理环境只跑直连）
     got_shot = False
     cands = ["https://www.the-decoder.com/",
              "https://www.scmp.com/",
              "https://github.com/anthropics/claude-code"]
     for cand in cands:
-        for prox in (None, "http://127.0.0.1:7890"):
-            cfg = {"proxy": prox} if prox else {"proxy": "direct"}
-            r = shot(cand, out / "news.png", cfg)
+        alt = _env_proxy(cand) or _cfg_proxy()
+        for prox in (["direct"] + ([alt] if alt else [])):
+            r = shot(cand, out / "news.png", {"proxy": prox})
             print(f"[news {prox or 'direct'}]",
                   json.dumps({k: r.get(k) for k in
                               ("kind", "ok", "status", "wall", "reason",

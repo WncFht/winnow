@@ -1,7 +1,10 @@
+#!/usr/bin/env bash
 # just 配方公共前奏。用法（单行配方内联）：
 #   export PIPELINE_RUN=runs/<date>; source ops/prelude.sh; _jlock uv run stages/x.py ...
 # 提供：pipefail、logs/ 目录、secrets.env 导出、_jlock() 两段式等锁。
 # PIPELINE_RUN 未设时跳过 run-dir 相关逻辑（供非 run 配方复用 secrets 导出）。
+# secrets.env 是 gitignored 运行时文件——shellcheck 跟不进,全文件静默 SC1091。
+# shellcheck disable=SC1091
 
 set -o pipefail
 set -a; [ -f secrets.env ] && . ./secrets.env; set +a
@@ -9,9 +12,9 @@ set -a; [ -f secrets.env ] && . ./secrets.env; set +a
 # rep query embed 走 ONNX CPU，默认 4 线程跑不满；12 核机拉满。
 export EMBED_THREADS="${EMBED_THREADS:-12}"
 
-# justfile 内联检查 / collect preflight 读 PIPELINE_PROXY；systemd 环境下
-# secrets.env 不一定带，给个与 justfile PROXY 一致的兜底。
-export PIPELINE_PROXY="${PIPELINE_PROXY:-http://127.0.0.1:7890}"
+# PIPELINE_PROXY 是可选显式覆盖位：secrets.env（set -a 已导出）或调用方
+# env 设了才生效；缺省不导出——消费方统一按 env→config.yaml proxy.http→空
+# 解析。本机 clash 127.0.0.1:7890 是示例不是默认（无代理环境开箱直连）。
 
 if [ -n "${PIPELINE_RUN:-}" ]; then
   mkdir -p "$PIPELINE_RUN/logs"

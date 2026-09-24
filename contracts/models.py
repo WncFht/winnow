@@ -176,13 +176,14 @@ class KeptItem(BaseModel):
 
 
 class Selected(BaseModel):
-    """人工勾选结果。kept[] 数组顺序 = 正片顺序；id 是此后一切 join 键。"""
+    """人工勾选结果。kept[] 数组顺序 = 正片顺序；id 是此后一切 join 键。
+    kept 可为空——§11 零条目停刊（no_items degraded）路径写 kept=[]。"""
     model_config = ConfigDict(extra="forbid")
     schema_: Literal["selected/1"] = Field(default="selected/1", alias="schema")
     episode: str = Episode
     decided_at: str = RFC3339
     decided_by: Literal["human", "auto"] = "human"
-    kept: list[KeptItem] = Field(min_length=1)
+    kept: list[KeptItem] = Field(min_length=0)
     dropped: list[dict] = Field(default_factory=list,
                                 description="[{item_key,reason?}] 被人工否掉的，留痕")
 

@@ -508,11 +508,38 @@ if __name__ == "__main__":
         if not domestic_ok:
             fails.append("no domestic direct fetch succeeded")
 
+        # 代理路由探测：env(PIPELINE_PROXY/*_proxy) → config proxy.http → ""
+        # （本机 clash 127.0.0.1:7890 是示例不是默认）；无可解析代理 → 跳过
+        px = ""
+        for _k in ("PIPELINE_PROXY", "https_proxy", "HTTPS_PROXY",
+                   "http_proxy", "HTTP_PROXY", "ALL_PROXY", "all_proxy"):
+            if os.environ.get(_k):
+                px = os.environ[_k]
+                break
+        if not px:
+            try:
+                import yaml
+                repo = Path(__file__).resolve().parents[2]
+                for _n in ("config.yaml", "config.example.yaml"):
+                    _f = repo / _n
+                    if _f.is_file():
+                        _doc = yaml.safe_load(_f.read_text(
+                            encoding="utf-8")) or {}
+                        px = str((_doc.get("proxy") or {}).get("http") or "")
+                        if px:
+                            break
+            except Exception:
+                pass
         proxy_ok = False
+        if not px:
+            print("WARN: no proxy resolvable (env→config→空) — "
+                  "proxy route check skipped")
+            proxy_ok = True
         for alt in ("https://api.ipify.org?format=json",
                     "https://api.github.com/"):
-            rr = _live("proxy", alt, timeout=20,
-                       proxy="http://127.0.0.1:7890")
+            if not px:
+                break
+            rr = _live("proxy", alt, timeout=20, proxy=px)
             if rr.error == "ok" and rr.via == "proxy":
                 proxy_ok = True
                 break

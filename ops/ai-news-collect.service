@@ -1,17 +1,19 @@
 # AI 早报 pipeline — auto block A (PLAN §9): collect -> filter -> dedup
 # Fired by ai-news-collect.timer at 06:30 Asia/Shanghai.
+# TEMPLATE: __REPO__ / __HOME__ are substituted by ops/install.sh at install
+# time — do not copy this file into systemd/user verbatim.
 # Install: bash ops/install.sh
 [Unit]
 Description=AI news pipeline: gather (collect -> filter -> dedup)
 
 [Service]
 Type=oneshot
-WorkingDirectory=/home/fanghaotian/src/ai-news-pipeline
-EnvironmentFile=-/home/fanghaotian/src/ai-news-pipeline/secrets.env
+WorkingDirectory=__REPO__
+EnvironmentFile=-__REPO__/secrets.env
 # user-manager PATH lacks ~/.local/bin (uv) and ~/.cargo/bin (just)
-Environment=PATH=/home/fanghaotian/.local/bin:/home/fanghaotian/.cargo/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=__HOME__/.local/bin:__HOME__/.cargo/bin:/usr/local/bin:/usr/bin:/bin
 Environment=TZ=Asia/Shanghai
-# gather can run long (135 sources + LLM batches); no arbitrary cap
+# gather can run long (161 sources + LLM batches); no arbitrary cap
 TimeoutStartSec=2h
-ExecStart=/home/fanghaotian/.cargo/bin/just gather
+ExecStart=__HOME__/.cargo/bin/just gather
 SyslogIdentifier=ai-news-collect

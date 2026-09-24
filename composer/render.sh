@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Remotion 渲染入口（PLAN §7.8 主引擎）。
+# Remotion 渲染入口（备选引擎——生产链恒 ffmpeg，见 PLAN §7.8）。
 #
 # 用法:
 #   ./render.sh <run_dir|70_render_plan.json> [out.mp4] [extra remotion flags]
@@ -10,7 +10,7 @@
 # 本脚本走 env 路：export REMOTION_PLAN=$PLAN（remotion.config.ts 注入 JSON），
 # 且 --public-dir 始终指向 plan 所在 run dir，契约相对 src 经 staticFile 命中。
 #
-# 生产命令形态（PLAN §7.8）:
+# 手工/冒烟命令形态（PLAN §7.8）:
 #   TMPDIR=$PWD/.tmp npx remotion render FullDaily out/final.mp4 --concurrency=4
 #   —— TMPDIR 必须真盘（/tmp tmpfs OOM 踩过）；勿加 --hardware-acceleration。
 set -euo pipefail

@@ -1,10 +1,11 @@
 # composer — Remotion 合成器（消费 70_render_plan.json）
 
-> 本目录由 `experiments/remotion-feas` 提升而来（下方为原始可行性实验记录）。
+> 本目录由 experiments 区 remotion 可行性实验整目录提升而来（种子路径见
+> PLAN.md §2/§12；下方为原始实验记录）。
 > 定位：**手工/冒烟路径**——生产合成不经过本目录；justfile `compose` 配方
 > 恒走 `stages/compose.py`（ffmpeg 图谱，PLAN §7.8）出 `out/final.mp4`。
 > render.sh/Remotion 保留作手工渲染、冒烟与备选路线验证；
-> `smoke/` 是冒烟 fixture（~91 帧小 plan）。
+> `smoke/` 是冒烟 fixture（~93 帧小 plan + audio/frames_v2/subs 配套）。
 
 ## 用法（手工/冒烟）
 
@@ -28,7 +29,7 @@
 - chrome-headless-shell 在 `node_modules/.remotion/`；若缺失且自动下载失败：
   `--browser-executable ~/.cache/ms-playwright/chromium_headless_shell-*/chrome-linux/headless_shell`
 
-# 原始实验记录（remotion-feas）
+# 原始实验记录（remotion 可行性实验）
 
 日期：2026-09-21 · 主机：Arch Linux, 12 cores, 31G RAM, RTX 4070 SUPER 12G · 网络：中国大陆直连
 
@@ -44,7 +45,11 @@
 | `adelay=ms + amix` 逐句 mp3 | 无界 `<Sequence from>` 内 `<Audio>`，自然播完 |
 | libx264 crf19 + aac 192k | `--codec h264 --crf --audio-bitrate`（CLI 全部有对应 flag） |
 
-timeline.json + items.json 原样消费（8055 frames @30fps, 1920×1080, 268.5s）。
+实验期输入为 timeline.json + items.json 原样消费（8055 frames @30fps,
+1920×1080, 268.5s）——**现行输入已改**：composer 唯一输入是 render_plan/1
+的 `70_render_plan.json`（`src/plan.ts`，timeline/items 由 render_plan.py
+编译期消费、不再进 Remotion）；`src/` 下残留的 timeline.json/items.json
+是旧 fixture，无任何引用。
 
 ## 实测结果
 

@@ -24,7 +24,7 @@ tts:
     max_new_tokens: 1500
     min_free_gb: 8          # nvidia-smi 空闲显存门槛（eager 实测 ~7.7GiB）
 proxy:
-  http: http://127.0.0.1:7890
+  http: ""                 # 例 http://127.0.0.1:7890（本机 clash）；空 = 直连
   required_check_urls: [https://api.ipify.org]
 alerts:
   ntfy_url: ""            # 例 https://ntfy.sh/my-topic 或自架

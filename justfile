@@ -27,7 +27,6 @@
 #
 #   just setup-toolchain   one-time machine setup (PLAN §3)
 #   just lint-sources      sources.yaml lint (PLAN §5.1)
-#   just judge-eval        dedup judge accuracy (PENDING — flag 未实现)
 #   just shot-test         screenshot-pipeline self test (PLAN §7.6)
 #
 # Run a past/future date bucket:  just DATE=2026-09-20 gather
@@ -57,7 +56,9 @@ set shell := ["bash", "-c"]
 DATE        := `TZ='Asia/Shanghai' date +%F`
 RUN         := "runs/" + DATE
 REVIEW_PORT := "8923"
-PROXY       := "http://127.0.0.1:7890"
+# 代理默认空（=不用代理）——消费方按 env(PIPELINE_PROXY/*_proxy) →
+# config.yaml proxy.http → 空 解析；本机 clash 127.0.0.1:7890 是示例不是默认。
+PROXY       := ""
 
 # 配方前缀：SH = pipefail + secrets.env 导出（无 run-dir 配方用）；
 # STAGE = SH + PIPELINE_RUN + logs/ 目录 + _jlock 等锁（全部运行阶段用）。
@@ -207,7 +208,12 @@ doctor:
     then pass "ffmpeg anullsrc->aac"; else fail "ffmpeg" "aac encode failed"; fi
 
     echo "== playwright screenshot =="
-    if https_proxy={{PROXY}} http_proxy={{PROXY}} uv run -q --with playwright python3 - "$SCRATCH/example.png" >"$SCRATCH/pw.log" 2>&1 <<'PY'
+    # 代理解析：PROXY 变量 → PIPELINE_PROXY/*_proxy env → config proxy.http → 空
+    pxy="{{PROXY}}"
+    [ -n "$pxy" ] || pxy="${PIPELINE_PROXY:-${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-${ALL_PROXY:-${all_proxy:-}}}}}}}"
+    [ -n "$pxy" ] || pxy=$(cfg proxy.http "")
+    pxenv=(); [ -n "$pxy" ] && pxenv=(https_proxy="$pxy" http_proxy="$pxy")
+    if env "${pxenv[@]}" uv run -q --with playwright python3 - "$SCRATCH/example.png" >"$SCRATCH/pw.log" 2>&1 <<'PY'
     import sys
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
@@ -230,13 +236,15 @@ doctor:
 
     echo "== edge-tts =="
     if timeout 90 uv run -q --with edge-tts edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --write-media "$SCRATCH/tts.mp3" >"$SCRATCH/tts.log" 2>&1 \
-    || timeout 90 uv run -q --with edge-tts edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --proxy {{PROXY}} --write-media "$SCRATCH/tts.mp3" >>"$SCRATCH/tts.log" 2>&1; then
+    || { [ -n "$pxy" ] && timeout 90 uv run -q --with edge-tts edge-tts --text "AI 早报冒烟测试" --voice zh-CN-YunyangNeural --proxy "$pxy" --write-media "$SCRATCH/tts.mp3" >>"$SCRATCH/tts.log" 2>&1; }; then
       if [ -s "$SCRATCH/tts.mp3" ]; then pass "edge-tts -> tts.mp3"; else fail "edge-tts" "empty mp3"; fi
     else fail "edge-tts" "$(tail -2 "$SCRATCH/tts.log" | tr '\n' ' ')"; fi
 
     echo "== proxy / alerts =="
-    if code=$(curl -x {{PROXY}} -m 10 -s -o /dev/null -w '%{http_code}' https://api.ipify.org 2>/dev/null) && [ "$code" = 200 ]
-    then pass "proxy_ok ({{PROXY}})"; else fail "proxy_ok" "ipify via {{PROXY}} -> $code"; fi
+    if [ -z "$pxy" ]; then
+      skip "proxy_ok" "无代理解析（env→config→空）"
+    elif code=$(curl -x "$pxy" -m 10 -s -o /dev/null -w '%{http_code}' https://api.ipify.org 2>/dev/null) && [ "$code" = 200 ]
+    then pass "proxy_ok ($pxy)"; else fail "proxy_ok" "ipify via $pxy -> $code"; fi
 
     ntfy=$(cfg alerts.ntfy_url "")
     if [ -n "$ntfy" ]; then
@@ -311,14 +319,25 @@ lint-sources:
         if v > 1: fails.append(f"dup feed_url: {k} x{v}")
     for k, v in domains.items():
         if v > 1: warns.append(f"dup domain: {k} x{v} (multiple feeds share host)")
-    proxy = os.environ.get("PIPELINE_PROXY", "http://127.0.0.1:7890")
+    # 代理解析：PIPELINE_PROXY/*_proxy env → config.yaml proxy.http → ""
+    # （本机 clash 127.0.0.1:7890 是示例不是默认）；空 = 只测直连
+    proxy = (os.environ.get("PIPELINE_PROXY")
+             or os.environ.get("https_proxy") or os.environ.get("HTTPS_PROXY")
+             or os.environ.get("http_proxy") or os.environ.get("HTTP_PROXY")
+             or os.environ.get("ALL_PROXY") or os.environ.get("all_proxy") or "")
+    if not proxy:
+        try:
+            _cc = yaml.safe_load(open("config.yaml", encoding="utf-8")) or {}
+            proxy = str((_cc.get("proxy") or {}).get("http") or "")
+        except Exception:
+            pass
     print(f"-- reachability sample ({min(5,len(enabled))}/{len(enabled)} enabled) --")
     for s in enabled[:5]:
         def probe(extra):
             return subprocess.run(["curl","-m","10","-s","-o","/dev/null","-w","%{http_code}","-L",*extra,str(s["feed_url"])],
                                   capture_output=True, text=True).stdout.strip()
         code, via = probe([]), "direct"
-        if s.get("proxy") == "required" or not code.startswith(("2","3")):
+        if proxy and (s.get("proxy") == "required" or not code.startswith(("2","3"))):
             c2 = probe(["-x", proxy])
             if c2.startswith(("2","3")): code, via = c2, "proxy"
         ok = code.startswith(("2","3"))
@@ -676,6 +695,11 @@ test:
     run "lib/layout_d2" uv run stages/lib/layout_d2.py --selftest "$SCRATCH/layout-d2"
     run "digest" uv run stages/digest.py --selftest --run-dir "$SCRATCH"
     run "dedup-nojudge" uv run stages/dedup.py --selftest --no-judge
+    for s in deadman alert_ntfy; do
+      run "adapters/$s" uv run "adapters/$s.py" --selftest
+    done
+    # golden fixture 全量校验（schema + 交叉字段 + manifest sha256 复验）
+    run "contracts-fixture" uv run -q --with pydantic python3 experiments/artifact-contracts/validate.py
     for s in lib/http lib/shotlib lib/reddit_collect lib/weibo_collect lib/x_ssr lib/x_nitter lib/x_synd; do
       run "$s" uv run "stages/$s.py" --offline
     done
@@ -777,12 +801,9 @@ pool-vacuum:
 # eval / dev tools (not run artifacts — no flock)
 # --------------------------------------------------------------------------
 
-# dedup judge accuracy on fixtures — PENDING: dedup.py --judge-eval 未实现，
-# 此配方目前必挂；fixtures 在 experiments/dedup-llm/clusters.json
-judge-eval:
-    @echo "judge-eval 未实现（dedup.py 无 --judge-eval flag）。" >&2
-    @echo "fixtures: experiments/dedup-llm/clusters.json — 待补 flag 后恢复" >&2
-    @exit 2
+# dedup judge accuracy on fixtures — REMOVED: dedup.py 无 --judge-eval flag，
+# 必挂 stub 已删；fixtures 在 experiments/dedup-llm/clusters.json，待补 flag 后
+# 再以新配方恢复。
 
 # screenshot pipeline self test: domain-policy table + playwright path (§7.6)
 shot-test:

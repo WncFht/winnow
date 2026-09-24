@@ -1,11 +1,13 @@
 # AI 早报 pipeline 源注册表 — 唯一人工维护文件 (PLAN.md §5.1)
-# 种子: experiments/domains.json (135 域) + experiments/rss_titles.json + research_result.json 逐源实测笔记
+# 种子: experiments/source-seeds/domains.json (135 域) + rss_titles.json + research_result.json 逐源实测笔记
 # 通道全部经 2026-09-21 本机实测 (中国大陆直连/本机代理), 未实测的在 note 里标注
 # method: rss|atom|json_api|sitemap_diff|changelog_diff|x|reddit|weibo|wechat|youtube_rss|manual
 # tier:   A=零凭据直连  B=平台采集器(反爬/凭证/池化)
 # proxy:  required(代理挂则跳过)|prefer(优先代理可直连)|direct_only
 # daily:  true => item pubDate is authoritative — window by date_published; absent/false => archive/signal/undated — window by first_seen arrival grace
 # lint:   method∈枚举 / 无重复 feed_url / 0<freshness_sla_h≤168 / max_items_per_source≤200 / daily 非 bool→warn
+# local:  http://127.0.0.1:23176/* 均为本机自建 RSSHub 实例路由——克隆后换成你的
+#         部署地址;无实例则删对应 failover 或把该源设 enabled:false
 
 # ============ Tier A · AI 实验室与厂商官方 ============
 - name: openai_news
@@ -272,7 +274,7 @@
   enabled: true
   failover:
     - "https://cohere.com/sitemap.xml"
-    - "http://127.0.0.1:23176/cohere/blog"
+    - "http://127.0.0.1:23176/cohere/blog"   # 本地 RSSHub 兜底——换成你的实例地址或删该条
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: prefer
@@ -817,6 +819,7 @@
 - name: help_openai
   method: rss
   tier: A
+  # 本地自建 RSSHub 实例路由——换成你的部署地址;无实例则设 enabled:false
   feed_url: "http://127.0.0.1:23176/openai/chatgpt/release-notes"
   enabled: true
   failover: []
@@ -1392,11 +1395,11 @@
 - name: kr36_newsflash
   method: changelog_diff
   tier: A
-  feed_url: "http://127.0.0.1:23176/36kr/newsflashes"   # 自建 RSSHub 实测路由; 旧 https://www.36kr.com/newsflashes SSR 正则路(见 note)
+  feed_url: "http://127.0.0.1:23176/36kr/newsflashes"   # 本地自建 RSSHub 实测路由(换成你的部署地址;无实例则 enabled:false 走 failover web_news); 旧 https://www.36kr.com/newsflashes SSR 正则路(见 note)
   enabled: true
   daily: true
   failover:
-    - "http://127.0.0.1:23176/36kr/newsflashes"
+    - "http://127.0.0.1:23176/36kr/newsflashes"   # 同上,本地实例路由
     - "https://36kr.com/information/web_news/"
   freshness_sla_h: 24
   max_items_per_source: 40
@@ -1794,7 +1797,7 @@
   feed_url: "https://m.weibo.cn/api/container/getIndex?type=uid&value=7909392214"
   enabled: true
   failover:
-    - "http://127.0.0.1:23176/weibo/user/7909392214"
+    - "http://127.0.0.1:23176/weibo/user/7909392214"   # 本地 RSSHub 兜底——换成你的实例地址或删该条
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
@@ -1806,7 +1809,7 @@
   feed_url: "https://m.weibo.cn/api/container/getIndex?type=uid&value=7876775013"
   enabled: true
   failover:
-    - "http://127.0.0.1:23176/weibo/user/7876775013"
+    - "http://127.0.0.1:23176/weibo/user/7876775013"   # 本地 RSSHub 兜底——换成你的实例地址或删该条
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only

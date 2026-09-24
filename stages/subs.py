@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pillow"]
 # ///
-"""subs — 逐句字幕 pill PNG（ffmpeg 合成路径用；PLAN §7.6/§7.8）。
+"""subs — 逐句字幕 pill PNG（ffmpeg 合成路径用；PLAN §7.7/§7.8）。
 
 Remotion 路径用 FullDaily.tsx 的 live-text pill（CSS 实时排版），ffmpeg 的
 overlay 只能贴 PNG——本 stage 把 62_timeline.json 每个 seg 渲染成

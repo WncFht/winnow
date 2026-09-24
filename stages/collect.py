@@ -89,7 +89,6 @@ MANIFEST_NAME = "11_raw_manifest.json"
 SEEN_PATH = REPO / "state" / "seen.json"
 HEALTH_PATH = REPO / "state" / "source_health.json"
 
-DEFAULT_PROXY = "http://127.0.0.1:7890"
 CONTENT_MIN = 200                    # <200 字 → 正文补抓
 SEEN_URL_CAP = 5000                  # 每源 seen urls 滚动上限
 SITEMAP_CHILD_CAP = 5                # sitemapindex 子图最多抓几个
@@ -223,6 +222,19 @@ def _cfg(cfg: dict, dotted: str, default=None):
     return node
 
 
+def _default_proxy(cfg: dict) -> str:
+    """全局默认代理解析：env(PIPELINE_PROXY/http_proxy/https_proxy/ALL_PROXY)
+    → config proxy.http → ""（=不用代理直连；源 proxy:required 且无代理
+    可解析时按 proxy_down 跳过）。
+    本机 clash 127.0.0.1:7890 是示例值不是默认——开源环境无代理开箱即跑。"""
+    for k in ("PIPELINE_PROXY", "http_proxy", "https_proxy",
+              "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"):
+        v = os.environ.get(k)
+        if v:
+            return v
+    return str(_cfg(cfg, "proxy.http", "") or "")
+
+
 def load_sources(path: Path) -> list[dict]:
     data = yaml.safe_load(path.read_text(encoding="utf-8"))
     out = []
@@ -331,7 +343,7 @@ class Ctx:
         self.run_dir = Path(run_dir)
         self.seen = seen
         self.win = win
-        self.proxy_url = _cfg(cfg, "proxy.http", DEFAULT_PROXY) or DEFAULT_PROXY
+        self.proxy_url = _default_proxy(cfg)
         self.proxy_ok = True          # preflight 回填
         self.content_budget = int(getattr(args, "max_content_fetches", 600))
         self.stats = []               # manifest.sources[]

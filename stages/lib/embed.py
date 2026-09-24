@@ -15,7 +15,6 @@ Backend: onnx-community/Qwen3-Embedding-0.6B-ONNX int8 on CPU
 Model dir resolution (first hit wins):
     1. $EMBED_MODEL_DIR
     2. ~/.cache/embed/            (canonical cache per PLAN.md §3.4)
-    3. experiments/dedup-history/model/  (seed copy inside the repo)
 Each dir must contain model_int8.onnx + tokenizer.json.
 
 API:
@@ -69,7 +68,6 @@ def _candidate_dirs() -> list[Path]:
     if env:
         dirs.append(Path(env).expanduser())
     dirs.append(Path.home() / ".cache" / "embed")
-    dirs.append(REPO_ROOT / "experiments" / "dedup-history" / "model")
     return dirs
 
 

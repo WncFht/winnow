@@ -7,7 +7,7 @@ PLAN.md §9 的落地层：三个 systemd **user** timer 把全自动块挂到�
 
 | 文件 | 作用 |
 |---|---|
-| `install.sh` | 把 6 个 unit 拷到 `~/.config/systemd/user/`，daemon-reload 并 `enable --now` 三个 timer |
+| `install.sh` | 3 个 `.service` 模板 sed 注入本机路径（`__REPO__`/`__HOME__`）后连同 3 个 `.timer` 装到 `~/.config/systemd/user/`，daemon-reload 并 `enable --now` 三个 timer |
 | `ai-news-collect.{service,timer}` | 06:30 → `just gather`（collect → filter → dedup，auto block A） |
 | `ai-news-gate1.{service,timer}` | 08:30 → `just deadline1`（gate-1 无人选稿则 auto top-K 放行 + digest 出 50_review.md） |
 | `ai-news-gate2.{service,timer}` | 09:30 → `just deadline2`（锁定 50_issue.json、必要时自动 edit-import，然后 callb → voice → cards → subs → render-plan → compose → meta） |
@@ -21,6 +21,10 @@ bash ops/install.sh
 
 - 只装 **user** units（不要用 root）；登出后仍要触发需
   `sudo loginctl enable-linger "$USER"`。
+- `.service` 是**模板**而非成品：`WorkingDirectory`/`EnvironmentFile`/
+  `ExecStart`/`PATH` 里的 `__REPO__`（仓库根，install.sh 按自身位置推得）
+  与 `__HOME__`（`$HOME`）占位由 install.sh 在装的时候 sed 成本机真实路径。
+  仓库克隆到任意目录都能用；手工拷文件会留下字面占位符，unit 必挂。
 - 三个 timer 均 `Persistent=true`——关机错过时点会在开机后补跑；
   deadline 语义天然幂等（过了 deadline 检查即自动放行），补跑安全。
 - 排障：`systemctl --user list-timers 'ai-news-*'`；
@@ -29,17 +33,20 @@ bash ops/install.sh
 
 ## unit 约定（EnvironmentFile / PATH / TZ）
 
-- `EnvironmentFile=-<repo>/secrets.env`：`-` 前缀容许缺失；SWE2MAX_API_KEY
+- 模板占位：`__REPO__` = 仓库根（install.sh 取 `ops/../` 实路径），
+  `__HOME__` = 安装用户的 `$HOME`；两个都在 install 时被 sed 替换，
+  装出来的 unit 里只剩绝对路径。
+- `EnvironmentFile=-__REPO__/secrets.env`：`-` 前缀容许缺失；SWE2MAX_API_KEY
   等密钥不进 unit 文本、secrets.env 本身 gitignored。
-- `Environment=PATH=$HOME/.local/bin:$HOME/.cargo/bin:...`：user manager 的
-  默认 PATH 不含 uv（.local/bin）与 just（.cargo/bin），必须显式补。
+- `Environment=PATH=__HOME__/.local/bin:__HOME__/.cargo/bin:...`：user manager
+  的默认 PATH 不含 uv（.local/bin）与 just（.cargo/bin），必须显式补。
 - `Environment=TZ=Asia/Shanghai`：run 目录按上海日期分桶（`runs/<date>`），
   unit 与 justfile `DATE` 口径一致。
 - `Type=oneshot` + `TimeoutStartSec`：collect/gate1 给 2h，gate2 给 4h
   （链上含 TTS + 卡片渲染 + 视频合成）。2h 是宽松上限而非 arbitrary cap——
-  unit 注释原话 "gather can run long (135 sources + LLM batches)"。
-- `ExecStart` 用绝对路径 `~/.cargo/bin/just`；`WorkingDirectory` 钉在仓库根，
-  just 配方里的相对路径（ops/prelude.sh、secrets.env、runs/）才找得到。
+  unit 注释原话 "gather can run long (161 sources + LLM batches)"。
+- `ExecStart` 用绝对路径 `__HOME__/.cargo/bin/just`；`WorkingDirectory` 钉在
+  仓库根，just 配方里的相对路径（ops/prelude.sh、secrets.env、runs/）才找得到。
 
 ## prelude.sh — just 配方公共前奏
 

@@ -10,7 +10,9 @@
 
 产物（§4 契约）：
   60_voice_script.jsonl    voice_seg/1  {seg_id=NNN_item_si,item,si,text,role}
-  61_audio/<seg_id>.mp3    逐句合成（edge-tts，残余静音已裁——见 adapters/tts_edge）
+  61_audio/<seg_id>.mp3    逐句合成（tts.engine 分派 edge/breeze——
+                           adapters/tts_edge | adapters/tts_local；
+                           edge 残余静音已裁——见 tts_edge）
   61_audio/<seg_id>.words.json   词边界 sidecar（断点续跑保留 words 高亮数据）
   61_audio/<seg_id>.textsha      text_sha sidecar（manifest 缺失时裸 mp3 也能续跑）
   61_audio_manifest.json   audio_manifest/1  {engine,voice,rate,codec,sample_rate,
@@ -21,7 +23,8 @@
 
 流程：issue.intro.voice → items[].voice → issue.outro.voice 拍平成有序 seg
 序列（intro/body/outro 角色按位置）；ttsnorm.normalize 过 tts_dict + 连字符
-规则；逐句 tts_edge.synth——两级复用：manifest.files[].text_sha 校验命中 →
+规则；逐句 adapter.synth（config tts.engine 分派 edge/breeze；缓存键含
+engine 维度）——两级复用：manifest.files[].text_sha 校验命中 →
 裸 mp3 + <seg_id>.textsha sidecar（manifest 缺失/中途崩溃仍能续跑），断点
 续跑/词典微调只重合成受影响句子；ffprobe 实测 dur 推绝对时间轴；
 shot_sentences(1-based 句区间) 编译成 overlays 绝对时间窗；最后 ffmpeg
@@ -35,7 +38,8 @@ CLI：
       [--jobs 4] [--voice zh-CN-...] [--rate "+0%"] [--tts-dict PATH]
       [--lead-in S] [--tail S] [--gap-sentence S] [--gap-item S]
       [--force] [--dry-run]
-  uv run stages/voice.py --selftest    # 打真 edge-tts 的端到端冒烟
+  uv run stages/voice.py --selftest    # fixture→真合成端到端冒烟
+                                       #（引擎随 config tts.engine，缺省 edge）
 """
 from __future__ import annotations
 
@@ -720,7 +724,7 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true",
                     help="只规范化+写 60_voice_script.jsonl，不打 TTS")
     ap.add_argument("--selftest", action="store_true",
-                    help="fixture + 真 edge-tts 端到端冒烟")
+                    help="fixture + 真合成端到端冒烟（引擎随 tts.engine）")
     args = ap.parse_args()
 
     if args.selftest:

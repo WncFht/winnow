@@ -5,14 +5,9 @@
 # ///
 """Validate every artifact in a run dir: pydantic schema + cross-field rules.
 
-Cross-field layer (JSON Schema can't express):
-  - every item_key referenced by filtered/summaries/dedup/selected exists in raw_items
-  - every kept id is unique and present in issue.items
-  - voice_script items ⊆ issue ids; seg_id == NNN_item_si and matches file names
-  - timeline: segs monotonic non-overlapping; item spans contain their segs;
-    seg.file exists in audio_manifest; overlay windows inside their item span
-  - render_plan video_track tiles [0,total] with no gaps/overlaps
-  - manifests: sha256 re-verify of every listed file
+唯一活入口 = validate_run(run_dir)——PLAN §4 run 级跨字段校验器，各 stage
+写完产物即调、meta_qa 全量审计复用；幂等、只读。CLI 薄壳：
+`uv run contracts/validate.py runs/<date> [--items-db P]`。
 """
 import hashlib
 import json
@@ -29,177 +24,10 @@ from models import (AudioManifest, BuildManifest, Cards, DedupVerdict,
                     RenderPlan, RunMeta, Selected, Summary, Timeline, VoiceSeg)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-RUN = REPO_ROOT / "runs" / "2026-09-20"
-errors, warns = [], []
 
 
-def err(m):
-    errors.append(m)
-
-
-def warn(m):
-    warns.append(m)
-
-
-def load_jsonl(name):
-    # 文件迭代只认 \n/\r\n/\r——read_text().splitlines() 会把字符串内
-    # 裸 U+2028/U+2029/NEL 当行边界切断 JSON（2026-09-22 事故）。
-    with open(RUN / name, encoding="utf-8", newline=None) as f:
-        return [json.loads(l) for l in f if l.strip()]
-
-
-def sha256_file(p: Path) -> str:
+def _sha256_file(p: Path) -> str:
     return hashlib.sha256(p.read_bytes()).hexdigest()
-
-
-def main():
-    # ---------- schema layer ----------
-    raws = [RawItem.model_validate(r) for r in load_jsonl("10_raw_items.jsonl")]
-    RawManifest.model_validate(json.loads((RUN / "11_raw_manifest.json").read_text()))
-    filts = [FilterVerdict.model_validate(r) for r in load_jsonl("20_filtered.jsonl")]
-    sums = [Summary.model_validate(r) for r in load_jsonl("30_summaries.jsonl")]
-    deds = [DedupVerdict.model_validate(r) for r in load_jsonl("35_dedup.jsonl")]
-    sel = Selected.model_validate(json.loads((RUN / "40_selected.json").read_text()))
-    issue = json.loads((RUN / "50_issue.json").read_text())
-    vs = [VoiceSeg.model_validate(r) for r in load_jsonl("60_voice_script.jsonl")]
-    am = AudioManifest.model_validate(
-        json.loads((RUN / "61_audio_manifest.json").read_text()))
-    tl = Timeline.model_validate(json.loads((RUN / "62_timeline.json").read_text()))
-    Cards.model_validate(json.loads((RUN / "63_cards.json").read_text()))
-    cm = FramesManifest.model_validate(
-        json.loads((RUN / "63_cards_manifest.json").read_text()))
-    fm = FramesManifest.model_validate(
-        json.loads((RUN / "64_frames_manifest.json").read_text()))
-    rp = RenderPlan.model_validate(json.loads((RUN / "70_render_plan.json").read_text()))
-    bm = BuildManifest.model_validate(
-        json.loads((RUN / "80_build_manifest.json").read_text()))
-    RunMeta.model_validate(json.loads((RUN / "00_meta.json").read_text()))
-    print("schema layer: all artifacts parse")
-
-    # ---------- ref integrity ----------
-    raw_keys = {r.item_key for r in raws}
-    if len(raw_keys) != len(raws):
-        err("raw item_key 不唯一")
-    for name, rows in [("filtered", filts), ("summaries", sums), ("dedup", deds)]:
-        for r in rows:
-            if r.item_key not in raw_keys:
-                err(f"{name}: item_key {r.item_key} 不在 raw_items")
-    issue_ids = [i["id"] for i in issue["items"]]
-    kept_ids = [k.id for k in sel.kept]
-    if len(set(kept_ids)) != len(kept_ids):
-        err("selected kept id 重复")
-    for k in sel.kept:
-        if k.item_key not in raw_keys:
-            err(f"selected: {k.item_key} 不在 raw")
-        if k.id not in issue_ids:
-            err(f"selected: id {k.id} 不在 issue.items")
-    for s in vs:
-        if s.item != "intro" and s.item != "outro" and s.item not in issue_ids:
-            err(f"voice_seg {s.seg_id}: item {s.item} 不在 issue")
-
-    # ---------- timeline ----------
-    tl_item_ids = {i.id for i in tl.items}
-    if tl_item_ids - set(issue_ids) - {"intro", "outro"}:
-        err("timeline items 超出 issue+intro/outro")
-    for i in tl.items:
-        if i.visual and i.visual not in tl_item_ids:
-            err(f"item {i.id} visual 绑定 {i.visual} 不存在")
-    tprev = -1.0
-    for s in tl.segs:
-        if s.start < tprev:
-            err(f"seg {s.seg_id} start {s.start} < 上一句 end {tprev}（重叠/乱序）")
-        if abs((s.end - s.start) - s.dur) > 0.001:
-            err(f"seg {s.seg_id} dur 字段与 end-start 不一致")
-        if s.item not in tl_item_ids:
-            err(f"seg {s.seg_id} item {s.item} 无 item span")
-        if s.file.split("/")[-1].rsplit(".", 1)[0] != s.seg_id:
-            err(f"seg {s.seg_id} file 名 {s.file} 与 seg_id 不同构")
-        tprev = s.end
-    span = {i.id: i for i in tl.items}
-    for s in tl.segs:
-        sp = span[s.item]
-        if not (sp.start <= s.start and s.end <= sp.end + 1e-6):
-            err(f"seg {s.seg_id} 越出 item span {s.item}")
-    for o in tl.overlays:
-        sp = span.get(o.item)
-        if not sp or not (sp.start <= o.start and o.end <= sp.end + 1e-6):
-            warn(f"overlay {o.item}.{o.kind} 窗口越出 item span")
-    if tl.segs and tl.segs[-1].end > tl.total:
-        err("末句 end > total")
-
-    # ---------- audio manifest vs timeline ----------
-    am_files = {f.seg_id: f for f in am.files}
-    for s in tl.segs:
-        f = am_files.get(s.seg_id)
-        if not f:
-            err(f"seg {s.seg_id} 无对应 audio 文件条目")
-            continue
-        if f.file != s.file:
-            err(f"seg {s.seg_id} file 字段与 manifest 不一致: {s.file} vs {f.file}")
-        if abs(f.dur - s.dur) > 0.05:
-            warn(f"seg {s.seg_id} manifest dur {f.dur} vs timeline dur {s.dur} 差 >50ms")
-        if f.text_sha != hashlib.sha256(s.text.encode()).hexdigest()[:16]:
-            err(f"seg {s.seg_id} 文本 hash 与 voice_script/timeline 不符")
-
-    # ---------- render plan coverage ----------
-    v = sorted(rp.video_track, key=lambda x: x.start)
-    cur = 0.0
-    for seg in v:
-        if seg.start - cur > 0.05:
-            err(f"video_track 在 {cur:.3f}-{seg.start:.3f} 有洞")
-        if seg.start < cur - 0.001:
-            err(f"video_track 在 {seg.start:.3f} 重叠")
-        cur = max(cur, seg.end)
-    if abs(cur - rp.total) > 0.05:
-        err(f"video_track 覆盖到 {cur:.3f} ≠ total {rp.total}")
-
-    # ---------- overlay ↔ frames manifest ----------
-    fm_by_kind = {(f.item, f.kind): f for f in fm.files}
-    fm_missing = set(fm.missing)
-    for o in tl.overlays:
-        if (o.item, o.kind) in fm_by_kind:
-            if not (RUN / o.src).exists():
-                err(f"overlay {o.item}.{o.kind} src {o.src} 不存在")
-        elif f"{o.item}.{o.kind}" not in fm_missing:
-            err(f"overlay {o.item}.{o.kind} 既不在 frames manifest 也不在 missing")
-
-    # ---------- manifest hash verify ----------
-    for mf in (cm, fm):
-        for f in mf.files:
-            p = RUN / f.path
-            if not p.exists():
-                err(f"{mf.dir}/{f.path} 不存在")
-                continue
-            if sha256_file(p) != f.sha256:
-                err(f"{f.path} sha256 不匹配")
-    for f in am.files:
-        p = RUN / f.file
-        if not p.exists():
-            err(f"audio {f.file} 不存在")
-        elif sha256_file(p) != f.sha256:
-            err(f"audio {f.file} sha256 不匹配")
-
-    # ---------- render_plan src 全部可解析 ----------
-    for tr in rp.video_track + rp.audio_track + rp.overlay_track:
-        src = tr.src
-        if not (RUN / src).exists():
-            err(f"render_plan 引用 {src} 不存在")
-
-    # ---------- input/output hash chain ----------
-    for k, v in bm.inputs.items():
-        target = RUN / {"render_plan": "70_render_plan.json",
-                        "timeline": "62_timeline.json",
-                        "audio_manifest": "61_audio_manifest.json",
-                        "frames_manifest": "64_frames_manifest.json"}.get(k, k)
-        if target.exists() and v != "sha256:" + sha256_file(target):
-            err(f"build inputs.{k} 哈希陈旧（上游改了没重建）")
-
-    print(f"\n== {len(errors)} errors, {len(warns)} warnings ==")
-    for m in errors:
-        print("ERR ", m)
-    for m in warns:
-        print("WARN", m)
-    sys.exit(1 if errors else 0)
 
 
 # ======================================================================
@@ -221,6 +49,17 @@ def main():
 #   url-membership  50.items.sources.url ⊆ kept 条目原始 url 集合(url∪url_canon)  [warn]
 #   digit-whitelist 50 body/60 text 数字 ⊆ facts[]∪{期号,年份,常见量词}豁免  [warn]
 #   coverage        LLM 批式输入条数 == 输出条数（双侧都在场才查）
+#   timeline-consistency
+#                   62.items ⊆ 50.ids∪{intro,outro}；segs 单调不重叠、
+#                   dur==end-start、seg.item 有 span、file 名==seg_id、
+#                   segs/overlays ⊂ item span（overlay 越界 warn）、末句 end≤total
+#   audio-manifest  61.files↔62.segs：file 一致、dur 差>50ms warn、
+#                   text_sha==sha256(60.text)[:16]
+#   render-plan     70.video_track 平铺 [0,total] 无洞无重叠（写时
+#                   render_plan.validate_plan 之外的事后复核）；三轨 src 均可解析
+#   frames-manifest 62.overlays 每 (item,kind) ∈ 64.files（src 存在）∪ missing
+#   manifest-hash   63_cards/64_frames/61_audio manifest 所列文件 sha256 复验
+#   hash-chain      80.inputs.* == "sha256:"+上游文件当前哈希（陈旧=上游改了没重建）
 #   db-consistency  items_db（validate_run 参数 > config.storage.items_db >
 #                   state/items.sqlite，与 stages 各 --items-db 约定同）在场且
 #                   run_dir 为日期名才查：kept 条目 items.used_in_episode==episode
@@ -458,6 +297,8 @@ def validate_run(run_dir, items_db=None):
     sel, vs, am = (models.get("40_selected.json"), M("60_voice_script.jsonl"),
                    models.get("61_audio_manifest.json"))
     cards, fm = models.get("63_cards.json"), models.get("64_frames_manifest.json")
+    tl, rp = models.get("62_timeline.json"), models.get("70_render_plan.json")
+    cm, bm = models.get("63_cards_manifest.json"), models.get("80_build_manifest.json")
 
     # ---------- id closure ----------
     ten_keys = {r.item_key for r in raws}
@@ -604,6 +445,139 @@ def validate_run(run_dir, items_db=None):
                 V("coverage", "warn", "64_frames_manifest.json",
                   f"{c.id}.card 既无帧文件也不在 missing[]")
 
+    # ---------- timeline-consistency（62 内部自洽；全部在场才查） ----------
+    if tl is not None:
+        tl_ids = {i.id for i in tl.items}
+        if issue is not None:
+            extra = tl_ids - issue_ids - {"intro", "outro"}
+            if extra:
+                V("timeline-consistency", "error", "62_timeline.json",
+                  f"items 超出 50.items∪intro/outro: {sorted(extra)[:8]}")
+        for i in tl.items:
+            if i.visual and i.visual not in tl_ids:
+                V("timeline-consistency", "error", "62_timeline.json",
+                  f"item {i.id} visual 绑定 {i.visual} 不存在")
+        span = {i.id: i for i in tl.items}
+        tprev = -1.0
+        for s in tl.segs:
+            if s.start < tprev:
+                V("timeline-consistency", "error", "62_timeline.json",
+                  f"seg {s.seg_id} start {s.start} < 上一句 end {tprev}"
+                  "（重叠/乱序）")
+            if abs((s.end - s.start) - s.dur) > 0.001:
+                V("timeline-consistency", "error", "62_timeline.json",
+                  f"seg {s.seg_id} dur 字段与 end-start 不一致")
+            sp = span.get(s.item)
+            if sp is None:
+                V("timeline-consistency", "error", "62_timeline.json",
+                  f"seg {s.seg_id} item {s.item} 无 item span")
+            elif not (sp.start <= s.start and s.end <= sp.end + 1e-6):
+                V("timeline-consistency", "error", "62_timeline.json",
+                  f"seg {s.seg_id} 越出 item span {s.item}")
+            if s.file.split("/")[-1].rsplit(".", 1)[0] != s.seg_id:
+                V("timeline-consistency", "error", "62_timeline.json",
+                  f"seg {s.seg_id} file 名 {s.file} 与 seg_id 不同构")
+            tprev = s.end
+        for o in tl.overlays:
+            sp = span.get(o.item)
+            if not sp or not (sp.start <= o.start and o.end <= sp.end + 1e-6):
+                V("timeline-consistency", "warn", "62_timeline.json",
+                  f"overlay {o.item}.{o.kind} 窗口越出 item span")
+        if tl.segs and tl.segs[-1].end > tl.total:
+            V("timeline-consistency", "error", "62_timeline.json",
+              "末句 end > total")
+
+    # ---------- audio-manifest ↔ timeline（61 file/dur/text_sha 对账） ----------
+    if tl is not None and am is not None:
+        am_files = {f.seg_id: f for f in am.files}
+        for s in tl.segs:
+            f = am_files.get(s.seg_id)
+            if not f:
+                V("audio-manifest", "error", "61_audio_manifest.json",
+                  f"seg {s.seg_id} 无对应 audio 文件条目")
+                continue
+            if f.file != s.file:
+                V("audio-manifest", "error", "61_audio_manifest.json",
+                  f"seg {s.seg_id} file 字段与 timeline 不一致: "
+                  f"{s.file} vs {f.file}")
+            if abs(f.dur - s.dur) > 0.05:
+                V("audio-manifest", "warn", "61_audio_manifest.json",
+                  f"seg {s.seg_id} manifest dur {f.dur} vs timeline "
+                  f"dur {s.dur} 差 >50ms")
+            if f.text_sha != hashlib.sha256(s.text.encode()).hexdigest()[:16]:
+                V("audio-manifest", "error", "61_audio_manifest.json",
+                  f"seg {s.seg_id} 文本 hash 与 voice_script/timeline 不符")
+
+    # ---------- render-plan（70 平铺复核 + 三轨 src 可解析） ----------
+    if rp is not None:
+        cur = 0.0
+        for vseg in sorted(rp.video_track, key=lambda x: x.start):
+            if vseg.start - cur > 0.05:
+                V("render-plan", "error", "70_render_plan.json",
+                  f"video_track 在 {cur:.3f}-{vseg.start:.3f} 有洞")
+            if vseg.start < cur - 0.001:
+                V("render-plan", "error", "70_render_plan.json",
+                  f"video_track 在 {vseg.start:.3f} 重叠")
+            cur = max(cur, vseg.end)
+        if abs(cur - rp.total) > 0.05:
+            V("render-plan", "error", "70_render_plan.json",
+              f"video_track 覆盖到 {cur:.3f} ≠ total {rp.total}")
+        seen_src = set()
+        for tr in (*rp.video_track, *rp.audio_track, *rp.overlay_track):
+            if tr.src in seen_src:
+                continue
+            seen_src.add(tr.src)
+            if not (run / tr.src).exists():
+                V("render-plan", "error", "70_render_plan.json",
+                  f"引用 {tr.src} 不存在")
+
+    # ---------- frames-manifest ↔ timeline overlays ----------
+    if tl is not None and fm is not None:
+        fm_by_kind = {(f.item, f.kind): f for f in fm.files}
+        fm_missing = set(fm.missing)
+        for o in tl.overlays:
+            if (o.item, o.kind) in fm_by_kind:
+                if not (run / o.src).exists():
+                    V("frames-manifest", "error", "62_timeline.json",
+                      f"overlay {o.item}.{o.kind} src {o.src} 不存在")
+            elif f"{o.item}.{o.kind}" not in fm_missing:
+                V("frames-manifest", "error", "62_timeline.json",
+                  f"overlay {o.item}.{o.kind} 既不在 frames manifest "
+                  "也不在 missing")
+
+    # ---------- manifest-hash（清单所列文件 sha256 复验） ----------
+    for name, mf in (("63_cards_manifest.json", cm),
+                     ("64_frames_manifest.json", fm)):
+        if mf is None:
+            continue
+        for f in mf.files:
+            p = run / f.path
+            if not p.exists():
+                V("manifest-hash", "error", name, f"{f.path} 不存在")
+                continue
+            if _sha256_file(p) != f.sha256:
+                V("manifest-hash", "error", name, f"{f.path} sha256 不匹配")
+    if am is not None:
+        for f in am.files:
+            p = run / f.file
+            if not p.exists():
+                V("manifest-hash", "error", "61_audio_manifest.json",
+                  f"audio {f.file} 不存在")
+            elif _sha256_file(p) != f.sha256:
+                V("manifest-hash", "error", "61_audio_manifest.json",
+                  f"audio {f.file} sha256 不匹配")
+
+    # ---------- hash-chain（80.inputs 与上游文件当前 sha 对齐） ----------
+    if bm is not None:
+        for k, vv in bm.inputs.items():
+            target = run / {"render_plan": "70_render_plan.json",
+                            "timeline": "62_timeline.json",
+                            "audio_manifest": "61_audio_manifest.json",
+                            "frames_manifest": "64_frames_manifest.json"}.get(k, k)
+            if target.exists() and vv != "sha256:" + _sha256_file(target):
+                V("hash-chain", "error", "80_build_manifest.json",
+                  f"inputs.{k} 哈希陈旧（上游改了没重建）")
+
     # ---------- db-consistency（条目池在场才查；只读连接） ----------
     episode = run.name
     db = _resolve_items_db(items_db)
@@ -663,18 +637,11 @@ if __name__ == "__main__":
     import argparse
     _ap = argparse.ArgumentParser(
         description="run 级跨字段校验器（PLAN §4）")
-    _ap.add_argument("run_dir", nargs="?", help="runs/<date> 目录")
+    _ap.add_argument("run_dir", help="runs/<date> 目录")
     _ap.add_argument("--items-db", default=None, metavar="P",
                      help="条目池 items.sqlite 路径"
                           "（默认 config.storage.items_db > state/items.sqlite）")
     _args = _ap.parse_args()
-    if _args.run_dir:
-        _rep = validate_run(_args.run_dir, items_db=_args.items_db)
-        _print_report(_args.run_dir, _rep)
-        sys.exit(0 if _rep["ok"] else 1)
-    if RUN.is_dir():
-        main()  # legacy 自检：repo 根 runs/2026-09-20 fixture 在场时用
-    else:
-        print(f"usage: {Path(sys.argv[0]).name} <run_dir> [--items-db P]   "
-              f"(默认自检目录 {RUN} 不存在)", file=sys.stderr)
-        sys.exit(2)
+    _rep = validate_run(_args.run_dir, items_db=_args.items_db)
+    _print_report(_args.run_dir, _rep)
+    sys.exit(0 if _rep["ok"] else 1)

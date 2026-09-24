@@ -141,7 +141,16 @@ def _lib(name: str):
 
 
 def _proxy() -> str:
-    return os.environ.get("PIPELINE_PROXY", "http://127.0.0.1:7890")
+    """node/tsx 子进程代理兜底：PIPELINE_PROXY → http_proxy/https_proxy/
+    ALL_PROXY env → config.yaml proxy.http → ""（=不用代理）。
+    本机 clash 127.0.0.1:7890 是示例不是默认。"""
+    for k in ("PIPELINE_PROXY", "http_proxy", "https_proxy",
+              "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"):
+        v = os.environ.get(k)
+        if v:
+            return v
+    px = (meta.load_config().get("proxy") or {}).get("http")
+    return str(px) if px else ""
 
 
 def _node_env(run_dir: Path) -> dict:
@@ -151,8 +160,10 @@ def _node_env(run_dir: Path) -> dict:
     tmp = run_dir / "tmp"
     tmp.mkdir(parents=True, exist_ok=True)
     env["TMPDIR"] = str(tmp)
-    for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
-        env.setdefault(k, _proxy())
+    pxy = _proxy()
+    if pxy:
+        for k in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY"):
+            env.setdefault(k, pxy)
     env.setdefault("no_proxy", "localhost,127.0.0.1")
     env.setdefault("NO_PROXY", "localhost,127.0.0.1")
     return env
@@ -521,24 +532,6 @@ def adjust_spec(item: dict, metrics: dict, attempt: int) -> dict:
       attempt 1 — desc 按卡数预算剥标签截断 + 超长 mainTitle 截断；
       attempt 2 — 减卡（≤6）+ 更紧预算。
     返回调整后的 item（新 dict），None 表示无调整空间。"""
-    mod = _lib("layout_d2")
-    for name in ("adjust", "adjust_item", "fit"):
-        fn = getattr(mod, name, None) if mod is not None else None
-        if callable(fn):
-            try:
-                r = fn(item, metrics, attempt)
-                if isinstance(r, dict) and r.get("cards"):
-                    return r
-            except TypeError:
-                try:
-                    r = fn(item, metrics)
-                    if isinstance(r, dict) and r.get("cards"):
-                        return r
-                except Exception:
-                    pass
-            except Exception as e:
-                log.warning("layout_d2.%s 失败: %s", name, str(e)[:100])
-
     it = json.loads(json.dumps(item))    # deepcopy
     n = len(it["cards"])
     table = DESC_BUDGET if attempt <= 1 else DESC_BUDGET_TIGHT
