@@ -6,7 +6,7 @@ collect._finish_items 统一收口。data = 已解析 JSON（GET 拿到非 JSON 
 调用方降级 html diff）。
 
 API_ADAPTERS:         源名 → adapter(data, src, ctx)
-_SELF_FETCH_ADAPTERS: 自抓型 adapter，签名 (src, ctx)，先返 {"items","meta"}
+SELF_FETCH_ADAPTERS:  自抓型 adapter，签名 (src, ctx)，先返 {"items","meta"}
 REQUEST_SPECS:        json_api 但需 POST/特殊头的请求覆写（collect
                       fetch_with_failover 消费）
 """
@@ -534,7 +534,7 @@ API_ADAPTERS = {
 }
 
 # 自抓型 adapter（签名 (src, ctx)，不吃 feed body）
-_SELF_FETCH_ADAPTERS = {api_xiaoyuzhou, api_trust_anthropic}
+SELF_FETCH_ADAPTERS = {api_xiaoyuzhou, api_trust_anthropic}
 
 # json_api 但需 POST/特殊头的请求覆写
 REQUEST_SPECS = {

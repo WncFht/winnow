@@ -81,7 +81,7 @@ def _resolve_proxy(doc: dict) -> str | None:
     return None
 
 
-def _ffprobe_dur(path: Path) -> float:
+def ffprobe_dur(path: Path) -> float:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "json", str(path)],
@@ -133,7 +133,7 @@ def _synth_to_raw(text: str, voice: str, rate: str, raw_path: Path,
 
 def _trim_silence(raw: Path, final: Path, head: float, tail: float) -> tuple[float, float, bool]:
     """ffmpeg atrim 裁头/尾残余静音。返回 (裁剪后 dur, 原始 dur, 是否真裁了)。"""
-    d0 = _ffprobe_dur(raw)
+    d0 = ffprobe_dur(raw)
     if d0 - head - tail <= 0.05:
         # 短到裁不动：直接改名，不破坏音频
         raw.replace(final)
@@ -148,7 +148,7 @@ def _trim_silence(raw: Path, final: Path, head: float, tail: float) -> tuple[flo
     if proc.returncode != 0 or not final.is_file() or final.stat().st_size == 0:
         raise TTSError(f"ffmpeg trim failed: {proc.stderr.strip()[:300]}")
     raw.unlink()
-    return _ffprobe_dur(final), d0, True
+    return ffprobe_dur(final), d0, True
 
 
 def synth(text: str, seg_id: str, out_dir: str | Path, *,
@@ -212,7 +212,7 @@ def _selftest(out_dir: str | Path, voice: str | None) -> int:
             p.unlink()
 
     bounds = _synth_to_raw(text, eff_voice, "+0%", raw)
-    d0 = _ffprobe_dur(raw)
+    d0 = ffprobe_dur(raw)
     dur, _d0b, trimmed = _trim_silence(raw, final, head, tail)
     assert _d0b == d0
 

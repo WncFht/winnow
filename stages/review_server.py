@@ -29,7 +29,7 @@ from os import environ
 from urllib.parse import parse_qs, urlparse
 
 from stages.lib import meta, prog
-from stages import gate_select as gs  # slugify_id/unique_slug/section_slug/lint_selected/now_iso
+from stages.lib import selkit as sk  # slugify_id/unique_slug/section_slug/lint_selected/now_iso
 
 MAX_BODY = 256 * 1024
 # 一行缺任一字段 -> 整个 env 视为不合格（宁可 500 提示页，不要半残渲染）
@@ -421,13 +421,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _refresh(self):
         """40_selected 每次 GET/POST 重读（banner 实时）；candidates mtime 变了就重载 env。"""
         srv = self.server
-        sel = srv.run_dir / gs.SEL_NAME
+        sel = srv.run_dir / sk.SEL_NAME
         if sel.exists():
             try:
                 srv.already = json.loads(sel.read_text(encoding="utf-8"))
             except Exception:
                 pass
-        cp = srv.run_dir / gs.CAND_NAME
+        cp = srv.run_dir / sk.CAND_NAME
         try:
             mt = cp.stat().st_mtime
         except OSError:
@@ -556,12 +556,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 unknown.append(key)
                 continue
             k = dict(cand)
-            slug = gs.slugify_id(str(e.get("id") or cand.get("id") or ""), key)
-            if not gs.SLUG_RE.match(slug):
-                slug = gs.slugify_id(str(cand.get("id") or ""), key)
-            k["id"] = gs.unique_slug(slug, key, taken)
+            slug = sk.slugify_id(str(e.get("id") or cand.get("id") or ""), key)
+            if not sk.SLUG_RE.match(slug):
+                slug = sk.slugify_id(str(cand.get("id") or ""), key)
+            k["id"] = sk.unique_slug(slug, key, taken)
             # 分区全程 slug：vocab 中文名映射 -> slugify -> 'misc'
-            k["section"] = gs.section_slug(e.get("section") or cand.get("section"),
+            k["section"] = sk.section_slug(e.get("section") or cand.get("section"),
                                            key)
             note = e.get("note")
             k["note"] = (str(note).strip()[:60] or None) if note is not None else None
@@ -597,7 +597,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
         # 先校验后写：契约错误一律不落盘（唯一例外 = confirm_empty 的 §11 主动停刊）
         doc = self._build_doc(kept, dropped)
-        errs = gs.lint_selected(doc) + gs.pydantic_validate(doc)
+        errs = sk.lint_selected(doc) + sk.pydantic_validate(doc)
         confirmed_empty = not kept and data.get("confirm_empty") is True
         if errs and not confirmed_empty:
             self._send_json(422, {"ok": False, "lint": errs,
@@ -605,13 +605,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         try:
             with meta.run_lock(self.server.run_dir):
-                meta.atomic_write(self.server.run_dir / gs.SEL_NAME, doc)
-                meta.stage_done(self.server.run_dir, "gate_select", gs.SEL_NAME,
+                meta.atomic_write(self.server.run_dir / sk.SEL_NAME, doc)
+                meta.stage_done(self.server.run_dir, "gate_select", sk.SEL_NAME,
                                 status="done", extra={"decided_by": "human",
                                                       "n_kept": len(kept)})
                 # 池 used 回写：文件已落盘为权威——失败只记 warning，200 照发
                 try:
-                    n_mu = gs.mark_used(self.server.run_dir, doc["episode"],
+                    n_mu = sk.mark_used(self.server.run_dir, doc["episode"],
                                         [k["item_key"] for k in doc["kept"]],
                                         items_db=self.server.items_db)
                     if n_mu is None:
@@ -652,12 +652,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         """episode 与 gate_select.write_selected 一致取 run_dir.name；
         非日期名的 dev 拷贝目录回退 env.episode（否则 lint 必炸，没法测）。"""
         rd_name = self.server.run_dir.name
-        episode = (rd_name if gs.DATE_RE.match(rd_name)
+        episode = (rd_name if sk.DATE_RE.match(rd_name)
                    else (self.server.env or {}).get("episode") or rd_name)
         return {
             "schema": "selected/1",
             "episode": episode,
-            "decided_at": gs.now_iso(),
+            "decided_at": sk.now_iso(),
             "decided_by": "human",
             "kept": [{"item_key": c["item_key"], "id": c["id"],
                       "section": c["section"], "note": c.get("note")}
@@ -695,29 +695,29 @@ def main(argv=None) -> int:
                     help="items.sqlite 路径（used 回写目标；默认 "
                          "config.storage.items_db > state/items.sqlite）")
     args = ap.parse_args(argv)
-    run_dir = gs.resolve_run_dir(args.run_dir)
+    run_dir = sk.resolve_run_dir(args.run_dir)
     # 运行态登记放在 serve_forever 前一刻：serve 期间存活条目即"等人工勾选"
     # 信号；端口绑定失败/前置校验退出不该登记（走不到 stage_done 会留假墓碑）。
     p = prog.Prog(run_dir, "review_server")   # 事件流 -> logs/review_server.prog.jsonl
 
-    cand_path = run_dir / gs.CAND_NAME
+    cand_path = run_dir / sk.CAND_NAME
     env, cand_mtime = None, None
     if cand_path.exists():
         try:
             env = json.loads(cand_path.read_text(encoding="utf-8"))
             cand_mtime = cand_path.stat().st_mtime
         except Exception as e:
-            print(f"[review_server] {gs.CAND_NAME} 解析失败: {e}", file=sys.stderr)
+            print(f"[review_server] {sk.CAND_NAME} 解析失败: {e}", file=sys.stderr)
         if env is not None and not valid_env(env):
-            print(f"[review_server] {gs.CAND_NAME} 结构不合格"
+            print(f"[review_server] {sk.CAND_NAME} 结构不合格"
                   f"（每行须含 {'/'.join(REQUIRED_CAND_KEYS)}）", file=sys.stderr)
             env = None
     else:
-        print(f"[review_server] 缺 {gs.CAND_NAME} — 先跑 `just pick`/--prepare",
+        print(f"[review_server] 缺 {sk.CAND_NAME} — 先跑 `just pick`/--prepare",
               file=sys.stderr)
 
     already = None
-    sel = run_dir / gs.SEL_NAME
+    sel = run_dir / sk.SEL_NAME
     if sel.exists():
         try:
             already = json.loads(sel.read_text(encoding="utf-8"))

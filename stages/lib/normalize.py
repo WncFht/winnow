@@ -13,8 +13,7 @@ title_norm(t)    NFKC + zero-width/control strip + fancy-punct fold +
 parse_date_utc(v)
                  multi-format publish date -> RFC3339 UTC seconds
                  (epoch s/ms/us, ISO, RFC822, common CN formats);
-                 moved verbatim from collect._parse_date — collect keeps a
-                 same-name wrapper delegating here.
+                 moved verbatim from collect._parse_date.
 load_aliases(p)  read aliases.json {canonical: [alias, …]}.
 apply_aliases(t, aliases)
                  rewrite every known alias/canonical spelling to the

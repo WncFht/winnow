@@ -82,7 +82,7 @@ def breeze_cfg(tts_breeze: dict | None, config_path=None) -> dict:
         p = Path(bc[k])
         bc[k] = str(p if p.is_absolute() else REPO / p)
     bc["weights"] = _resolve_weights(bc.get("weights"))
-    bc["ref_text"] = _resolve_ref_text(bc["ref_text"])
+    bc["ref_text"] = resolve_ref_text(bc["ref_text"])
     return bc
 
 
@@ -101,7 +101,7 @@ def _resolve_weights(w: str | None) -> str:
     return str(cands[-1])
 
 
-def _resolve_ref_text(spec: str) -> str:
+def resolve_ref_text(spec: str) -> str:
     """"path.json:key" → json[key]；否则按字面文本。"""
     if ":" in spec:
         path_s, _, key = spec.rpartition(":")

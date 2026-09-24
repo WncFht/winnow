@@ -262,7 +262,7 @@ def _synth_all(rows: list, run_dir: Path, *, adapter, engine_id: str,
                 except Exception:
                     words = []
             results[sid] = {"file": f"{AUDIO_DIR}/{sid}.mp3",
-                            "dur": tts_edge._ffprobe_dur(fpath),
+                            "dur": tts_edge.ffprobe_dur(fpath),
                             "boundaries": words}
             continue
         todo.append(r)
@@ -540,7 +540,7 @@ def run_voice(run_dir: Path, cfg: dict, args) -> dict:
         if args.voice:                     # --voice 选 ref：refs/<v>.wav+transcripts[v]
             rd = Path(bc["refs_dir"])
             bc["ref_audio"] = str(rd / f"{args.voice}.wav")
-            bc["ref_text"] = tts_local._resolve_ref_text(
+            bc["ref_text"] = tts_local.resolve_ref_text(
                 f"{rd}/transcripts.json:{args.voice}")
         voice = args.voice or Path(bc["ref_audio"]).stem
         rate = None                        # 本地引擎无 rate 概念
@@ -683,7 +683,7 @@ def _selftest() -> int:
     srt = (run_dir / F_SRT).read_text()
     chk("srt 非空且含箭头", "-->" in srt and len(srt) > 100)
     wav = run_dir / FULL_WAV
-    wav_dur = tts_edge._ffprobe_dur(wav) if wav.is_file() else 0.0
+    wav_dur = tts_edge.ffprobe_dur(wav) if wav.is_file() else 0.0
     chk("voice_full.wav 存在且时长==total±0.05",
         wav.is_file() and abs(wav_dur - tl["total"]) <= 0.05,
         f"wav={wav_dur:.3f} total={tl['total']:.3f}")

@@ -69,10 +69,10 @@ import yaml  # noqa: E402
 from contracts.models import RawItem, RawManifest  # noqa: E402
 from stages.lib import http as lhttp  # noqa: E402
 from stages.lib import meta, normalize, pool, prog, rawitem  # noqa: E402
-from stages.lib.sources import api as _src_api  # noqa: E402
-from stages.lib.sources import common as _src_common  # noqa: E402
-from stages.lib.sources import diff as _src_diff  # noqa: E402
-from stages.lib.sources import feed as _src_feed  # noqa: E402
+from stages.lib.sources import api as src_api  # noqa: E402
+from stages.lib.sources import common as src_common  # noqa: E402
+from stages.lib.sources import diff as src_diff  # noqa: E402
+from stages.lib.sources import feed as src_feed  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 TZ = ZoneInfo("Asia/Shanghai")
@@ -84,8 +84,6 @@ SEEN_PATH = REPO / "state" / "seen.json"
 HEALTH_PATH = REPO / "state" / "source_health.json"
 
 CONTENT_MIN = 200                    # <200 字 → 正文补抓
-SEEN_URL_CAP = _src_common.SEEN_URL_CAP  # 每源 seen urls 滚动上限
-CONTENT_TEXT_CAP = rawitem.CONTENT_TEXT_CAP  # content_text 上限（对齐 trafilatura 回填）
 
 # 防盗链图床（浏览器热链 403）：本地化下载到 run_dir/media/
 WALLED_IMG_HOSTS = (
@@ -303,43 +301,18 @@ class Ctx:
         return lhttp.get(url, proxy=self.proxy_arg(src), **kw)
 
 
-# ============================================= 移出符号别名（lib 下沉） ======
-# feed/json_api/diff 适配器 → stages/lib/sources/{feed,api,diff}.py；
-# 文本/构造 helper → stages/lib/{normalize,http,rawitem}.py。别名让 collect
-# 内部遗留调用与外部 `collect.X` 引用保持可用。
-
-_utcnow = normalize.utcnow
-_parse_date = normalize.parse_date_utc
-_sha16 = normalize.sha16
-_slug_title = normalize.slug_title
-_bounded_text = normalize.bounded_text
-_TRUNC_MARK = normalize.TRUNC_MARK
-mk_item = rawitem.mk_item
-_post_json = lhttp.post_json
-_via = lhttp.fetch_via
-
-parse_feed = _src_feed.parse_feed
-_looks_like_feed = _src_feed.looks_like_feed
-api_generic = _src_api.api_generic
-API_ADAPTERS = _src_api.API_ADAPTERS
-_SELF_FETCH_ADAPTERS = _src_api._SELF_FETCH_ADAPTERS
-REQUEST_SPECS = _src_api.REQUEST_SPECS
-collect_sitemap = _src_diff.collect_sitemap
-collect_changelog = _src_diff.collect_changelog
-
-
 def _validate_item(it: dict) -> dict | None:
     """契约校验 + 内容上限兜底；不合法条目丢 + 记日志（宁缺勿炸）。
 
-    平台采集器（x/reddit/weibo）直造 raw dict 绕过 mk_item——截断/行分隔符
+    平台采集器（x/reddit/weibo）直造 raw dict 绕过 rawitem.mk_item——截断/行分隔符
     归一在这里再兜一次，保证「无 >CAP 内容字段」是全路径不变量。
     content_html 已退役（契约字段保留但标 DEPRECATED）——这里单一收口
-    pop 掉，绕过 mk_item 的 producer/旧缓存残留也漏不进产物。"""
+    pop 掉，绕过 rawitem.mk_item 的 producer/旧缓存残留也漏不进产物。"""
     try:
         it = dict(it)
         it.pop("content_html", None)
-        it["content_text"] = _bounded_text(it.get("content_text"),
-                                           CONTENT_TEXT_CAP)
+        it["content_text"] = normalize.bounded_text(it.get("content_text"),
+                                           rawitem.CONTENT_TEXT_CAP)
         d = RawItem.model_validate(it).model_dump(by_alias=True)
         d.pop("content_html", None)
         return d
@@ -571,15 +544,15 @@ def content_pass(item: dict, src: dict, ctx) -> None:
         meta_d = {}
     ext_text = (meta_d.get("text") or meta_d.get("raw_text") or "").strip()
     if ext_text and len(ext_text) > len(text):
-        item["content_text"] = _bounded_text(ext_text, CONTENT_TEXT_CAP)
+        item["content_text"] = normalize.bounded_text(ext_text, rawitem.CONTENT_TEXT_CAP)
     if meta_d.get("title") and (
             is_signal or not item.get("title") or
-            item["title"] == _slug_title(item["url"])):
+            item["title"] == normalize.slug_title(item["url"])):
         item["title"] = normalize.title_norm(meta_d["title"])
     if not item.get("date_published") and meta_d.get("date"):
         # trafilatura 在 JS 壳页会拿版权年/构建戳编日期——只信提取到
         # 达标正文的页，且拒未来日期（date-only 精度给 +2d 宽限）
-        d = _parse_date(meta_d["date"])
+        d = normalize.parse_date_utc(meta_d["date"])
         if d and len(ext_text) >= 500 and datetime.fromisoformat(d) \
                 <= datetime.now(timezone.utc) + timedelta(days=2):
             item["date_published"] = d
@@ -624,7 +597,7 @@ def media_pass(item: dict, src: dict, ctx) -> None:
         else:
             return                          # 不是图 → 留原 URL
     media_dir.mkdir(parents=True, exist_ok=True)
-    name = f"{_sha16(img)}{ext}"
+    name = f"{normalize.sha16(img)}{ext}"
     try:
         meta.atomic_write(media_dir / name, r.body)   # tmp+replace，免半截文件
         item["image"] = f"media/{name}"
@@ -637,18 +610,18 @@ def media_pass(item: dict, src: dict, ctx) -> None:
 def _finish_items(partials: list[dict], src: dict, ctx,
                   res: lhttp.FetchResult, raw_ref: str | None,
                   kind: str) -> list[dict]:
-    """adapter partial → contract dict（mk_item）。"""
-    sha = _sha16(res.body or b"")
+    """adapter partial → contract dict（rawitem.mk_item）。"""
+    sha = normalize.sha16(res.body or b"")
     out = []
     for p in partials:
         if not p.get("url"):
             continue
-        it = mk_item(
+        it = rawitem.mk_item(
             url=p["url"], title=p.get("title") or "", src=src, kind=kind,
             date=p.get("date"), summary=p.get("summary"),
             image=p.get("image"),
             tags=p.get("tags") or [], guid=p.get("guid"),
-            fetch_status=res.status, via=_via(res), etag=res.etag,
+            fetch_status=res.status, via=lhttp.fetch_via(res), etag=res.etag,
             content_sha=sha, raw_ref=raw_ref)
         if p.get("signal"):
             if "signal" not in it["tags"]:
@@ -690,7 +663,7 @@ def fetch_with_failover(src: dict, ctx, spec: dict | None):
                     payload["variables"].get("since") is None:
                 payload["variables"]["since"] = \
                     ctx.win[0].strftime("%Y-%m-%d")
-            res = _post_json(u, payload, spec.get("headers") or {},
+            res = lhttp.post_json(u, payload, spec.get("headers") or {},
                              ctx.proxy_arg(src))
         else:
             res = ctx.get(u, src, etag=v.get("etag"),
@@ -778,7 +751,7 @@ def collect_source(src: dict, ctx) -> dict:
         return stat
 
     # ---------- Tier-A：HTTP 取包 → 分派解析 ----------
-    spec = REQUEST_SPECS.get(name) if method == "json_api" else None
+    spec = src_api.REQUEST_SPECS.get(name) if method == "json_api" else None
     res, url_used = fetch_with_failover(src, ctx, spec)
     stat["latency_ms"] = res.latency_ms
     stat["endpoint"] = url_used
@@ -804,11 +777,11 @@ def collect_source(src: dict, ctx) -> dict:
         log.debug("save_raw fail %s: %s", name, e)
 
     items: list[dict] = []
-    is_feed_body = _looks_like_feed(body)
+    is_feed_body = src_feed.looks_like_feed(body)
 
     try:
         if method in ("rss", "atom", "youtube_rss") or is_feed_body:
-            items = parse_feed(body, src, res, raw_ref)
+            items = src_feed.parse_feed(body, src, res, raw_ref)
             if not items and not is_feed_body:
                 items = _json_rescue(body, src, ctx, res, raw_ref, stat)
             if not items and not is_feed_body:
@@ -816,9 +789,9 @@ def collect_source(src: dict, ctx) -> dict:
         elif method == "json_api":
             items = _json_items(src, ctx, body, res, raw_ref, stat)
         elif method == "sitemap_diff":
-            items = collect_sitemap(src, ctx, body, res, raw_ref)
+            items = src_diff.collect_sitemap(src, ctx, body, res, raw_ref)
         elif method == "changelog_diff":
-            items = collect_changelog(src, ctx, body, res, raw_ref)
+            items = src_diff.collect_changelog(src, ctx, body, res, raw_ref)
     except ET.ParseError:
         stat["status"] = "parse_error"
     except Exception as e:
@@ -839,7 +812,7 @@ def _json_rescue(body, src, ctx, res, raw_ref, stat=None) -> list[dict]:
             stat["last_error"] = "rescue: body not JSON"
         return []
     try:
-        partials, _ = api_generic(data, src, ctx)
+        partials, _ = src_api.api_generic(data, src, ctx)
     except Exception as e:
         if stat is not None:
             stat["last_error"] = f"rescue generic: {e}"[:200]
@@ -853,10 +826,10 @@ def _json_rescue(body, src, ctx, res, raw_ref, stat=None) -> list[dict]:
 def _json_items(src, ctx, body, res, raw_ref, stat) -> list[dict]:
     """json_api：具名 adapter → 通用 walker → HTML 降级 changelog diff。"""
     name = src["name"]
-    fn = API_ADAPTERS.get(name)
+    fn = src_api.API_ADAPTERS.get(name)
     # 自抓型 adapter（xiaoyuzhou/trust_anthropic）不吃 feed body，
     # 必须在 json 解析/HTML 降级之前分派（它们的首包常是 HTML 壳）。
-    if fn in _SELF_FETCH_ADAPTERS:
+    if fn in src_api.SELF_FETCH_ADAPTERS:
         try:
             partials, _ = fn(src, ctx)
         except Exception as e:
@@ -869,7 +842,7 @@ def _json_items(src, ctx, body, res, raw_ref, stat) -> list[dict]:
     except json.JSONDecodeError:
         text = body.decode("utf-8", "replace")
         if "<html" in text[:4096].lower():
-            return collect_changelog(src, ctx, body, res, raw_ref)
+            return src_diff.collect_changelog(src, ctx, body, res, raw_ref)
         stat["status"] = "parse_error"
         stat["last_error"] = "body not JSON"
         return []
@@ -877,11 +850,11 @@ def _json_items(src, ctx, body, res, raw_ref, stat) -> list[dict]:
         if fn:
             partials, _ = fn(data, src, ctx)
         else:
-            partials, _ = api_generic(data, src, ctx)
+            partials, _ = src_api.api_generic(data, src, ctx)
     except Exception as e:
         log.info("adapter %s failed (%s) -> generic", name, e)
         try:
-            partials, _ = api_generic(data, src, ctx)
+            partials, _ = src_api.api_generic(data, src, ctx)
         except Exception as e2:
             stat["status"] = "parse_error"
             stat["last_error"] = str(e2)[:200]
@@ -900,7 +873,7 @@ def _json_path(src, ctx, stat):
         return None
     try:
         data = json.loads((res.body or b"").decode("utf-8", "replace"))
-        partials, _ = api_generic(data, src, ctx)
+        partials, _ = src_api.api_generic(data, src, ctx)
         if not partials:
             stat["status"], stat["last_error"] = "empty", "generic walker 0 items"
             return None
@@ -919,7 +892,7 @@ def _feed_path(src, ctx, stat):
         stat["status"], stat["last_error"] = res.error, \
             (res.detail or res.error)[:200]
         return None
-    return parse_feed(res.body or b"", src, res, None)
+    return src_feed.parse_feed(res.body or b"", src, res, None)
 
 
 def _stat_items(stat, src, ctx, items):
@@ -965,9 +938,9 @@ def manual_item(url: str, title: str | None, ctx) -> dict:
     src = {"name": "manual", "feed_url": url, "proxy": "prefer",
            "max_items_per_source": 1}
     r = ctx.get(url, src, timeout=20, retries=1)
-    it = mk_item(url=url, title=title or "", src=src, kind="manual",
+    it = rawitem.mk_item(url=url, title=title or "", src=src, kind="manual",
                  fetch_status=r.status if r.status else 0, via="manual",
-                 etag=r.etag, content_sha=_sha16(r.body or b""),
+                 etag=r.etag, content_sha=normalize.sha16(r.body or b""),
                  reachable=r.ok)
     if r.ok:
         try:
@@ -976,18 +949,18 @@ def manual_item(url: str, title: str | None, ctx) -> dict:
                                       with_metadata=True)
             d = json.loads(out) if out else {}
             if d.get("text"):
-                it["content_text"] = _bounded_text(d["text"], CONTENT_TEXT_CAP)
+                it["content_text"] = normalize.bounded_text(d["text"], rawitem.CONTENT_TEXT_CAP)
             if not title and d.get("title"):
                 it["title"] = normalize.title_norm(d["title"])
             if d.get("date"):
-                it["date_published"] = _parse_date(d["date"])
+                it["date_published"] = normalize.parse_date_utc(d["date"])
             if d.get("image"):
                 it["image"] = d["image"]
             it["_raw_ref"] = lhttp.save_raw(ctx.run_dir, "manual", url, r.body)
         except Exception:
             pass
     if not it["title"]:
-        it["title"] = _slug_title(url)
+        it["title"] = normalize.slug_title(url)
     media_pass(it, src, ctx)
     return it
 
@@ -1025,7 +998,7 @@ def _update_health(health: dict, stat: dict, run_date: str) -> None:
         h["consecutive_fails"] = int(h.get("consecutive_fails", 0)) + 1
     h.update({"last_status": st, "last_error": stat.get("last_error"),
               "last_latency_ms": stat.get("latency_ms"),
-              "updated_at": _utcnow()})
+              "updated_at": normalize.utcnow()})
 
 
 def _pool_upsert(args, cfg: dict, run_dir: Path, run_date: str,
@@ -1162,7 +1135,7 @@ def run(args) -> int:
             ent["last_status"] = next(
                 (s["status"] for s in ctx.stats if s["name"] == src["name"]),
                 "skipped")
-            ent["last_ok"] = _utcnow() if ent["last_status"] == ST_OK \
+            ent["last_ok"] = normalize.utcnow() if ent["last_status"] == ST_OK \
                 else ent.get("last_ok")
             # seen.urls 合并：diff 源的 round_urls 全集 > 本批 emitted canons
             round_urls = ent.pop("round_urls", None)
@@ -1171,7 +1144,7 @@ def run(args) -> int:
             if merged_in:
                 ent["urls"] = list(dict.fromkeys(
                     list(merged_in) +
-                    [u for u in (ent.get("urls") or []) if u]))[:SEEN_URL_CAP]
+                    [u for u in (ent.get("urls") or []) if u]))[:src_common.SEEN_URL_CAP]
         _save_json(SEEN_PATH, seen)
         _save_json(HEALTH_PATH, health)
 
@@ -1213,7 +1186,7 @@ def run(args) -> int:
 
 def _items_stats(items: list[dict]) -> dict:
     """产物体积簿记 → manifest["stats"]：行字节按落盘序列化（dumps_jsonl_row）
-    实测，截断数按 _TRUNC_MARK 留痕识别（启发式，理论误报≈0）。"""
+    实测，截断数按 normalize.TRUNC_MARK 留痕识别（启发式，理论误报≈0）。"""
     n_text = n_text_trunc = 0
     max_text = max_line = total = 0
     for it in items:
@@ -1221,14 +1194,14 @@ def _items_stats(items: list[dict]) -> dict:
         if t:
             n_text += 1
             max_text = max(max_text, len(t))
-            if t.endswith(_TRUNC_MARK):
+            if t.endswith(normalize.TRUNC_MARK):
                 n_text_trunc += 1
         b = len((meta.dumps_jsonl_row(it) + "\n").encode("utf-8"))
         max_line, total = max(max_line, b), total + b
     return {
         "jsonl_bytes": total,
         "max_line_bytes": max_line,
-        "content_text": {"cap_chars": CONTENT_TEXT_CAP, "n_present": n_text,
+        "content_text": {"cap_chars": rawitem.CONTENT_TEXT_CAP, "n_present": n_text,
                          "n_truncated": n_text_trunc, "max_chars": max_text},
     }
 
@@ -1254,7 +1227,7 @@ def _manifest(run_date, win, items, ctx, preflight=None, degraded=False,
         "file": ITEMS_NAME,
         "n_items": len(items),
         "sources": sources_stats,
-        "produced_at": _utcnow(),
+        "produced_at": normalize.utcnow(),
         "stats": _items_stats(items),
     }
 
