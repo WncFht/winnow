@@ -527,5 +527,5 @@ clock 偏移<5min / disk free>2GB / /tmp 占用<85% / net 出站 / proxy_ok（�
 | `video.shot_sentences` 口径三分歧 | digest 按 `len(voice)` 写句区间、voice 阶段按自身 seg 计数、render_plan 按句区间编译——三者各自为政，si 出现空洞时区间会发散 | 统一为同一 seg 序来源（voice 计数为准），digest/callb 侧对齐 |
 | meta_qa ASR 校验未启用 | `checks.asr` 恒 `{skipped:true}`（§7.9）：对齐后备 ForcedAligner 未接线，breeze `boundaries=[]` 无词级锚点 | breeze 档下补 ASR round-trip（抽样转写对 text_display），或先接 zh-forced-align |
 | ~~`validate_run` 对 50_issue 只浅校验~~ 已修 | issue/1 已补 pydantic 模型（contracts/models.py Issue/IssueItem，item_key 贯通），validate_run 走全量字段校验 | —— |
-| git 缩包 | 2.2GB 生成物出库后，历史包仍大；filter-repo 缩包需 force-push 窗口 | 暂缓，待无协作者窗口期执行 |
+| ~~git 缩包~~ 已修 | 两次 filter-repo 已 purge experiments/repro/evidence/runs 全历史（SHA 全变），.git 现 ~25MB；发布 = 推全新 remote | —— |
 | ~~shotlib 字体路径~~ 已修 | `_placeholder_pil` 候选首位已改 `noto-cjk/NotoSansCJK-Bold.ttc` + 发行版路径矩阵注释（Arch=noto-cjk / Debian=opentype / Fedora=noto-sans-cjk） | —— |
