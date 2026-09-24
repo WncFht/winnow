@@ -4,7 +4,7 @@
       "additionalProperties": false,
       "properties": {
         "status": {
-          "description": "HTTP status；manual=0",
+          "description": "HTTP status. manual=0",
           "title": "Status",
           "type": "integer"
         },

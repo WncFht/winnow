@@ -683,15 +683,23 @@ def embed_leak_audit(issue: dict, content_by_key: dict, key_by_id: dict,
 # ---------------------------------------------------------------------------
 
 def _kept_maps(run_dir: Path, issue: dict) -> tuple[list, dict]:
-    """kept item_keys + id→item_key。40_selected 缺失时按 sources.url→raw 兜底。"""
-    key_by_id, keys = {}, []
+    """kept item_keys + id→item_key。
+
+    优先级：issue.items[].item_key（digest 注入，最权威）→ 40_selected kept[]
+    → sources.url→raw 反查兜底（旧 issue/丢失 item_key 字段时）。
+    """
+    key_by_id = {}
+    for it in issue.get("items", []) or []:
+        if it.get("item_key") and it.get("id"):
+            key_by_id.setdefault(it["id"], it["item_key"])
     sel_p = run_dir / F_SELECTED
     if sel_p.exists():
         for k in (_load_json(sel_p).get("kept") or []):
             if k.get("item_key") and k.get("id"):
-                key_by_id[k["id"]] = k["item_key"]
-                keys.append(k["item_key"])
-    if not key_by_id:
+                key_by_id.setdefault(k["id"], k["item_key"])
+    missing = [it.get("id") for it in issue.get("items", []) or []
+               if it.get("id") and it["id"] not in key_by_id]
+    if missing:
         by_url = {}
         for name in (F_RAW, F_POOL_ITEMS):   # 当期 raw ∪ 结转池投影（缺文件跳过）
             p = run_dir / name
@@ -706,12 +714,17 @@ def _kept_maps(run_dir: Path, issue: dict) -> tuple[list, dict]:
                           (r.get("url_canon") or "").rstrip("/")} - {None, ""}:
                     by_url[u] = k
         for it in issue.get("items", []) or []:
+            if it.get("id") not in missing:
+                continue
             for s in it.get("sources", []) or []:
                 u = (s.get("url") or "")
                 k = by_url.get(u) or by_url.get(u.rstrip("/"))
-                if k and it.get("id") not in key_by_id:
+                if k:
                     key_by_id[it["id"]] = k
-                    keys.append(k)
+                    break
+    keys = list(dict.fromkeys(
+        key_by_id[it["id"]] for it in issue.get("items", []) or []
+        if it.get("id") in key_by_id))
     return keys, key_by_id
 
 

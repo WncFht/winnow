@@ -15,7 +15,7 @@ from collections import Counter
 from pathlib import Path
 
 from contracts.models import (AudioManifest, BuildManifest, Cards, DedupVerdict,
-                    FilterVerdict, FramesManifest, RawItem, RawManifest,
+                    FilterVerdict, FramesManifest, Issue, RawItem, RawManifest,
                     RenderPlan, RunMeta, Selected, Summary, Timeline, VoiceSeg)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -249,18 +249,25 @@ def validate_run(run_dir, items_db=None):
             if issue.get("schema") not in ("issue/1", "issue/v1"):
                 V("schema-lint", "error", "50_issue.json",
                   f"schema={issue.get('schema')!r} ≠ issue/1|issue/v1")
-            for req in ("sections", "items"):
-                if req not in issue:
-                    V("schema-lint", "error", "50_issue.json", f"缺顶层字段 {req}")
-            for it in issue.get("items", []):
-                iid = it.get("id", "?")
-                for k in _ISSUE_ITEM_REQ:
-                    if k not in it:
-                        V("schema-lint", "error", "50_issue.json",
-                          f"item {iid} 缺字段 {k}")
-                if not _SLUG_RE.fullmatch(str(iid)):
+            elif issue.get("schema") == "issue/1":
+                try:
+                    Issue.model_validate(issue)
+                except Exception as ex:
                     V("schema-lint", "error", "50_issue.json",
-                      f"item id {iid!r} 不符合 slug 规范")
+                      f"schema 校验失败: {str(ex)[:300]}")
+            else:   # legacy issue/v1：浅校验
+                for req in ("sections", "items"):
+                    if req not in issue:
+                        V("schema-lint", "error", "50_issue.json", f"缺顶层字段 {req}")
+                for it in issue.get("items", []):
+                    iid = it.get("id", "?")
+                    for k in _ISSUE_ITEM_REQ:
+                        if k not in it:
+                            V("schema-lint", "error", "50_issue.json",
+                              f"item {iid} 缺字段 {k}")
+                    if not _SLUG_RE.fullmatch(str(iid)):
+                        V("schema-lint", "error", "50_issue.json",
+                          f"item id {iid!r} 不符合 slug 规范")
     else:
         skipped.append("50_issue.json")
 

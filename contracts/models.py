@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -219,6 +219,198 @@ class Selected(BaseModel):
     kept: list[KeptItem] = Field(min_length=0)
     dropped: list[dict] = Field(
         default_factory=list, description="[{item_key,reason?}] 被人工否掉的，留痕"
+    )
+
+
+# ---------- stage 5: issue.json ----------
+
+
+class IssueSection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slug: str = Slug
+    name: str
+    icon: str | None = None
+
+
+class IssueSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    url: str = Field(json_schema_extra={"format": "uri"})
+    label: str | None = None
+    kind: (
+        Literal["official", "repo", "paper", "media", "social", "community", "other"]
+        | None
+    ) = Field(
+        default=None,
+        description="drives link-check + screenshot policy: e.g. social/x.com "
+        "unreachable from CN network -> skip shot or use mirror",
+    )
+    primary: bool | None = Field(
+        default=None,
+        description="exactly one primary source per item; drives the 相关链接 "
+        "lead link and the default screenshot target",
+    )
+    reachable: bool | None = Field(
+        default=None,
+        description="set by the fetch/link-check stage; renderers may warn or "
+        "drop unreachable sources",
+    )
+
+
+class IssueMedia(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["image", "gif", "shot", "cover"]
+    src: str = Field(description="local/mirrored path or absolute URL")
+    origin: str | None = Field(
+        default=None,
+        json_schema_extra={"format": "uri"},
+        description="where the asset came from (source page)",
+    )
+    alt: str | None = None
+
+
+class IssueCard(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(
+        description="2-7 chars; maps to GeneratedContent.cards[].title"
+    )
+    body: str = Field(
+        description="30-60 chars, inline-markdown subset; maps to "
+        "GeneratedContent.cards[].desc after md->html-inline conversion"
+    )
+    icon: str | None = Field(
+        default=None,
+        description="Material Symbols name, snake_case; falls back to "
+        "'article' in renderer",
+    )
+
+
+class IssueSegment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    voice: list[str] | None = None
+    note: str | None = None
+
+
+class IssueVideoLinks(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bilibili: str | None = Field(default=None, json_schema_extra={"format": "uri"})
+    youtube: str | None = Field(default=None, json_schema_extra={"format": "uri"})
+
+
+class IssueVideo(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    shot_sentences: list[Annotated[int, Field(ge=1)]] | None = Field(
+        default=None,
+        description="1-based indexes into voice[] during which the source-page "
+        "screenshot overlay shows; production hint filled at video-plan stage",
+    )
+
+
+class IssueItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(
+        pattern=r"^[a-z0-9-]{2,24}$",
+        description="stable slug; EVERY downstream artifact keys on this "
+        "(cards, voice files, frames, timeline, dedup history)",
+    )
+    item_key: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{16}$",
+        description="sha256(url_canon)[:16] 机械身份——digest 从 kept 注入；"
+        "落档后与 slug 并存，history 回写/溯源直接 join，不再经 sources.url 反查",
+    )
+    section: str = Field(
+        description="must equal a slug declared in issue.sections"
+    )
+    nav: str | None = Field(
+        default=None,
+        description="short label for video nav bar / breadcrumb / overview list",
+    )
+    headline: str
+    title_short: str | None = Field(
+        default=None,
+        description="optional shorter card title for GeneratedContent.mainTitle; "
+        "renderer falls back to headline",
+    )
+    tldr: str = Field(
+        description="1-2 dense sentences; renders as the blockquote lead"
+    )
+    body: list[str] = Field(
+        min_length=1,
+        description="paragraphs, inline-markdown subset; the written-text spine "
+        "of the item",
+    )
+    sources: list[IssueSource] = Field(
+        description="SHOULD have >=1; empty is legal (e.g. deleted source post — "
+        "real case: 2026-09-20 #14 kimi) but the validator warns"
+    )
+    media: list[IssueMedia] | None = None
+    confidence: Literal["confirmed", "reported", "rumor", "speculation"] = Field(
+        description="official fact vs media report vs leak/speculation; enforces "
+        "the hedging rule in renders and lets video style differ"
+    )
+    entities: list[str] | None = Field(
+        default=None,
+        description="optional proper-noun list (models, companies, people); used "
+        "by dedup/clustering and the no-new-entities validator",
+    )
+    facts: list[str] | None = Field(
+        default=None,
+        description="optional claim whitelist: precise fragments the editor "
+        "stands behind (e.g. '42.5万例增强腹部CT', '总参数29B 激活4B'). "
+        "voice/cards may use numbers from headline+tldr+body+facts; anything "
+        "else is flagged. This is the deterministic anti-hallucination hook for "
+        "downstream LLM stages.",
+    )
+    voice: list[str] | None = Field(
+        default=None,
+        description="PROJECTION, filled by the voice-script stage; one entry = "
+        "one TTS sentence; plain text only",
+    )
+    cards: list[IssueCard] | None = Field(
+        default=None,
+        max_length=8,
+        description="PROJECTION, filled by the card stage; contract-compatible "
+        "with juya-news-card GeneratedContent",
+    )
+    video: IssueVideo | None = None
+
+
+class Issue(BaseModel):
+    """Canonical contract for one daily AI-news issue. Single source of truth;
+    every downstream artifact (publishablePost.md/html, voiceText,
+    GeneratedContent cards, RSS/JSON-Feed, video plan) is a deterministic
+    projection of this document. Text fields use ONE inline dialect: CommonMark
+    inline subset — **bold**, `code`, [text](url). No block markup inside
+    strings. Spoken text (voice) is plain text, numbers already written in
+    speakable form."""
+
+    model_config = ConfigDict(extra="forbid", title="DailyIssue")
+    schema_: Literal["issue/1"] = Field(default="issue/1", alias="schema")
+    date: str = Field(json_schema_extra={"format": "date"})
+    weekday: str | None = None
+    lang: str = Field(json_schema_extra={"default": "zh-CN"})
+    issue_url: str | None = Field(
+        default=None, json_schema_extra={"format": "uri"}
+    )
+    video_links: IssueVideoLinks | None = None
+    cover: IssueMedia | None = None
+    degraded: bool = Field(
+        default=False,
+        description="digest 降级标记：LLM 调用失败/部分字段兜底时置 true，"
+        "下游 UI 可显式提示",
+    )
+    sections: list[IssueSection] = Field(
+        min_length=1,
+        description="Ordered taxonomy for THIS issue. Order in array = render "
+        "order. Item.section must equal one of these slugs (checked by "
+        "validator, cross-field).",
+    )
+    intro: IssueSegment | None = None
+    outro: IssueSegment | None = None
+    items: list[IssueItem] = Field(
+        min_length=1,
+        description="Order in array = canonical order; the #N numbering in "
+        "renders is derived from position, never stored.",
     )
 
 
@@ -508,6 +700,7 @@ MODELS = {
     "summary": Summary,
     "dedup_verdict": DedupVerdict,
     "selected": Selected,
+    "issue": Issue,
     "voice_seg": VoiceSeg,
     "audio_manifest": AudioManifest,
     "timeline": Timeline,

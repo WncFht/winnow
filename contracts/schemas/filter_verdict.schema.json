@@ -15,7 +15,7 @@
           "type": "string"
         },
         "input_sha": {
-          "description": "本行输入(item_key 或拼接文本)的 sha256[:16]，重放核对",
+          "description": "本行输入 (item_key 或拼接文本) 的 sha256[:16]，重放核对",
           "title": "Input Sha",
           "type": "string"
         },

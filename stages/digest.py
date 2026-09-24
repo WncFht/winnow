@@ -371,9 +371,9 @@ def _strip_unknown_keys(doc: dict) -> dict:
     for k in list(doc.keys()):
         if k not in top:
             doc.pop(k)
-    item_keys = {"id", "section", "nav", "headline", "title_short", "tldr",
-                 "body", "sources", "media", "confidence", "entities", "facts",
-                 "voice", "cards", "video"}
+    item_keys = {"id", "item_key", "section", "nav", "headline", "title_short",
+                 "tldr", "body", "sources", "media", "confidence", "entities",
+                 "facts", "voice", "cards", "video"}
     sec_keys = {"slug", "name", "icon"}
     src_keys = {"url", "label", "kind", "primary", "reachable"}
     for s in doc.get("sections", []) or []:
@@ -463,6 +463,7 @@ def _normalize_item(raw_it: dict, item: dict, kept_by_id: dict, flags: list) -> 
     it = dict(raw_it) if isinstance(raw_it, dict) else {}
     out = {
         "id": iid,
+        "item_key": item.get("item_key"),  # 机械身份贯通：落档后可直接 join history
         "section": item["section"],   # kept.section 是人工闸的决定，强制沿用
         "nav": str(it.get("nav") or item.get("title", ""))[:12] or iid,
         "headline": " ".join(str(it.get("headline") or item.get("title", "")).split()),
