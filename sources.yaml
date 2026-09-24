@@ -2,7 +2,7 @@
 # 种子: experiments/source-seeds/domains.json (135 域) + rss_titles.json + research_result.json 逐源实测笔记
 # 通道全部经 2026-09-21 本机实测 (中国大陆直连/本机代理), 未实测的在 note 里标注
 # method: rss|atom|json_api|sitemap_diff|changelog_diff|x|reddit|weibo|wechat|youtube_rss|manual
-# tier:   A=零凭据直连  B=平台采集器(反爬/凭证/池化)
+# tier:   A=零凭据直连  B=平台采集器 (反爬/凭证/池化)
 # proxy:  required(代理挂则跳过)|prefer(优先代理可直连)|direct_only
 # daily:  true => item pubDate is authoritative — window by date_published; absent/false => archive/signal/undated — window by first_seen arrival grace
 # lint:   method∈枚举 / 无重复 feed_url / 0<freshness_sla_h≤168 / max_items_per_source≤200 / daily 非 bool→warn
@@ -21,7 +21,7 @@
   freshness_sla_h: 36
   max_items_per_source: 40
   proxy: prefer
-  note: "1210 条全量归档 feed 非按日期排序,新条目按 guid diff; 实测直连 200"
+  note: "1210 条全量归档 feed 非按日期排序，新条目按 guid diff; 实测直连 200"
 
 - name: openai_status
   method: rss
@@ -44,7 +44,7 @@
   freshness_sla_h: 48
   max_items_per_source: 40
   proxy: prefer
-  note: "pubDate 不可信(混 2025/2026),必须按 guid 集合 diff; feed 不含 blog 帖"
+  note: "pubDate 不可信 (混 2025/2026),必须按 guid 集合 diff; feed 不含 blog 帖"
 
 - name: anthropic_sitemap
   method: sitemap_diff
@@ -72,7 +72,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "Content-Type 误标 rss+xml 但 body 是标准 urlset,按 sitemap 解析; 展示日期以文章页 JSON-LD 为准"
+  note: "Content-Type 误标 rss+xml 但 body 是标准 urlset，按 sitemap 解析; 展示日期以文章页 JSON-LD 为准"
 
 - name: academy_claude
   method: sitemap_diff
@@ -84,7 +84,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "教学站点,低频; 09-22 验证 empty=无新 URL 属正常(779 URL 全已见)"
+  note: "教学站点，低频; 09-22 验证 empty=无新 URL 属正常 (779 URL 全已见)"
 
 - name: code_claude
   method: sitemap_diff
@@ -96,7 +96,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "Claude Code 文档/changelog 站(疑 Mintlify,可探 .md 版); 09-22 验证 empty=无新 URL 属正常(2352 URL 全已见)"
+  note: "Claude Code 文档/changelog 站 (疑 Mintlify，可探 .md 版); 09-22 验证 empty=无新 URL 属正常 (2352 URL 全已见)"
 
 - name: trust_anthropic
   method: json_api
@@ -107,7 +107,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "Vanta SPA; api_trust_anthropic 自抓 manifest+签名 GraphQL publicUpdates(09-22 实测 ok); 签名绑 query 文本,401 时用 experiments/trust-anthropic-monitor/capture_gql.py 重捕获"
+  note: "Vanta SPA; api_trust_anthropic 自抓 manifest+ 签名 GraphQL publicUpdates(09-22 实测 ok); 签名绑 query 文本，401 时用 experiments/trust-anthropic-monitor/capture_gql.py 重捕获"
 
 - name: darioamodei
   method: sitemap_diff
@@ -119,7 +119,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "条件 GET 304 可用,缓存 ~12h; Content-Type 误标按 body 解析; 09-22 验证 empty=无新 URL 属正常(9 URL 全已见)"
+  note: "条件 GET 304 可用，缓存 ~12h; Content-Type 误标按 body 解析; 09-22 验证 empty=无新 URL 属正常 (9 URL 全已见)"
 
 - name: google_deepmind_blog
   method: rss
@@ -155,7 +155,7 @@
   freshness_sla_h: 36
   max_items_per_source: 30
   proxy: required
-  note: "catch-all 主 feed; AI 子 feed 滞后,只作预筛信号"
+  note: "catch-all 主 feed; AI 子 feed 滞后，只作预筛信号"
 
 - name: labs_google
   method: changelog_diff
@@ -179,7 +179,7 @@
   freshness_sla_h: 36
   max_items_per_source: 30
   proxy: required
-  note: "Gemini Notebook 更新密度最高通道(实测 302→200); 域名本体无 feed"
+  note: "Gemini Notebook 更新密度最高通道 (实测 302→200); 域名本体无 feed"
 
 - name: developer_android_blog
   method: atom
@@ -240,7 +240,7 @@
   freshness_sla_h: 36
   max_items_per_source: 30
   proxy: prefer
-  note: "SSR 卡片 a[href^=/news/] 含标题+简介+日期(div 文本非 <time>); lastmod 实时"
+  note: "SSR 卡片 a[href^=/news/] 含标题 + 简介 + 日期 (div 文本非 <time>); lastmod 实时"
 
 - name: docs_xai
   method: changelog_diff
@@ -252,7 +252,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: prefer
-  note: "Mintlify llms.txt 索引; 09-22 修复 md 链接解析(此前 changelog_diff 对纯 markdown 恒 empty)"
+  note: "Mintlify llms.txt 索引; 09-22 修复 md 链接解析 (此前 changelog_diff 对纯 markdown 恒 empty)"
 
 - name: mistral_news
   method: rss
@@ -274,11 +274,11 @@
   enabled: true
   failover:
     - "https://cohere.com/sitemap.xml"
-    - "http://127.0.0.1:23176/cohere/blog"   # 本地 RSSHub 兜底——换成你的实例地址或删该条
+    - "http://127.0.0.1:23176/cohere/blog" # 本地 RSSHub 兜底——换成你的实例地址或删该条
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: prefer
-  note: "Sanity GROQ 免鉴权,一次拿标题/日期/摘要/全文;必须带 en-US 语言过滤防本地化页"
+  note: "Sanity GROQ 免鉴权，一次拿标题/日期/摘要/全文;必须带 en-US 语言过滤防本地化页"
 
 - name: sakana_blog
   method: atom
@@ -327,7 +327,7 @@
   freshness_sla_h: 36
   max_items_per_source: 20
   proxy: direct_only
-  note: "Mintlify markdown 原生,Update label 按月分块; llms.txt 索引兜底; 09-22 修复 md 链接解析"
+  note: "Mintlify markdown 原生，Update label 按月分块; llms.txt 索引兜底; 09-22 修复 md 链接解析"
 
 - name: platform_deepseek
   method: changelog_diff
@@ -340,7 +340,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
-  note: "Docusaurus SSR(需 -L 跟随斜杠),任意 news 页侧边栏含全量 ~18 条新闻索引; banner API(platform 域)见 experiments/deepseek-verify/banner.json"
+  note: "Docusaurus SSR(需 -L 跟随斜杠),任意 news 页侧边栏含全量 ~18 条新闻索引; banner API(platform 域) 见 experiments/deepseek-verify/banner.json"
 
 - name: platform_qianwenai
   method: changelog_diff
@@ -365,7 +365,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: direct_only
-  note: "Mintlify markdown Update 块(GLM 发布记录); sitemap 66 loc 带真实 lastmod; 09-22 修复 md 链接解析"
+  note: "Mintlify markdown Update 块 (GLM 发布记录); sitemap 66 loc 带真实 lastmod; 09-22 修复 md 链接解析"
 
 - name: docs_bigmodel
   method: changelog_diff
@@ -392,7 +392,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: direct_only
-  note: "llms.txt 信号成本比最高; 主站是 2.3KB SPA 壳只能 hash diff; releases.atom 空,改用 commits.atom; 新模型发现仍靠 llms.txt; 09-22 修复 md 链接解析"
+  note: "llms.txt 信号成本比最高; 主站是 2.3KB SPA 壳只能 hash diff; releases.atom 空，改用 commits.atom; 新模型发现仍靠 llms.txt; 09-22 修复 md 链接解析"
 
 - name: mimo_xiaomi
   method: changelog_diff
@@ -430,7 +430,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: prefer
-  note: "RSC payload 63 帖; npm droid 版本流近似日更,最易做 release 信号"
+  note: "RSC payload 63 帖; npm droid 版本流近似日更，最易做 release 信号"
 
 - name: cognition_blog
   method: changelog_diff
@@ -441,7 +441,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "未单独实测(Devin); SSR 列表页 slug diff 起步"
+  note: "未单独实测 (Devin); SSR 列表页 slug diff 起步"
 
 - name: ampcode_news
   method: changelog_diff
@@ -452,7 +452,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "未单独实测(Amp); rss_titles 有 /news/* 条目"
+  note: "未单独实测 (Amp); rss_titles 有 /news/* 条目"
 
 - name: bolt_blog
   method: sitemap_diff
@@ -477,7 +477,7 @@
   freshness_sla_h: 72
   max_items_per_source: 15
   proxy: prefer
-  note: "Ghost 6.x RSS 全文+稳定 guid; feed 窗口滚动按 guid 去重"
+  note: "Ghost 6.x RSS 全文 + 稳定 guid; feed 窗口滚动按 guid 去重"
 
 - name: zed_blog
   method: rss
@@ -489,7 +489,7 @@
   freshness_sla_h: 72
   max_items_per_source: 20
   proxy: prefer
-  note: "description 仅 ~100 字摘要,正文需抓 link"
+  note: "description 仅 ~100 字摘要，正文需抓 link"
 
 - name: delta_changelog
   method: changelog_diff
@@ -500,7 +500,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "h2 id=版本号+span 日期,约日更;h2 集合 diff 即可"
+  note: "h2 id=版本号+span 日期，约日更;h2 集合 diff 即可"
 
 - name: vercel_atom
   method: atom
@@ -513,7 +513,7 @@
   freshness_sla_h: 48
   max_items_per_source: 40
   proxy: prefer
-  note: "3.6MB 全量历史,ETag 304 可用;正文对 entry link 拼 .md 后缀(feed 内联 XHTML 吞代码块)"
+  note: "3.6MB 全量历史，ETag 304 可用;正文对 entry link 拼 .md 后缀 (feed 内联 XHTML 吞代码块)"
 
 - name: trae_blog
   method: rss
@@ -536,7 +536,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: direct_only
-  note: "JSON 1MB 含 busStructure 全站文档树; api_docs_trae 递归取 en 叶子文档, updated_at 进 url docv 参数, 文档更新也会重发信号(09-22 实测 ok)"
+  note: "JSON 1MB 含 busStructure 全站文档树; api_docs_trae 递归取 en 叶子文档，updated_at 进 url docv 参数，文档更新也会重发信号 (09-22 实测 ok)"
 
 - name: ollama_blog
   method: rss
@@ -569,7 +569,7 @@
   freshness_sla_h: 48
   max_items_per_source: 10
   proxy: prefer
-  note: "SSR 含 /blog/* 链接,正则抽取即可(vendor-feed-monitor)"
+  note: "SSR 含 /blog/* 链接，正则抽取即可 (vendor-feed-monitor)"
 
 - name: jina_news
   method: changelog_diff
@@ -581,7 +581,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "10 张 /news/<slug> 卡片 diff,正文页取 article:published_time;mcp 匿名可 tools/call 但非按时间排序"
+  note: "10 张 /news/<slug> 卡片 diff，正文页取 article:published_time;mcp 匿名可 tools/call 但非按时间排序"
 
 - name: prismml_news
   method: changelog_diff
@@ -617,7 +617,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "53 URL 含 /blog /changelog;changelog 页 article.release 块信号最高;github 兜底已死(repo 私有)"
+  note: "53 URL 含 /blog /changelog;changelog 页 article.release 块信号最高;github 兜底已死 (repo 私有)"
 
 - name: elevenlabs_changelog
   method: rss
@@ -628,7 +628,7 @@
   freshness_sla_h: 48
   max_items_per_source: 30
   proxy: prefer
-  note: "buildwithfern RSS 全文;items 非按日期排序,按 guid(=link)去重排序"
+  note: "buildwithfern RSS 全文;items 非按日期排序，按 guid(=link) 去重排序"
 
 - name: hacktron_blog
   method: rss
@@ -640,7 +640,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "feed 即正文(content:encoded);ETag+Last-Modified 条件 GET 304 实测"
+  note: "feed 即正文 (content:encoded);ETag+Last-Modified 条件 GET 304 实测"
 
 - name: rubyhack
   method: sitemap_diff
@@ -652,7 +652,7 @@
   freshness_sla_h: 168
   max_items_per_source: 5
   proxy: prefer
-  note: "单页爆料站(OpenAI agent 攻 RubyGems);首页条件 GET 304 便宜,盯住即可"
+  note: "单页爆料站 (OpenAI agent 攻 RubyGems);首页条件 GET 304 便宜，盯住即可"
 
 - name: agenthotline_forum
   method: changelog_diff
@@ -664,7 +664,7 @@
   freshness_sla_h: 24
   max_items_per_source: 20
   proxy: prefer
-  note: "正则抽 AH-[0-9a-f]{8} 与已见集合 diff;/api/reports 401 死路;RSC payload(带 RSC:1 头)更小可换"
+  note: "正则抽 AH-[0-9a-f]{8} 与已见集合 diff;/api/reports 401 死路;RSC payload(带 RSC:1 头) 更小可换"
 
 - name: mathandai
   method: changelog_diff
@@ -677,7 +677,7 @@
   max_items_per_source: 5
   proxy: prefer
   sig_text: true
-  note: "菲尔兹奖得主联署声明站;计数(span.count)+Newest-first 名单在 endorsers.php,页无 h2/h3 与深链→sig_text 把正文入签名,新增签署即触发 page_sig 项;一次性事件源"
+  note: "菲尔兹奖得主联署声明站;计数 (span.count)+Newest-first 名单在 endorsers.php，页无 h2/h3 与深链→sig_text 把正文入签名，新增签署即触发 page_sig 项;一次性事件源"
 
 - name: aema_blog
   method: rss
@@ -690,7 +690,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "item pubDate 是模板假日期(2019),排序/去重必须用 guid/link;json 版 updatedOn 为真值"
+  note: "item pubDate 是模板假日期 (2019),排序/去重必须用 guid/link;json 版 updatedOn 为真值"
 
 - name: ben_evans
   method: rss
@@ -702,7 +702,7 @@
   freshness_sla_h: 168
   max_items_per_source: 20
   proxy: prefer
-  note: "全文 content:encoded;约月更,20 条窗口足够"
+  note: "全文 content:encoded;约月更，20 条窗口足够"
 
 - name: lastweekin
   method: rss
@@ -727,7 +727,7 @@
   freshness_sla_h: 36
   max_items_per_source: 30
   proxy: prefer
-  note: "description 是 teaser,正文抓 <article>; <category> 可免费预分类;日更 2-4 次轮询"
+  note: "description 是 teaser，正文抓 <article>; <category> 可免费预分类;日更 2-4 次轮询"
 
 - name: thegradient
   method: rss
@@ -751,7 +751,7 @@
   freshness_sla_h: 72
   max_items_per_source: 20
   proxy: prefer
-  note: "content:encoded 为免费 preview 截断,够 LLM 过滤;全文需付费 sid 后置"
+  note: "content:encoded 为免费 preview 截断，够 LLM 过滤;全文需付费 sid 后置"
 
 - name: stratechery
   method: rss
@@ -764,7 +764,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "免费文全文,付费 Daily Update 仅一句话但 title+link 够分诊;WP v2 API 备选"
+  note: "免费文全文，付费 Daily Update 仅一句话但 title+link 够分诊;WP v2 API 备选"
 
 - name: platformer
   method: rss
@@ -777,7 +777,7 @@
   freshness_sla_h: 72
   max_items_per_source: 15
   proxy: prefer
-  note: "免费文取 content:encoded,付费文标 paywalled;platformer.substack.com 旧 feed 冻结勿用"
+  note: "免费文取 content:encoded，付费文标 paywalled;platformer.substack.com 旧 feed 冻结勿用"
 
 - name: epoch_ai
   method: rss
@@ -814,7 +814,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "446 模型带 created 时间戳,每日 diff=新模型上架(最高频信号);stealth 模型也经此曝光"
+  note: "446 模型带 created 时间戳，每日 diff=新模型上架 (最高频信号);stealth 模型也经此曝光"
 
 - name: help_openai
   method: rss
@@ -826,7 +826,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: direct_only
-  note: "help.openai.com 全站 CF managed challenge(403 cf-mitigated,httpx/裸 curl 均挂);改走自建 RSSHub 路由,粒度=release-notes 单条目(所有 item 同 link→dedup 收 1 条,title=最新条目);localhost 必须 direct_only"
+  note: "help.openai.com 全站 CF managed challenge(403 cf-mitigated,httpx/裸 curl 均挂);改走自建 RSSHub 路由，粒度=release-notes 单条目 (所有 item 同 link→dedup 收 1 条，title=最新条目);localhost 必须 direct_only"
 
 - name: minimax_news
   method: changelog_diff
@@ -837,7 +837,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "SPA 几乎无可抽链接,JSON API 未找到;MiniMax 发布经 github releases/公众号覆盖,暂停用"
+  note: "SPA 几乎无可抽链接，JSON API 未找到;MiniMax 发布经 github releases/公众号覆盖,暂停用"
 
 # ============ Tier A · 论文/模型/代码 ============
 - name: arxiv_csai
@@ -873,7 +873,7 @@
   freshness_sla_h: 24
   max_items_per_source: 150
   proxy: prefer
-  note: "当日 listing ~125 条;entry updated 是论文自身日期,必须按 <id> diff 而非日期"
+  note: "当日 listing ~125 条;entry updated 是论文自身日期，必须按 <id> diff 而非日期"
 
 - name: alphaxiv_feed
   method: json_api
@@ -885,7 +885,7 @@
   freshness_sla_h: 24
   max_items_per_source: 200
   proxy: prefer
-  note: "卡片含 abstract/topics/organization/github_stars 等,LLM 过滤零补抓;Hot 版带互动指标"
+  note: "卡片含 abstract/topics/organization/github_stars 等，LLM 过滤零补抓;Hot 版带互动指标"
 
 - name: huggingface_daily
   method: json_api
@@ -922,7 +922,7 @@
   freshness_sla_h: 24
   max_items_per_source: 20
   proxy: prefer
-  note: "RSS1.0 10 条窗口,日更;需 1-2 次/日轮询"
+  note: "RSS1.0 10 条窗口，日更;需 1-2 次/日轮询"
 
 - name: github_search
   method: json_api
@@ -934,7 +934,7 @@
   freshness_sla_h: 24
   max_items_per_source: 50
   proxy: prefer
-  note: "{T-2d} 由 collect._render_url 渲染=窗口锚日前2天,只收新仓;配额紧张时上本机 gh token(5000/h)"
+  note: "{T-2d} 由 collect._render_url 渲染=窗口锚日前 2 天，只收新仓;配额紧张时上本机 gh token(5000/h)"
 
 - name: github_releases_watch
   method: atom
@@ -946,7 +946,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "旗舰 OSS repo release 雷达样板行;扩表时每 repo 一行(vllm/sglang/llama.cpp/ollama…)"
+  note: "旗舰 OSS repo release 雷达样板行;扩表时每 repo 一行 (vllm/sglang/llama.cpp/ollama…)"
 
 - name: rsshub_routes
   method: json_api
@@ -958,7 +958,7 @@
   freshness_sla_h: 168
   max_items_per_source: 20
   proxy: prefer
-  note: "生态雷达:8.5MB routes.json {site:{routes:{path}}} diff=新增可采路由(09-22 修嵌套结构+round_urls 全量快照); rsshub.app 本体 403 不影响此通道"
+  note: "生态雷达:8.5MB routes.json {site:{routes:{path}}} diff=新增可采路由 (09-22 修嵌套结构+round_urls 全量快照); rsshub.app 本体 403 不影响此通道"
 
 # ============ Tier A · 英文媒体 ============
 - name: bloomberg_tech
@@ -1011,7 +1011,7 @@
   freshness_sla_h: 24
   max_items_per_source: 60
   proxy: required
-  note: "www.wsj.com 本体 TLS reset 只拿标题层;Google News 发现层+官方 RSSWhatsNews 校验"
+  note: "www.wsj.com 本体 TLS reset 只拿标题层;Google News 发现层 + 官方 RSSWhatsNews 校验"
 
 - name: scmp_tech
   method: rss
@@ -1077,7 +1077,7 @@
   freshness_sla_h: 24
   max_items_per_source: 40
   proxy: prefer
-  note: "content.rendered 全文直给,after= 增量;/tag/artificial-intelligence/feed/ 已冻结勿用(用 /category/)"
+  note: "content.rendered 全文直给，after= 增量;/tag/artificial-intelligence/feed/ 已冻结勿用 (用 /category/)"
 
 - name: venturebeat
   method: rss
@@ -1090,7 +1090,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "裸 curl 429 Vercel challenge,需 curl_cffi impersonate=chrome(实测 200);per-day sitemap 备用"
+  note: "裸 curl 429 Vercel challenge，需 curl_cffi impersonate=chrome(实测 200);per-day sitemap 备用"
 
 - name: businessinsider
   method: atom
@@ -1115,7 +1115,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "section=447824447 为 AI 专区(服务端预过滤);content.rendered 全文绕过计量墙"
+  note: "section=447824447 为 AI 专区 (服务端预过滤);content.rendered 全文绕过计量墙"
 
 - name: technologyreview
   method: json_api
@@ -1128,7 +1128,7 @@
   freshness_sla_h: 24
   max_items_per_source: 40
   proxy: prefer
-  note: "MIT TR;WP REST 全文不受计量墙影响,after/per_page=100 增量回填"
+  note: "MIT TR;WP REST 全文不受计量墙影响，after/per_page=100 增量回填"
 
 - name: thedecoder
   method: json_api
@@ -1141,7 +1141,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "WP REST 一次拿增量+全文;robots 对 feed 有争议写法,API 最稳"
+  note: "WP REST 一次拿增量 + 全文;robots 对 feed 有争议写法，API 最稳"
 
 - name: theinformation
   method: atom
@@ -1153,7 +1153,7 @@
   freshness_sla_h: 36
   max_items_per_source: 30
   proxy: prefer
-  note: "20 条/~3 天,briefing 全文+文章 preview;ETag+条件 GET 304 实测;s-maxage=60"
+  note: "20 条/~3 天，briefing 全文 + 文章 preview;ETag+ 条件 GET 304 实测;s-maxage=60"
 
 - name: blog_mozilla
   method: rss
@@ -1165,7 +1165,7 @@
   freshness_sla_h: 48
   max_items_per_source: 20
   proxy: prefer
-  note: "全文 content:encoded;AI 类目月产 1-2 篇,用全量 feed+LLM 过滤防漏"
+  note: "全文 content:encoded;AI 类目月产 1-2 篇，用全量 feed+LLM 过滤防漏"
 
 - name: blog_jetbrains_ai
   method: rss
@@ -1191,7 +1191,7 @@
   freshness_sla_h: 48
   max_items_per_source: 15
   proxy: prefer
-  note: "独立博客(智谱 ZCode 爆料源);吞吐抖动,GET 60-90s 超时+1-2 次重试"
+  note: "独立博客 (智谱 ZCode 爆料源);吞吐抖动，GET 60-90s 超时 +1-2 次重试"
 
 - name: github_blog
   method: rss
@@ -1203,7 +1203,7 @@
   freshness_sla_h: 36
   max_items_per_source: 20
   proxy: prefer
-  note: "ETag/If-Modified-Since 均 304,轮询近零成本;max-age=300"
+  note: "ETag/If-Modified-Since 均 304，轮询近零成本;max-age=300"
 
 - name: github_changelog
   method: rss
@@ -1215,7 +1215,7 @@
   freshness_sla_h: 36
   max_items_per_source: 30
   proxy: prefer
-  note: "changelog.github.com 已死(TLS reset),官方 Changelog 迁至 github.blog 此分类"
+  note: "changelog.github.com 已死 (TLS reset),官方 Changelog 迁至 github.blog 此分类"
 
 # ============ Tier A · 中文媒体与社区 ============
 - name: cnbeta
@@ -1242,7 +1242,7 @@
   freshness_sla_h: 24
   max_items_per_source: 60
   proxy: direct_only
-  note: "窗口仅 ~3h,需 1-2h 轮询+guid 去重;description 即全文;newscontent/<id> 补 tags"
+  note: "窗口仅 ~3h，需 1-2h 轮询+guid 去重;description 即全文;newscontent/<id> 补 tags"
 
 - name: huxiu
   method: rss
@@ -1255,7 +1255,7 @@
   freshness_sla_h: 24
   max_items_per_source: 90
   proxy: direct_only
-  note: "91 条含今日,description 为完整正文 CDATA(中位 8.7KB);moment-api POST 需 platform=www"
+  note: "91 条含今日，description 为完整正文 CDATA(中位 8.7KB);moment-api POST 需 platform=www"
 
 - name: infoq_ai
   method: json_api
@@ -1309,7 +1309,7 @@
   freshness_sla_h: 24
   max_items_per_source: 50
   proxy: direct_only
-  note: "type=4=AI&大模型博客板块(RSS 没有的增量);正文 apiv1.oschina.net/oschinapi/blog/detail?id={obj_id}"
+  note: "type=4=AI&大模型博客板块 (RSS 没有的增量);正文 apiv1.oschina.net/oschinapi/blog/detail?id={obj_id}"
 
 - name: qbitai
   method: json_api
@@ -1336,7 +1336,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
-  note: "offset=0 只回 10 条按 offset 分页;派早报(post_type=3)正文在 body_extends[i].body,工作日 06:30-08:30 发"
+  note: "offset=0 只回 10 条按 offset 分页;派早报 (post_type=3) 正文在 body_extends[i].body，工作日 06:30-08:30 发"
 
 - name: leiphone
   method: rss
@@ -1395,16 +1395,16 @@
 - name: kr36_newsflash
   method: changelog_diff
   tier: A
-  feed_url: "http://127.0.0.1:23176/36kr/newsflashes"   # 本地自建 RSSHub 实测路由(换成你的部署地址;无实例则 enabled:false 走 failover web_news); 旧 https://www.36kr.com/newsflashes SSR 正则路(见 note)
+  feed_url: "http://127.0.0.1:23176/36kr/newsflashes" # 本地自建 RSSHub 实测路由(换成你的部署地址;无实例则 enabled:false 走 failover web_news); 旧 https://www.36kr.com/newsflashes SSR 正则路 (见 note)
   enabled: true
   daily: true
   failover:
-    - "http://127.0.0.1:23176/36kr/newsflashes"   # 同上,本地实例路由
+    - "http://127.0.0.1:23176/36kr/newsflashes" # 同上，本地实例路由
     - "https://36kr.com/information/web_news/"
   freshness_sla_h: 24
   max_items_per_source: 40
   proxy: direct_only
-  note: "36氪快讯;SSR itemList 正则抽 20 条(templateMaterial.itemId/widgetTitle/widgetContent/publishTime);web_news 需解 Volcano PoW(sha256 爆破 <0.1s)"
+  note: "36 氪快讯;SSR itemList 正则抽 20 条 (templateMaterial.itemId/widgetTitle/widgetContent/publishTime);web_news 需解 Volcano PoW(sha256 爆破 <0.1s)"
 
 - name: csdn_geek
   method: rss
@@ -1429,7 +1429,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
-  note: "爱范儿;全文 content:encoded+封面;sso api 带 meta.next 分页(total 53646)"
+  note: "爱范儿;全文 content:encoded+ 封面;sso api 带 meta.next 分页 (total 53646)"
 
 - name: segmentfault_llm
   method: atom
@@ -1442,7 +1442,7 @@
   freshness_sla_h: 48
   max_items_per_source: 15
   proxy: direct_only
-  note: "AI 标签问答流,分钟级新鲜但噪声大;blogs feed 轮换极慢(停在 2026-06)勿作主源"
+  note: "AI 标签问答流，分钟级新鲜但噪声大;blogs feed 轮换极慢 (停在 2026-06) 勿作主源"
 
 - name: zhihu_qbitai
   method: json_api
@@ -1482,7 +1482,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: direct_only
-  note: "有点Yi思 AI 播客;adapter 走 _next/data/{buildId}/podcast/{pid}.json(buildId 从首页 __NEXT_DATA__ 取);shownotes+enclosure,ASR 转写 TODO;种子 experiments/xiaoyuzhoufm/poll.py"
+  note: "有点 Yi 思 AI 播客;adapter 走 _next/data/{buildId}/podcast/{pid}.json(buildId 从首页 __NEXT_DATA__ 取);shownotes+enclosure,ASR 转写 TODO;种子 experiments/xiaoyuzhoufm/poll.py"
 
 - name: googlenews_ai
   method: rss
@@ -1494,7 +1494,7 @@
   freshness_sla_h: 24
   max_items_per_source: 100
   proxy: required
-  note: "泛用兜底发现层;同题多源聚合,去重靠下游 dedup;历史上在 CN 不稳定故 required"
+  note: "泛用兜底发现层;同题多源聚合，去重靠下游 dedup;历史上在 CN 不稳定故 required"
 
 - name: hn_algolia
   method: json_api
@@ -1536,7 +1536,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: prefer
-  note: "L 站;daily top 30 条 AI 密度高(智谱/Qwen/GPT-Load 类);CF 限流窗口内 429/403 挑战振荡,连发必挂→failover 交错镜像站 linuxdorss.longpink.com(item link/guid 与官方一致)跨 host 突围"
+  note: "L 站;daily top 30 条 AI 密度高 (智谱/Qwen/GPT-Load 类);CF 限流窗口内 429/403 挑战振荡，连发必挂→failover 交错镜像站 linuxdorss.longpink.com(item link/guid 与官方一致) 跨 host 突围"
 
 - name: producthunt
   method: atom
@@ -1549,7 +1549,7 @@
   freshness_sla_h: 24
   max_items_per_source: 50
   proxy: prefer
-  note: "唯一匿名面,50 entry 实时排名;全天重排必须按 Post/<数字id> 持久去重;GraphQL 免费 OAuth token 可解锁 votes/topics"
+  note: "唯一匿名面，50 entry 实时排名;全天重排必须按 Post/<数字id> 持久去重;GraphQL 免费 OAuth token 可解锁 votes/topics"
 
 # ============ Tier B · 平台采集器 ============
 # X: 四路按序 = nitter 池 → x.com SSR 解析 → syndication → 付费 adapter(off)
@@ -1583,7 +1583,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: required
-  note: "handle 确认(@AnthropicAI)"
+  note: "handle 确认 (@AnthropicAI)"
 
 - name: x_googleai
   method: x
@@ -1598,7 +1598,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: required
-  note: "handle 较确信(@GoogleAI 为 Google AI 官方);首次跑验证"
+  note: "handle 较确信 (@GoogleAI 为 Google AI 官方);首次跑验证"
 
 - name: x_aiatmeta
   method: x
@@ -1613,7 +1613,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: required
-  note: "handle 存疑(也可能是 @MetaAI);首轮若 404 改 MetaAI"
+  note: "handle 存疑 (也可能是 @MetaAI);首轮若 404 改 MetaAI"
 
 - name: x_deepseek
   method: x
@@ -1628,7 +1628,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: required
-  note: "handle 存疑(@deepseek_ai);首轮验证,备 @deepseek"
+  note: "handle 存疑 (@deepseek_ai);首轮验证，备 @deepseek"
 
 - name: x_kaborative
   method: x
@@ -1643,7 +1643,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: required
-  note: "handle 存疑(任务点名,语义不确定);首轮验证后再留/删"
+  note: "handle 存疑 (任务点名，语义不确定);首轮验证后再留/删"
 
 - name: x_sama
   method: x
@@ -1658,7 +1658,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: required
-  note: "Sam Altman 本人,rss_titles 多条一手爆料源"
+  note: "Sam Altman 本人，rss_titles 多条一手爆料源"
 
 - name: x_chatgpt
   method: x
@@ -1673,7 +1673,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: required
-  note: "ChatGPT 产品号,rss_titles 多条功能发布源"
+  note: "ChatGPT 产品号，rss_titles 多条功能发布源"
 
 - name: x_thsottiaux
   method: x
@@ -1705,8 +1705,8 @@
   proxy: required
   note: "Grok/xAI 发布节奏经此曝光;噪声高靠 LLM 门"
 
-# Reddit: 单 sub new/.rss 实测 200;token bucket ~1rpm,请求间隔≥60s;t3_* id 去重
-#   loid OAuth(oauth.reddit.com)与 redlib 公共实例(全灭)为备用/不可行,见 PLAN §5.3
+# Reddit: 单 sub new/.rss 实测 200;token bucket ~1rpm，请求间隔≥60s;t3_* id 去重
+#   loid OAuth(oauth.reddit.com) 与 redlib 公共实例 (全灭) 为备用/不可行，见 PLAN §5.3
 - name: reddit_localllama
   method: reddit
   tier: B
@@ -1747,7 +1747,7 @@
   freshness_sla_h: 24
   max_items_per_source: 50
   proxy: required
-  note: "前沿爆料/leak 高发区,噪声大"
+  note: "前沿爆料/leak 高发区，噪声大"
 
 - name: reddit_machinelearning
   method: reddit
@@ -1778,7 +1778,7 @@
   note: "OpenAI 产品反馈/灰度发布信号"
 
 # 微博: 免登录可用面=hot_band/hotSearch 热搜;uid 时间线=m.weibo.cn getIndex+visitor SUB
-#   铸造(432/ok:-100 自动重铸,≤20rpm);自建 RSSHub 兜底;登录 cookie 为最终保底
+#   铸造(432/ok:-100 自动重铸，≤20rpm);自建 RSSHub 兜底;登录 cookie 为最终保底
 - name: weibo_hot_band
   method: weibo
   tier: B
@@ -1797,11 +1797,11 @@
   feed_url: "https://m.weibo.cn/api/container/getIndex?type=uid&value=7909392214"
   enabled: true
   failover:
-    - "http://127.0.0.1:23176/weibo/user/7909392214"   # 本地 RSSHub 兜底——换成你的实例地址或删该条
+    - "http://127.0.0.1:23176/weibo/user/7909392214" # 本地 RSSHub 兜底——换成你的实例地址或删该条
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
-  note: "月之暗面官方(uid 从 rss_titles 辟谣稿实证);visitor SUB 失效自动重铸;登录 cookie 保底"
+  note: "月之暗面官方 (uid 从 rss_titles 辟谣稿实证);visitor SUB 失效自动重铸;登录 cookie 保底"
 
 - name: weibo_wechat_team
   method: weibo
@@ -1809,11 +1809,11 @@
   feed_url: "https://m.weibo.cn/api/container/getIndex?type=uid&value=7876775013"
   enabled: true
   failover:
-    - "http://127.0.0.1:23176/weibo/user/7876775013"   # 本地 RSSHub 兜底——换成你的实例地址或删该条
+    - "http://127.0.0.1:23176/weibo/user/7876775013" # 本地 RSSHub 兜底——换成你的实例地址或删该条
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
-  note: "腾讯微信团队官方(uid 从 rss_titles 回应稿实证);同 visitor cookie 流"
+  note: "腾讯微信团队官方 (uid 从 rss_titles 回应稿实证);同 visitor cookie 流"
 
 - name: weibo_ai_keyword
   method: weibo
@@ -1824,7 +1824,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
-  note: "关键词 AI 综合搜索流(stability-probe 实测 ok:1,total 1000);噪声大,仅补充召回"
+  note: "关键词 AI 综合搜索流 (stability-probe 实测 ok:1,total 1000);噪声大，仅补充召回"
 
 - name: wechat_official
   method: wechat
@@ -1836,7 +1836,7 @@
   freshness_sla_h: 24
   max_items_per_source: 30
   proxy: direct_only
-  note: "D3 后置,adapter 骨架保留;可行通道排序:wechat2rss 托管 feed(名单固定)→原生 appmsgalbum f=json(chksm 链接可抓全文)→we-mp-rss 自部署(需扫码)"
+  note: "D3 后置，adapter 骨架保留;可行通道排序:wechat2rss 托管 feed(名单固定)→原生 appmsgalbum f=json(chksm 链接可抓全文)→we-mp-rss 自部署 (需扫码)"
 
 - name: wechat2rss_geekpark
   method: rss
@@ -1848,7 +1848,7 @@
   freshness_sla_h: 24
   max_items_per_source: 20
   proxy: direct_only
-  note: "极客公园公众号镜像(免费名单内唯一科技大号);09-21 实测 200 全文,09-22 TLS 超时—服务稳定性差,与 D3 一致先停用观察"
+  note: "极客公园公众号镜像 (免费名单内唯一科技大号);09-21 实测 200 全文，09-22 TLS 超时—服务稳定性差，与 D3 一致先停用观察"
 
 - name: wechat2rss_jiqizhixin
   method: rss
@@ -1860,9 +1860,9 @@
   freshness_sla_h: 24
   max_items_per_source: 20
   proxy: direct_only
-  note: "机器之心公众号镜像;与 jiqizhixin 直连 API 重叠,默认停用;稳定性同上"
+  note: "机器之心公众号镜像;与 jiqizhixin 直连 API 重叠，默认停用;稳定性同上"
 
-# YouTube 频道 RSS:原生 Atom 免鉴权,15 条上限,yt:videoId 去重;超产频道需 Data API
+# YouTube 频道 RSS:原生 Atom 免鉴权，15 条上限，yt:videoId 去重;超产频道需 Data API
 - name: yt_openai
   method: youtube_rss
   tier: A
@@ -1872,7 +1872,7 @@
   freshness_sla_h: 36
   max_items_per_source: 15
   proxy: required
-  note: "OpenAI 官方频道(实测 200)"
+  note: "OpenAI 官方频道 (实测 200)"
 
 - name: yt_googledeepmind
   method: youtube_rss
@@ -1883,7 +1883,7 @@
   freshness_sla_h: 36
   max_items_per_source: 15
   proxy: required
-  note: "Google DeepMind 官方频道;channel_id 2026-09-22 已对频道页 externalId 核实正确,当日 feeds 端点短暂 404 波动后恢复"
+  note: "Google DeepMind 官方频道;channel_id 2026-09-22 已对频道页 externalId 核实正确，当日 feeds 端点短暂 404 波动后恢复"
 
 - name: yt_anthropic
   method: youtube_rss
@@ -1918,7 +1918,7 @@
   proxy: required
   note: "Y Combinator 官方频道"
 
-# ============ 停用/观察(保留行防误删;启用前先验证通道) ============
+# ============ 停用/观察 (保留行防误删;启用前先验证通道) ============
 - name: feeddd
   method: rss
   tier: A
@@ -1939,7 +1939,7 @@
   freshness_sla_h: 72
   max_items_per_source: 20
   proxy: prefer
-  note: "未找到已验证的免费可用通道;公关稿靠媒体转载覆盖,暂停用"
+  note: "未找到已验证的免费可用通道;公关稿靠媒体转载覆盖，暂停用"
 
 - name: help_aliyun
   method: changelog_diff
@@ -1950,7 +1950,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: direct_only
-  note: "阿里云文档站通道未实测;阿里系变更多经公众号/钉钉发布,先停用"
+  note: "阿里云文档站通道未实测;阿里系变更多经公众号/钉钉发布，先停用"
 
 - name: hkexnews
   method: changelog_diff
@@ -1961,7 +1961,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: direct_only
-  note: "港交所公告检索页,低频事件源(智谱融资稿源);标题检索需 POST 参数化,先停用"
+  note: "港交所公告检索页，低频事件源 (智谱融资稿源);标题检索需 POST 参数化，先停用"
 
 - name: novonordisk_newsroom
   method: sitemap_diff
@@ -1984,7 +1984,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "未单独实测;联合国新闻稿,AI 治理/政策信号"
+  note: "未单独实测;联合国新闻稿，AI 治理/政策信号"
 
 - name: ec_europa_press
   method: rss
@@ -1996,7 +1996,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "欧委会 presscorner 官方 RSS(固定 10 条,AI 监管信号);服务端 TLS 脏关闭(RST 替代 close_notify)打死 python-ssl,经 lhttp urllib3 兜底实测 200;原 changelog_diff 首页为 SPA 空壳"
+  note: "欧委会 presscorner 官方 RSS(固定 10 条，AI 监管信号);服务端 TLS 脏关闭 (RST 替代 close_notify) 打死 python-ssl，经 lhttp urllib3 兜底实测 200;原 changelog_diff 首页为 SPA 空壳"
 
 - name: data_un
   method: changelog_diff
@@ -2018,7 +2018,7 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: direct_only
-  note: "umi SPA 壳+KOI/baxia 签名 API 不可廉价重放; 09-22 起 changelog_diff 混入 asset 指纹签名, 仅前端重部署发信号; 开源发布仍经 github/modelscope 覆盖, 要正文需 playwright(后置)"
+  note: "umi SPA 壳+KOI/baxia 签名 API 不可廉价重放; 09-22 起 changelog_diff 混入 asset 指纹签名，仅前端重部署发信号; 开源发布仍经 github/modelscope 覆盖，要正文需 playwright(后置)"
 
 - name: u_jd
   method: changelog_diff
@@ -2029,7 +2029,7 @@
   freshness_sla_h: 168
   max_items_per_source: 5
   proxy: direct_only
-  note: "京东短链域,非内容源(rss_titles 误收);占位防误加"
+  note: "京东短链域，非内容源 (rss_titles 误收);占位防误加"
 
 - name: theinfo_short
   method: atom
@@ -2040,4 +2040,4 @@
   freshness_sla_h: 72
   max_items_per_source: 10
   proxy: prefer
-  note: "theinformation.com 的短链/跳转域,非独立源;以 theinformation 条目为准"
+  note: "theinformation.com 的短链/跳转域，非独立源;以 theinformation 条目为准"
