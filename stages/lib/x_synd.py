@@ -69,7 +69,7 @@ sys.path[:] = [p for p in sys.path
 
 import httpx  # noqa: E402
 
-from stages.lib import meta, normalize, rawitem  # noqa: E402
+from stages.lib import fetchloop, meta, normalize, rawitem  # noqa: E402
 from stages.lib import http as lib_http  # noqa: E402  (save_raw 复用)
 
 REPO = Path(__file__).resolve().parents[2]
@@ -171,67 +171,60 @@ def _reset_epoch(r: httpx.Response) -> int | None:
 
 
 def _fetch_page(handle: str, sc: dict, timeout: float):
-    """轮换 endpoint 抓时间线 HTML；429 走 reset 感知退避。
+    """轮换 endpoint 抓时间线 HTML；429 走 reset 感知退避（fetchloop 原语）。
 
     -> (body:str, url:str, headers:httpx.Headers)
     """
     proxy, trust_env = _proxy_arg(sc.get("proxy"))
-    deadline = time.monotonic() + sc["max_wait_s"]
-    round_no = 0
-    last_detail = ""
     with httpx.Client(proxy=proxy, trust_env=trust_env,
                       timeout=httpx.Timeout(timeout),
                       follow_redirects=True,
                       headers={"User-Agent": UA,
                                "Accept-Language": "en-US,en;q=0.9"}) as cli:
-        while True:
-            resets: list[int] = []
-            terrs: list[str] = []
-            herrs: list[str] = []
-            for host in sc["endpoints"]:
-                url = _url(host, handle, sc["lang"])
-                try:
-                    r = cli.get(url)
-                except httpx.HTTPError as e:
-                    terrs.append(f"{host}: {type(e).__name__} {e}")
-                    continue
-                if r.status_code == 200 and _NEXT_RE.search(r.text):
-                    return r.text, url, r.headers
-                if r.status_code == 429:
-                    ep = _reset_epoch(r)
-                    resets.append(ep if ep else int(time.time()) + 900)
-                    last_detail = (
-                        f"{host} 429 remaining="
-                        f"{r.headers.get('x-rate-limit-remaining')} "
-                        f"reset={ep}")
-                    continue
-                if r.status_code == 200:  # 200 但无 __NEXT_DATA__ → 结构变了
-                    herrs.append(f"{host} 200-no-next_data({len(r.content)}B)")
-                else:
-                    herrs.append(f"{host} http_{r.status_code}")
-            if resets:
-                wait = max(1.0, min(resets) - time.time() + _RESET_BUF_S)
-                if time.monotonic() + wait > deadline:
-                    raise RateLimited(
-                        f"syndication 429 on all hosts for @{handle}; "
-                        f"reset in {int(wait)}s > budget {sc['max_wait_s']}s",
-                        retry_after=min(resets), detail=last_detail)
-                time.sleep(wait)
-                round_no += 1
-                continue
-            # 无 429：纯 http 错直接抛；含传输错按指数退避重试整轮
-            if herrs and not terrs:
-                raise XSyndError(
-                    f"syndication endpoints failed for @{handle}: {herrs}",
-                    detail="; ".join(herrs))
-            round_no += 1
-            if round_no > sc["max_rounds"]:
-                raise XSyndError(
-                    f"syndication transport/http failed for @{handle} "
-                    f"after {round_no - 1} rounds",
-                    detail="; ".join(terrs + herrs))
-            time.sleep(min(_BACKOFF_CAP_S,
-                           sc["backoff_base_s"] * (2 ** round_no)))
+
+        def _att(host: str) -> fetchloop.Attempt:
+            url = _url(host, handle, sc["lang"])
+            try:
+                r = cli.get(url)
+            except httpx.HTTPError as e:
+                return fetchloop.Attempt(
+                    host, "retryable", detail=f"{host}: {type(e).__name__} {e}")
+            if r.status_code == 200 and _NEXT_RE.search(r.text):
+                return fetchloop.Attempt(host, "ok",
+                                         value=(r.text, url, r.headers))
+            if r.status_code == 429:
+                ep = _reset_epoch(r)
+                return fetchloop.Attempt(
+                    host, "rate_limited",
+                    reset_at=ep if ep else int(time.time()) + 900,
+                    detail=(f"{host} 429 remaining="
+                            f"{r.headers.get('x-rate-limit-remaining')} "
+                            f"reset={ep}"))
+            if r.status_code == 200:  # 200 但无 __NEXT_DATA__ → 结构变了
+                return fetchloop.Attempt(
+                    host, "fatal",
+                    detail=f"{host} 200-no-next_data({len(r.content)}B)")
+            return fetchloop.Attempt(
+                host, "fatal", detail=f"{host} http_{r.status_code}")
+
+        try:
+            win = fetchloop.run(
+                sc["endpoints"], _att,
+                max_rounds=sc["max_rounds"], max_wait_s=sc["max_wait_s"],
+                backoff_base_s=sc["backoff_base_s"],
+                backoff_cap_s=_BACKOFF_CAP_S, reset_buffer_s=_RESET_BUF_S,
+                label=f"syndication @{handle}")
+        except fetchloop.RateLimitExhausted as e:
+            rl = [a for a in e.attempts if a.kind == "rate_limited"]
+            raise RateLimited(
+                f"syndication 429 on all hosts for @{handle}: {e}",
+                retry_after=int(e.retry_after) if e.retry_after else None,
+                detail=rl[-1].detail if rl else "")
+        except fetchloop.AllEndpointsFailed as e:
+            raise XSyndError(
+                f"syndication endpoints failed for @{handle}: {e}",
+                detail="; ".join(a.detail for a in e.attempts if a.detail))
+        return win.value
 
 
 # ---------------------------------------------------------------- parse -----

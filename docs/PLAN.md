@@ -55,10 +55,11 @@ winnow/
 │   ├── collect.py  filter.py  dedup.py  gate_select.py  digest.py
 │   ├── voice.py    cards.py   subs.py   render_plan.py  compose.py  meta_qa.py
 │   ├── review_server.py #   人工闸 UI（种子：experiments/manual-filter-ui/serve_review.py）
-│   └── lib/             #   21 个 .py = 20 共享模块 + 空 __init__.py；16 个带
+│   └── lib/             #   22 个 .py = 21 共享模块 + 空 __init__.py；17 个带
 │                        #   __main__ 自检（联网型 --offline 跳 live 断言），
 │                        #   chrome/composite/meta 纯导入件无自检入口
 │       ├── http.py        # httpx 封装：cond GET、proxy 感知、retry 钩子、post_json、raw_cache 落盘
+│       ├── fetchloop.py   # 多端点轮换原语：429 reset 感知等待 + 指数退避整轮重试（x_synd 多轮 / x_nitter 单遍）
 │       ├── meta.py        # run 目录基件：00_meta/00_running/00_stage_stats、run_lock(.lock)、atomic_write、iter_jsonl
 │       ├── prog.py        # 进度协议：stderr 人类行 + logs/<stage>.prog.jsonl（§9.1）
 │       ├── normalize.py   # url_canon/title_norm/parse_date/实体别名 + collect 文本 helper（strip_html/bounded_text/slug_title/guess_lang）

@@ -687,7 +687,7 @@ test:
     run() { local n="$1" f; shift; f="${n//\//_}"; names+=("$n")
             ( "$@" >"$SCRATCH/logs/$f.log" 2>&1; echo $? >"$SCRATCH/logs/$f.rc" ) & pids+=($!); }
     # --selftest 矩阵（离线）——加新阶段时同步这里
-    for s in lib/simhash lib/normalize lib/prompts lib/ttsnorm lib/store lib/pool lib/embed lib/prog meta_qa gate_select render_plan compose; do
+    for s in lib/simhash lib/normalize lib/prompts lib/ttsnorm lib/store lib/pool lib/embed lib/prog lib/fetchloop meta_qa gate_select render_plan compose; do
       run "$s" uv run "stages/$s.py" --selftest
     done
     run "lib/layout_d2" uv run stages/lib/layout_d2.py --selftest "$SCRATCH/layout-d2"

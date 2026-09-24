@@ -54,6 +54,7 @@ _SELF_DIR = str(Path(__file__).resolve().parent)
 sys.path[:] = [p for p in sys.path
                if str(Path(p or ".").resolve()) != _SELF_DIR]
 
+from stages.lib import fetchloop             # noqa: E402
 from stages.lib import http as _http          # noqa: E402
 from stages.lib import normalize as _norm     # noqa: E402
 from stages.lib import rawitem               # noqa: E402
@@ -432,14 +433,25 @@ def fetch_user(handle: str, cfg: Any, *,
     winner: Optional[str] = None
     win_body: Optional[bytes] = None
 
-    for inst in ordered[:max(1, max_att)]:
+    def _ep(inst: str) -> fetchloop.Attempt:
         got, rec, rbody = _attempt(inst, handle, cfg)
         attempts.append(rec)
         _bump(health, inst, bool(got), rec["error"])
         _save_health(health, cfg)                # 每次尝试即落盘，崩溃不丢
         if got:
-            items, winner, win_body = got, inst, rbody
-            break
+            return fetchloop.Attempt(inst, "ok", value=(got, inst, rbody))
+        kind = ("retryable" if rec["error"] in
+                ("timeout", "dns_fail", "http_0", "rate_limited")
+                else "fatal")
+        return fetchloop.Attempt(inst, kind, detail=rec["error"])
+
+    try:
+        win = fetchloop.run(ordered[:max(1, max_att)], _ep,
+                            max_rounds=0, max_wait_s=0,
+                            label=f"nitter @{handle}")
+        items, winner, win_body = win.value
+    except fetchloop.LoopFailed:
+        pass                               # 全灭 → 下方统一 AllRoutesDead
 
     if diag is not None:
         diag["attempts"] = attempts
