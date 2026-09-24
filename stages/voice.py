@@ -105,6 +105,11 @@ def _sha_text(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
 
+def _sha_key(engine_id: str, text: str) -> str:
+    """sidecar 复用键：engine|voice|rate 维度 + 文本——换引擎/参数不会误吃旧 mp3。"""
+    return _sha_text(f"{engine_id}\x00{text}")[:16]
+
+
 def _load_cfg(path: str | Path | None) -> dict:
     """config.yaml > config.example.yaml（与 collect/justfile 规则一致）。"""
     p = Path(path) if path else REPO / "config.yaml"
@@ -203,7 +208,9 @@ def build_script(plan: list, pron: dict) -> list:
                 _warn(f"{iid}[{si}] 规范化后为空，已跳过")
                 continue
             row = {"schema": "voice_seg/1", "seg_id": f"{n:03d}_{iid}_{si}",
-                   "item": iid, "si": si, "text": text, "role": role}
+                   "item": iid, "si": si, "text": text,
+                   "text_display": raw if raw != text else None,
+                   "role": role}
             VoiceSeg.model_validate(row)          # 契约 lint（extra=forbid）
             rows.append(row)
             n += 1
@@ -214,7 +221,8 @@ def build_script(plan: list, pron: dict) -> list:
 # 2) 逐句合成（断点续跑：同 text_sha 的 mp3 直接复用）
 # ---------------------------------------------------------------------------
 
-def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
+def _synth_all(rows: list, run_dir: Path, *, adapter, engine_id: str,
+               eng_label: str, voice: str, rate: str | None,
                jobs: int, force: bool, config_path, p) -> dict:
     """→ {seg_id: {file,dur,boundaries}}；缺失/文本变了才真合成。"""
     audio_dir = run_dir / AUDIO_DIR
@@ -224,8 +232,15 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
     mp = run_dir / F_MANIFEST
     if mp.exists() and not force:
         try:
-            old = {f["seg_id"]: f for f in
-                   json.loads(mp.read_text(encoding="utf-8")).get("files", [])}
+            mo = json.loads(mp.read_text(encoding="utf-8"))
+            # engine 维度：manifest 级比对——引擎/嗓音/速率任一变化即全量重合成
+            if (mo.get("engine") == eng_label and mo.get("voice") == voice
+                    and mo.get("rate") == rate):
+                old = {f["seg_id"]: f for f in mo.get("files", [])}
+            elif mo.get("files"):
+                _warn(f"61 manifest 引擎参数变化（{mo.get('engine')} "
+                      f"{mo.get('voice')}/{mo.get('rate')} → {eng_label} "
+                      f"{voice}/{rate}）——旧 mp3 不复用")
         except Exception:
             old = {}
 
@@ -233,11 +248,11 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
     todo = []
     for r in rows:
         sid = r["seg_id"]
-        rel = f"{AUDIO_DIR}/{sid}.mp3"
         ent = old.get(sid)
         sha = _sha_text(r["text"])[:16]
-        # 两级复用：manifest 命中（text_sha 校验）→ 裸 mp3 + .textsha sidecar
-        # （manifest 缺失/中途崩溃时仍能续跑，不必手工 seed manifest）。
+        key = _sha_key(engine_id, r["text"])
+        # 两级复用：manifest 命中（engine 门 + text_sha 校验）→ 裸 mp3 +
+        # .textsha sidecar（engine_id 复合键；manifest 缺失/中途崩溃时续跑）。
         fpath = None
         if (ent and ent.get("text_sha") == sha
                 and (run_dir / ent.get("file", "")).is_file()):
@@ -246,7 +261,7 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
             mp3, sp = audio_dir / f"{sid}.mp3", audio_dir / f"{sid}{SHA_SUFFIX}"
             try:
                 if (mp3.is_file() and sp.is_file()
-                        and sp.read_text(encoding="utf-8").strip() == sha):
+                        and sp.read_text(encoding="utf-8").strip() == key):
                     fpath = mp3
             except OSError:
                 pass
@@ -258,7 +273,8 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
                     words = json.loads(wp.read_text(encoding="utf-8"))
                 except Exception:
                     words = []
-            results[sid] = {"file": rel, "dur": tts_edge._ffprobe_dur(fpath),
+            results[sid] = {"file": f"{AUDIO_DIR}/{sid}.mp3",
+                            "dur": tts_edge._ffprobe_dur(fpath),
                             "boundaries": words}
             continue
         todo.append(r)
@@ -268,8 +284,8 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
               f"(jobs={jobs}, voice={voice} rate={rate})")
 
     def one(r):
-        res = tts_edge.synth(r["text"], r["seg_id"], audio_dir,
-                             voice=voice, rate=rate, config_path=config_path)
+        res = adapter.synth(r["text"], r["seg_id"], audio_dir,
+                            voice=voice, rate=rate, config_path=config_path)
         return r["seg_id"], res
 
     p.total = len(todo)                    # 复用命中后 todo 才是真分母
@@ -284,7 +300,7 @@ def _synth_all(rows: list, run_dir: Path, *, voice: str, rate: str,
                 meta.atomic_write(audio_dir / f"{sid}{WORDS_SUFFIX}",
                                   res.get("boundaries") or [])
                 meta.atomic_write(audio_dir / f"{sid}{SHA_SUFFIX}",
-                                  _sha_text(todo[i]["text"])[:16] + "\n")
+                                  _sha_key(engine_id, todo[i]["text"]) + "\n")
             except Exception as e:  # 已落盘的 seg 下轮复用
                 errs.append(str(e))
             p.tick(i + 1, todo[i]["seg_id"], force=i + 1 == len(todo))
@@ -306,7 +322,7 @@ def _probe_sample_rate(p: Path) -> int:
 
 
 def write_manifest(rows: list, results: dict, run_dir: Path, episode: str,
-                   voice: str, rate: str) -> dict:
+                   voice: str, rate, eng: str) -> dict:
     files = []
     for r in rows:
         sid = r["seg_id"]
@@ -316,10 +332,6 @@ def write_manifest(rows: list, results: dict, run_dir: Path, episode: str,
                       "dur": round(float(res["dur"]), 3),
                       "sha256": meta.sha256_file(fpath),
                       "text_sha": _sha_text(r["text"])[:16]})
-    try:
-        eng = f"edge-tts {importlib.metadata.version('edge-tts')}"
-    except Exception:
-        eng = "edge-tts"
     manifest = {"schema": "audio_manifest/1", "episode": episode,
                 "engine": eng, "voice": voice, "rate": rate,
                 "codec": "mp3",
@@ -367,6 +379,8 @@ def build_timeline(rows: list, results: dict, issue: dict, tl_cfg: dict,
             seg = {"n": n, "seg_id": r["seg_id"], "item": iid, "si": r["si"],
                    "file": results[r["seg_id"]]["file"], "text": r["text"],
                    "start": round(start_exact, 3), "end": round(t, 3)}
+            if r.get("text_display"):
+                seg["text_display"] = r["text_display"]
             seg["dur"] = round(seg["end"] - seg["start"], 3)
             words = results[r["seg_id"]].get("boundaries") or []
             if words:           # edge WordBoundary → 绝对秒（逐词高亮预留）
@@ -445,13 +459,14 @@ def write_projections(tl: dict, run_dir: Path) -> None:
     hdr = "# generated by stages/voice.py from 62_timeline.json — do not edit\n"
     srt = hdr + "\n".join(
         f"{s['n'] + 1}\n{_ts_srt(s['start'])} --> {_ts_srt(s['end'])}\n"
-        f"{s['text']}\n" for s in tl["segs"])
+        f"{s.get('text_display') or s['text']}\n" for s in tl["segs"])
     meta.atomic_write(run_dir / F_SRT, srt)
 
     vtt = ("WEBVTT\n"
            "NOTE generated by stages/voice.py from 62_timeline.json"
            " — do not edit\n\n" + "\n".join(
-               f"{_ts_vtt(s['start'])} --> {_ts_vtt(s['end'])}\n{s['text']}\n"
+               f"{_ts_vtt(s['start'])} --> {_ts_vtt(s['end'])}\n"
+               f"{s.get('text_display') or s['text']}\n"
                for s in tl["segs"]))
     meta.atomic_write(run_dir / F_VTT, vtt)
 
@@ -521,11 +536,32 @@ def run_voice(run_dir: Path, cfg: dict, args) -> dict:
 
     tts_cfg = cfg.get("tts") if isinstance(cfg.get("tts"), dict) else {}
     engine_req = str(tts_cfg.get("engine") or "edge").lower()
-    if engine_req not in ("edge", "edge-tts", "edge_tts"):
-        raise _die(f"tts.engine={engine_req} 未实现（接口已留：adapters/tts_*.py）",
-                   "config.yaml tts.engine 改回 edge，或先实现本地引擎适配器")
-    voice = args.voice or tts_cfg.get("voice") or tts_edge.DEFAULT_VOICE
-    rate = args.rate or str(tts_cfg.get("rate") or "+0%")
+    if engine_req in ("edge", "edge-tts", "edge_tts"):
+        adapter = tts_edge
+        voice = args.voice or tts_cfg.get("voice") or tts_edge.DEFAULT_VOICE
+        rate = args.rate or str(tts_cfg.get("rate") or "+0%")
+        jobs = args.jobs
+        try:
+            eng_label = f"edge-tts {importlib.metadata.version('edge-tts')}"
+        except Exception:
+            eng_label = "edge-tts"
+    elif engine_req in ("breeze", "breeze2", "breeze-tts"):
+        from adapters import tts_local
+        adapter = tts_local
+        bc = tts_local.breeze_cfg(tts_cfg.get("breeze"), args.config)
+        if args.voice:                     # --voice 选 ref：refs/<v>.wav+transcripts[v]
+            rd = Path(bc["refs_dir"])
+            bc["ref_audio"] = str(rd / f"{args.voice}.wav")
+            bc["ref_text"] = tts_local._resolve_ref_text(
+                f"{rd}/transcripts.json:{args.voice}")
+        voice = args.voice or Path(bc["ref_audio"]).stem
+        rate = None                        # 本地引擎无 rate 概念
+        jobs = 1                           # GPU 串行（worker 锁排队）
+        eng_label = tts_local.engine_label(bc)
+    else:
+        raise _die(f"tts.engine={engine_req} 未实现（edge|breeze）",
+                   "config.yaml tts.engine 设 edge 或 breeze（breeze 见 "
+                   "experiments/tts-bakeoff/PLAN.md §7）")
     tl_cfg = _timeline_cfg(cfg, args)
     episode = str(issue.get("date") or "")
     if not _EPISODE_RE.fullmatch(episode):
@@ -550,10 +586,13 @@ def run_voice(run_dir: Path, cfg: dict, args) -> dict:
         return {"segs": len(rows), "dry_run": True}
 
     p = prog.Prog(run_dir, "voice", step=5, interval=30.0)
-    results = _synth_all(rows, run_dir, voice=voice, rate=rate,
-                         jobs=args.jobs, force=args.force,
+    engine_id = f"{eng_label}|{voice}|{rate}"
+    results = _synth_all(rows, run_dir, adapter=adapter, engine_id=engine_id,
+                         eng_label=eng_label, voice=voice, rate=rate,
+                         jobs=jobs, force=args.force,
                          config_path=args.config, p=p)
-    manifest = write_manifest(rows, results, run_dir, episode, voice, rate)
+    manifest = write_manifest(rows, results, run_dir, episode, voice, rate,
+                              eng_label)
     print(f"61_audio_manifest: {len(manifest['files'])} files, "
           f"engine={manifest['engine']} voice={manifest['voice']}")
 

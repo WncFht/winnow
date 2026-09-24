@@ -194,6 +194,10 @@ class VoiceSeg(BaseModel):
     item: str = Slug
     si: int = Field(ge=0, description="item 内句序")
     text: str = Field(description="纯文本，数字已转可读形式，无任何标记")
+    text_display: Optional[str] = Field(
+        default=None,
+        description="ttsnorm 前的书面原文（'46分' 而非 '四十六分'）——"
+                    "字幕 pill/srt/vtt 用；空 = 与 text 相同")
     role: Literal["intro", "body", "outro"] = "body"
 
 
@@ -250,6 +254,8 @@ class TimelineSeg(BaseModel):
     si: int = Field(ge=0)
     file: str
     text: str
+    text_display: Optional[str] = Field(
+        default=None, description="书面原文（voice_seg.text_display 透传）——字幕投影用")
     start: float = Field(ge=0)
     end: float = Field(gt=0)
     dur: float = Field(gt=0, description="= end-start，冗余落档防算分歧")

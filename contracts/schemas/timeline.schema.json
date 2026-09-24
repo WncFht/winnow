@@ -123,6 +123,19 @@
           "title": "Text",
           "type": "string"
         },
+        "text_display": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "书面原文（voice_seg.text_display 透传）——字幕投影用",
+          "title": "Text Display"
+        },
         "start": {
           "minimum": 0,
           "title": "Start",

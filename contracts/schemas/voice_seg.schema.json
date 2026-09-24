@@ -30,6 +30,12 @@
       "title": "Text",
       "type": "string"
     },
+    "text_display": {
+      "default": null,
+      "description": "ttsnorm 前的书面原文（'46分' 而非 '四十六分'）——字幕 pill/srt/vtt 用；空 = 与 text 相同",
+      "title": "Text Display",
+      "type": ["string", "null"]
+    },
     "role": {
       "default": "body",
       "enum": [

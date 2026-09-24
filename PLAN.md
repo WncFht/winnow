@@ -19,7 +19,7 @@
 | # | 项 | 决定 |
 |---|---|---|
 | D1 | LLM | **只用本地网关 swe-2-max**（`127.0.0.1:3033/v1`，key 走 env/config）。无多模型 fallback——可靠性由用户自己的容错/retry 层保证。接口可配置供开源用户换后端 |
-| D2 | TTS | **edge-tts 在线生产**；**Breeze TTS 2 选型胜出待接线**（克隆模板 ref_clone_tata + ref `state/tts-bakeoff/refs/g_orig.wav`，bakeoff 两轮 margin 第一 0.240/0.261；败者 IndexTTS-2.5/CosyVoice3/OmniVoice/F5/Qwen3-TTS 权重已清 ~110G）。证据 `experiments/tts-bakeoff/` |
+| D2 | TTS | **edge-tts 在线生产**；**Breeze TTS 2 选型胜出、已接线**（`tts.engine: breeze` 即用：克隆模板 ref_clone_tata + ref `state/tts-bakeoff/refs/g_orig.wav`，bakeoff 两轮 margin 第一 0.240/0.261；败者 IndexTTS-2.5/CosyVoice3/OmniVoice/F5/Qwen3-TTS 权重已清 ~110G）。证据 `experiments/tts-bakeoff/` |
 | D3 | 微信公众号 | 后置。`sources.yaml` 里 `enabled: false`，adapter 骨架保留 |
 | D4 | 画幅 | **只做 16:9**；`render_plan` 里 aspect 写成参数 |
 | D5 | 终审闸 | 轻量：QA 全过自动出片；有 flag 才推送人工 |
@@ -71,7 +71,8 @@ ai-news-pipeline/
 │       └── weibo_collect.py  # 微博 m.weibo.cn JSON + visitor cookie 铸造
 ├── adapters/
 │   ├── llm_swe2max.py   # llm.chat 实现（§6 适配层契约）
-│   ├── tts_edge.py      # tts.synth 占位实现（edge-tts，裁残余静音，吐原生句边界）
+│   ├── tts_edge.py      # tts.synth edge-tts 实现（裁残余静音，吐原生句边界）
+│   ├── tts_local.py     # tts.synth 本地引擎实现（breeze worker JSONL-RPC，§7.5）
 │   ├── x_paid.py        # X 采集路④：付费 adapter 占位（enabled:false → NotConfigured，D12）
 │   ├── alert_ntfy.py    # ntfy 推送
 │   ├── deadman.py       # healthchecks ping
@@ -174,7 +175,7 @@ ai-news-pipeline/
 | `40_candidates.json` | candidates/1 | 勾选 UI 数据源（非契约）：candidates[]（含 carried 结转与 gray 标记）+ suppressed[]/skipped_window[]/skipped_used[] 审计列 + stats |
 | `40_selected.json` | selected/1 | {episode, decided_at, decided_by, kept[{item_key,id,section,note}] 有序=正片序 + `max_items`, dropped[]} |
 | `50_issue.json` | issue/1 | sections[] + items[{id,section,nav,headline,tldr,body[],sources[{url,kind,primary,reachable}],media[],confidence,facts,voice[],cards[],video.shot_sentences}] + `degraded`；配 `50_review.md` |
-| `60_voice_script.jsonl` | voice_seg/1 | {seg_id=NNN_item_si, item, si, text, role∈intro\|body\|outro} |
+| `60_voice_script.jsonl` | voice_seg/1 | {seg_id=NNN_item_si, item, si, text（TTS 规范化后口播文本）, text_display?（规范化前书面原文，字幕用）, role∈intro\|body\|outro} |
 | `61_audio/` + `61_audio_manifest.json` | audio_manifest/1 | {engine,voice,files[{seg_id,file,dur,sha256,text_sha}]} + `voice_full.wav` 归一整片 |
 | `62_timeline.json` | timeline/1 | {total,lead_in,tail,gap{sentence,item},items[{id,start,end,visual}],segs[],overlays[]}；投影 `62_episode.srt/.vtt` |
 | `63_cards.json` + `63_cards_manifest.json` + `64_frames_manifest.json` | cards/1、frames_manifest/1 | GeneratedContent+id；原始渲染卡登记（64_frames/cards/）；合成帧 files[{item,kind∈card\|shot\|chrome\|sub\|cover,path,w,h,sha256}] + `missing[]`（帧本体在 `64_frames/`） |
@@ -361,9 +362,9 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 ### 7.5 voice（`stages/voice.py`）
 
 - **输入**：50_issue.json（voice[]）+ `state/tts_dict.yaml` + config.tts。
-- **ttsnorm**：YAML 词典 `{词: 读法}`（GPT→"G P T"还是"GPT"按词表、API→"A P I"、数字→中文读法规则）；处理后写 60_voice_script.jsonl。
+- **ttsnorm**：YAML 词典 `{词: 读法}`（GPT→"G P T"还是"GPT"按词表、API→"A P I"、数字→中文读法规则）；处理后写 60_voice_script.jsonl。**text 送 TTS，text_display 存规范化前书面原文**（46→"四十六"不上字幕；subs/srt/vtt 全用 text_display，空则回退 text）。
 - **tts_edge.synth**：edge-tts `zh-CN-YunyangNeural`（实测新闻播报最佳音色；YunxiNeural 备选），逐 seg 出 mp3；**裁头 0.20s/尾 0.78s 残余静音**（gap-ab 实测）；Communicate word boundary 事件若可用则写进 seg.words（字幕逐词高亮预留）。
-- **引擎抽象**：`tts.synth(text, seg_id) -> {file, dur, boundaries[]}`；换引擎只换 adapter。**选型已定 Breeze TTS 2**（bakeoff 结论与接线清单见 `experiments/tts-bakeoff/PLAN.md`）：HF `BreezeBlue/Breeze-TTS-2` 权重（~7.2G 仓外缓存）+ `experiments/local-tts-try/.venv-breeze` 运行时（与 stage venv 依赖冲突、独立 worker 子进程）+ 克隆 ref `state/tts-bakeoff/refs/g_orig.wav`（备选 i_stepfull，同段录音句子完整）。接线要点：voice.py engine 白名单加 breeze + `_synth_all` 分派 + manifest engine/codec 参数化 + **manifest/text_sha 复用须加 engine 维度**（否则换引擎静默复用旧 mp3）+ eager bf16 ~7.7G VRAM 门槛。败者权重已全清（IndexTTS-2.5/CosyVoice3/OmniVoice/F5/Qwen3-TTS ~110G）。
+- **引擎抽象**：`tts.synth(text, seg_id) -> {file, dur, boundaries[]}`；换引擎只换 adapter。**Breeze TTS 2 已接线**（2026-09-24，`tts.engine: breeze` 即用）：`adapters/tts_local.py`（worker 生命周期 + JSONL-RPC + wav→mp3）→ `venvs/breeze/bin/python tools/tts_workers/breeze.py`（常驻子进程，`--repo tools/tts_workers/breeze-tts` 上游 clone + HF `BreezeBlue/Breeze-TTS-2` 权重 ~7.2G 仓外缓存）+ 克隆 ref `state/tts-bakeoff/refs/g_orig.wav`（备选 i_stepfull，同段录音句子完整）。落地要点全部完成：voice.py engine dispatch（edge/breeze 白名单）+ `_synth_all` 按 adapter 分派 + manifest engine/voice/rate 三元门禁 + **缓存键已加 engine 维度**（sidecar `.textsha = sha(engine_id|voice|rate \x00 text)`，换引擎/换 ref/调 gs 自动失效）+ eager bf16 ~7.7G VRAM 门槛（`tts.breeze.min_free_gb`）。`just setup-breeze` 一键建 venv+clone。败者权重已全清（IndexTTS-2.5/CosyVoice3/OmniVoice/F5/Qwen3-TTS ~110G）。
 - **timeline**：`lead_in=0.6`、item 间 `gap.item=0.55`、句间 `gap.sentence`（gap-ab 校准值，初值 0.15，跑通后按实测调）；seg.start 累加出绝对时间轴 → 62_timeline.json + 投影 62_episode.srt/.vtt。
 - **对齐后备**（换非 edge 引擎时启用）：Qwen3-ForcedAligner（`experiments/zh-forced-align-2026/`，±0.03-0.09s）；whisper 系全否（159-419ms 超 ±0.15s 规格）。
 - **装配**：`61_audio/` + `61_audio_manifest.json`；`ffmpeg loudnorm=I=-14:TP=-1.5:LRA=11` 归一 → `voice_full.wav`（整片响度一致，也给 compose 备用轨）。
@@ -376,7 +377,7 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 - **CDN 自托管**（上生产前必做，否则被墙静默退化）：抓 4 个外部依赖落 `upstream/juya-news-card/public/vendor/`——cdn.tailwindcss.com JIT 脚本、fonts.googleapis css+woff2、Material Symbols Rounded woff2、（模板内其余外联，渲染时 `--dump-dom` diff 找全）→ patch ssr-runtime 引用到 `/vendor/...`。
 - **D2 自适应**：`layout_d2.py` 闭式解（种子 experiments/adaptive-card-layout、card-density）——渲染后 probe 读 wrapperScale/minCardTop/clipped 三指标，不满足→重排重渲最多 2 次→仍失败进 missing[]+flag（上游 1px 递减实测 n=5-6 切字，不沿用）。
 - **chrome 叠加层**：移植 `repro/render_chrome.py`——nav pill/面包屑/截图弹卡透明 1920×1080 PNG（pg.goto(file.as_uri())+omit_background；`set_content` 无法加载 file:// 图，这是已踩过的坑）。
-- **shotlib**：`experiments/webshot-hardening/shotlib.py`——按 `video.shot_sentences` 指定的源 URL 截图；**域名策略表** `state/shot_policy.yaml`：x.com→品牌占位卡（403）、mp.weixin→占位、cloudflare 域→占位、其余→Playwright `--lang=en-US`+`locale=en-US` 截图（防 Google Translate 弹窗烤进图，已踩过）；截图失败→missing[]+降级占位卡不阻塞。
+- **shotlib**：`experiments/webshot-hardening/shotlib.py`——按 `video.shot_sentences` 指定的源 URL 截图；**域名策略表** `state/shot_policy.yaml`：x.com→品牌占位卡（403）、mp.weixin→占位、cloudflare 域→占位、其余→Playwright `--lang=en-US`+`locale=en-US` 截图（防 Google Translate 弹窗烤进图，已踩过）；**浏览器错误页检测**：`chrome-error://` URL 或页面文本命中 ERR_* / "can't be reached" 等模式即判 error_page，不采纳该截图；截图失败/错误页→missing[]+降级占位卡不阻塞（错误页烤进正片已踩过，2026-09-23 openai shot）。
 - **合成**：移植 `repro/composite_frames.py` img.layer 栈 → `64_frames/`。
 - **输出**：63_cards.json + 63_cards_manifest.json + 64_frames_manifest.json（含 missing[]）+ `64_frames/` 帧目录。
 - **验收**：14 条 fixture 全出图且 probe 三指标全过；任一 shot 失败时 missing[] 有记录且正片用占位卡。
@@ -387,8 +388,10 @@ gateway ping / playwright 可用。任一 fail → manifest 记录 + ntfy 告警
 - **编译规则**（绝对时间轴，repro/compose.py 已验证语义）：
   - 每 item 卡片持 `[item.start, next_item.start)`，首个 item 从 0.0 起——视频钟=音频钟，杜绝逐段漂移（v1 踩过 ~8s 漂移）。
   - shot 窗口：`shot_sentences` 句区间内换 `<id>_shot.png`，窗口前后回到正卡（三段嵌套）。
-  - 字幕 pill：逐 seg overlay——生产链（ffmpeg）用 `subs.py` 预渲的 65_subs/*.png；
-    Remotion 手工路径则用 live-text（SubtitlePill 样式由 subs.py 对齐）。
+  - 字幕 pill：逐 seg overlay——文本源 `seg.text_display ?? seg.text`（书面原文，
+    非 TTS 规范化口播）；生产链（ffmpeg）用 `subs.py` 预渲的 65_subs/*.png +
+    `NNN.txt` sidecar；Remotion 手工路径用 live-text 读同一 sidecar
+    （SubtitlePill 样式由 subs.py 对齐）。
   - cover/intro/outro 段按 role=intro|outro seg 生成。
 - **输出**：70_render_plan.json + 70_cards.ffconcat 投影（compose/ffmpeg 的 concat demuxer 输入）。
 - **验收**：video_track 满铺无洞（相邻段 end==next.start±0.04）；audio_track 全部 at==seg.start。

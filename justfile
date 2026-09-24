@@ -712,6 +712,21 @@ fetch-embed:
     [ -f "$d/tokenizer.json" ] || curl -fL --retry 3 -o "$d/tokenizer.json" "$base/tokenizer.json"
     echo "fetch-embed: $d ready ($(du -h "$d/model_int8.onnx" | cut -f1))"
 
+# breeze TTS 一次性安装：上游推理代码 clone + 独立 venv（torch/transformers
+# 与 stage 进程隔离，见 experiments/tts-bakeoff/PLAN.md §7）。weights 走 HF
+# cache（models--BreezeBlue--Breeze-TTS-2），本配方不拉权重。
+setup-breeze:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    r=tools/tts_workers/breeze-tts
+    [ -d "$r/breeze_infer" ] || git clone --depth 1 \
+      https://github.com/breezeblue-ai/breeze-tts.git "$r"
+    [ -f venvs/breeze/bin/python ] || uv venv venvs/breeze --python 3.11
+    VIRTUAL_ENV=venvs/breeze uv pip install --python venvs/breeze/bin/python \
+      "torch==2.9.1" "torchaudio==2.9.1" "transformers==4.57.3" \
+      "qwen-tts==0.1.1" "numpy>=2.0" "soundfile>=0.13"
+    echo "setup-breeze done — config.yaml 设 tts.engine=breeze 即启用"
+
 # data/raw_cache 保留 N 天：文件名 <sha8>.<ext> 无时间戳 → 一律按 mtime 判龄；
 # 顶层桶不全是日期名（exp 沙箱同目录写入），故按文件清再删空目录。
 # dedup 冷启动回填只读近 7 日（stages/lib/store.py），默认与其对齐。

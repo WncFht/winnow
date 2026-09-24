@@ -7,10 +7,22 @@ llm:
   max_tokens: 24000
   batch_size: 24
 tts:
-  engine: edge            # edge 在线生产；breeze 选型已定待接线（见 experiments/tts-bakeoff/PLAN.md）
+  engine: edge            # edge 在线生产；breeze 已接线（voice.py dispatch → adapters/tts_local worker）
   voice: zh-CN-YunyangNeural
   trim: {head: 0.20, tail: 0.78}
   proxy: ""               # TTS 专用代理；空 → proxy.http → *_proxy env（tts_edge 消费）
+  breeze:                 # engine=breeze 时消费（adapters/tts_local.breeze_cfg）
+    venv: venvs/breeze/bin/python        # worker 解释器（just setup-breeze 建）
+    repo: tools/tts_workers/breeze-tts   # breezeblue-ai/breeze-tts clone
+    weights: ""                          # 空 → HF cache 快照；或指 ckpt 目录
+    refs_dir: state/tts-bakeoff/refs     # ref 库：<name>.wav + transcripts.json
+    ref_audio: ""                        # 空 → refs_dir/g_orig.wav
+    ref_text: ""                         # 空 → transcripts.json:g_orig；或字面文本
+    template: ref_clone_tata
+    guidance_scale: 1.0
+    seed: 42
+    max_new_tokens: 1500
+    min_free_gb: 8          # nvidia-smi 空闲显存门槛（eager 实测 ~7.7GiB）
 proxy:
   http: http://127.0.0.1:7890
   required_check_urls: [https://api.ipify.org]

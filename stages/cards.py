@@ -5,7 +5,7 @@
 #   "playwright==1.63.*",
 #   "pyyaml>=6",
 #   "pydantic>=2",
-#   "googlenewsdecoder>=0.7",
+#   "googlenewsdecoder>=0.1.7,<0.2",
 # ]
 # ///
 """stages/cards.py — 内容卡渲染 + chrome 叠加 + 帧合成（PLAN.md §7.6）。

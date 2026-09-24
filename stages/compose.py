@@ -170,7 +170,10 @@ def build_command(plan: dict, run_dir: Path, out_path: Path, eff_total: float):
                    "-t", f"{dur:.3f}", "-i", str(run_dir / v["src"])]
     sub_base = len(vsegs)
     for o in osegs:
-        inputs += ["-loop", "1", "-i", str(run_dir / o["src"])]
+        # 字幕 pill 走单帧输入：framesync eof_action=repeat 常驻末帧，
+        # enable=between(t) 窗口照样生效。-loop 1 起解码线程×输入数，
+        # subtitle-overlay bench 实测 rc=255 无声暴毙；noloop 版 rc=0 且快 2.3×。
+        inputs += ["-i", str(run_dir / o["src"])]
     a_base = sub_base + len(osegs)
     for a in asegs:
         inputs += ["-i", str(run_dir / a["src"])]

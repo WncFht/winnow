@@ -1,5 +1,6 @@
 # secrets / runtime state
 secrets.env
+config.yaml           # 本地覆盖（engine 切换等）；模板走 config.example.yaml
 state/
 data/
 runs/
@@ -53,6 +54,10 @@ experiments/storage-audit-fht/run/
 experiments/storage-audit-fht/crash/
 experiments/storage-audit-fht/gittest/
 adapters/bin/lychee
+
+# 本地 TTS：worker venv + 上游 clone（weights 走 HF cache，均不进 git）
+venvs/
+tools/tts_workers/breeze-tts/
 
 # repro 生成产物（代码/数据保留，渲染/audio/字体出库）
 repro/audio/

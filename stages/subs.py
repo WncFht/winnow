@@ -157,12 +157,14 @@ def main(argv=None) -> int:
     made = skipped = 0
     for i, s in enumerate(segs, 1):
         p.tick(i, "pill")
-        n, text = s.get("n"), (s.get("text") or "").strip()
+        n, text = s.get("n"), \
+            (s.get("text_display") or s.get("text") or "").strip()
         if not isinstance(n, int) or not text:
             skipped += 1
             print(f"[subs] 跳过 seg n={n}（无 text）", file=sys.stderr)
             continue
         render_pill(text, font, probe).save(out_dir / f"{n:03d}.png")
+        (out_dir / f"{n:03d}.txt").write_text(text, encoding="utf-8")
         made += 1
 
     p.say(f"{made}/{len(segs)} pill 完成（skipped {skipped}）")
